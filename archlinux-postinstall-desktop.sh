@@ -72,9 +72,9 @@ cd /home/${username}/Documents/workspace/repos/
 git clone https://github.com/Terra88/hyprland-setup
 cd hyprland-setup
 unzip config.zip
-cp /home/${username}/Documents/workspace/repos/hyprland-setup/config/ /home/${username}/.config/
-cp /home/${username}/Documents/workspace/repos/hyprland-setup/wallpaper/ /home/${username}/wallpaper/
-cp /home/${username}/Documents/workspace/repos/hyprland-setup/wallpaper.sh /home/${username}/
+cp -Rp /home/${username}/Documents/workspace/repos/hyprland-setup/config/ /home/${username}/.config/
+cp -Rp /home/${username}/Documents/workspace/repos/hyprland-setup/wallpaper/ /home/${username}/wallpaper/
+cp -Rp /home/${username}/Documents/workspace/repos/hyprland-setup/wallpaper.sh /home/${username}/
 chown -R ${username}: /home/${username}
 
 # Reboot
