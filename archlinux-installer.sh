@@ -102,10 +102,10 @@ mkfs.ext4 "${system_disk}4" # /home
 echo "Mounting partitions..."
 mount "{${system_disk}2" /mnt #mount root
 mkdir -p /mnt/home
-mount "${system_disk}3" #mount home
+mount "${system_disk}4" #mount home
 mkdir -p /mnt/boot/efi
 mount "${system_disk}1" #mount EFI
-swapon "${swap_partition}" #enable swap
+swapon "${swap_partition}3" #enable swap
 
 #if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
 #  efi_partition="${system_disk}1"
