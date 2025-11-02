@@ -61,21 +61,8 @@ parted "${system_disk}" mklabel gpt
 parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
 parted "${system_disk}" set 1 esp on
 parted "${system_disk}" mkpart primary ext4 301MiB 130301MiB
-parted "${system_disk}" mkpart primary linux-swap $((END_SWAP / 1024))MiB $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB
-parted "{$system_disk}" mkpart primary ext4 $((END_SWAP / 976562.5 + SWAP_SIZE / 976562.5))MiB 100%
+parted "{$system_disk}" mkpart primary ext4 130301MiB 100%
 #parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
-
-# Get system RAM in MB (assuming it's less than 2TB)
-RAM_SIZE=$(free -m | awk '/^Mem/ { print $2 }')
-
-# Set swap size based on RAM (round up to the next MB if needed)
-SWAP_SIZE=$((RAM_SIZE))  # Equal to the amount of RAM
-
-echo "RAM size: ${RAM_SIZE} MiB. Setting swap size to ${SWAP_SIZE} MiB."
-
-# Calculate swap partition start and end points
-START_SWAP=$((130301MiB * 976562.5))     # Root partition ends at 130GB (130 * 1024 MiB)
-END_SWAP=$((START_SWAP + SWAP_SIZE))
 
 # Guess partition names
 #if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
@@ -94,18 +81,16 @@ END_SWAP=$((START_SWAP + SWAP_SIZE))
 echo "Formatting partitions"
 mkfs.fat -F32 "${system_disk}1" #/boot
 mkfs.ext4 "${system_disk}2"  # / root
-mkswap "${system_disk}3" #/swap
-mkfs.ext4 "${system_disk}4" # /home
+mkfs.ext4 "${system_disk}3" # /home
 
 
 #Mount partitions
 echo "Mounting partitions..."
 mount "{${system_disk}2" /mnt #mount root
 mkdir -p /mnt/home
-mount "${system_disk}4" #mount home
+mount "${system_disk}3" #mount home
 mkdir -p /mnt/boot/efi
 mount "${system_disk}1" #mount EFI
-swapon "${swap_partition}3" #enable swap
 
 #if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
 #  efi_partition="${system_disk}1"
