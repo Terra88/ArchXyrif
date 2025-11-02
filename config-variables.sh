@@ -60,7 +60,6 @@ favorite_apps="['kitty', 'firefox']"
 
 # Desktop specific packages
 declare -a desktop_packages=(
-"amd-ucode"
 "archlinux-xdg-menu"
 "ark"
 "bemenu-wayland"
