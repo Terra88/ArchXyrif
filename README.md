@@ -1,2 +1,2 @@
 # ArchXyrif
-Automated-Install-Script
+Automated Install Script for Archinstall
