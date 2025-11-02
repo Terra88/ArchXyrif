@@ -66,8 +66,8 @@ favorite-apps = ${favorite_apps}
 dconf update
 
 # Install dotfiles for user
-mkdir -p /home/wallpaper/
 mkdir -p /home/${username}/Documents/workspace/repos/
+mkdir -p /home/wallpaper/
 cd /home/${username}/Documents/workspace/repos/
 git clone https://github.com/Terra88/hyprland-setup
 cd hyprland-setup
