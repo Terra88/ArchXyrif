@@ -27,14 +27,6 @@ echo -e "Section \"InputClass\"
     Option \"XkbLayout\" \"${keymap}\"
 EndSection" > /etc/X11/xorg.conf.d/00-keyboard.conf
 
-#"-------------------------------------------------"
-#"Configuring Pacman"
-#"-------------------------------------------------"
-sed -i '/Color/s/^#//g' /etc/pacman.conf
-sed -i '/ParallelDownloads = 5/s/^#//g' /etc/pacman.conf
-sed -i '/Color/a ILoveCandy' /etc/pacman.conf
-sed -i "/\[multilib\]/,/Include/"'s/^#//' /etc/pacman.conf
-
 pacman -S reflector pacman-contrib --noconfirm --needed
 reflector --save /etc/pacman.d/mirrorlist --country Finland --protocol https --latest 5
 pacman -Sy
