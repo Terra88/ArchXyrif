@@ -27,10 +27,6 @@ echo -e "Section \"InputClass\"
     Option \"XkbLayout\" \"${keymap}\"
 EndSection" > /etc/X11/xorg.conf.d/00-keyboard.conf
 
-pacman -S reflector pacman-contrib --noconfirm --needed
-reflector --save /etc/pacman.d/mirrorlist --country Finland --protocol https --latest 5
-pacman -Sy
-
 # Install all packages
 echo -e "[${B}INFO${W}] Install desktop ${Y}pacman${W} packages"
 pacman -Sy --color auto "${desktop_packages[@]}"
