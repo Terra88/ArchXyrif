@@ -58,7 +58,7 @@ passwd "${username}"
 # Install bootloader and all necessary packages
 # https://wiki.archlinux.org/title/Systemd-boot
 echo -e "[${B}INFO${W}] Install & configure bootloader"
-grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=grub
+grub-install
 #bootctl install
 
 echo "default arch
