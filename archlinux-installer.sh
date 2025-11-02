@@ -73,7 +73,7 @@ END_SWAP=$((START_SWAP + SWAP_SIZE))
 
 parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
 parted "${system_disk}" set 1 esp on
-parted "${system_disk}" mkpart primary ext4 301MiB 130301MiB
+parted "${system_disk}" mkpart primary ext4 301MiB 130GB
 parted "${system_disk}" mkpart primary linux-swap $((END_SWAP / 1024))MiB $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB
 parted "{$system_disk}" mkpart primary ext4 $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB 100%
 #parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
