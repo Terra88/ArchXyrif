@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # server or desktop
-install_mode="server"
+install_mode="desktop"
 
 ################################################################################
 # Default variables
@@ -22,11 +22,11 @@ lv_root_size="128G"
 lv_home_size="100%FREE"
 
 # Configuration
-keymap="fr"
-hostname="laptop"
-timezone="Europe/Paris"
-locale="en_US"
-username="david"
+keymap="fi"
+hostname="hyprland"
+timezone="Europe/Helsinki"
+locale="en_fi"
+username="xyrif"
 
 # Default packages
 declare -a default_packages=(
