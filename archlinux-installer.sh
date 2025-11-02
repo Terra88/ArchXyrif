@@ -38,7 +38,7 @@ echo -e "${B}
       @H@*\`                    \`*%#@
      *\`                            \`* ${W}"
 
-loadkeys fr
+loadkeys fi
 timedatectl set-ntp true
 
 # Disk partition
