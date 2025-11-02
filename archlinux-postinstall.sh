@@ -68,8 +68,10 @@ uuid=$(blkid -s UUID -o value "${luks_partition}")
 
 echo -e "title Arch Linux
 linux /vmlinuz-linux
+linux /vmlinuz-linux-zen
 initrd /intel-ucode.img
 initrd /amd-ucode.img
+initrd /initramfs-linux-zen.img
 initrd /initramfs-linux.img
 options cryptdevice=UUID=${uuid}:cryptlvm root=/dev/mapper/SYSTEM-root rw" > /boot/loader/entries/arch.conf
 
