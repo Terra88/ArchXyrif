@@ -58,7 +58,8 @@ passwd "${username}"
 # Install bootloader and all necessary packages
 # https://wiki.archlinux.org/title/Systemd-boot
 echo -e "[${B}INFO${W}] Install & configure bootloader"
-bootctl install
+grub-install
+#bootctl install
 
 echo "default arch
 timeout 1" > /boot/loader/loader.conf
