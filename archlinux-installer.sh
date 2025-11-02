@@ -58,6 +58,12 @@ fi
 # CREATE PARTED GUID + PARTITIONS
 echo -e "[${B}INFO${W}] Format ${Y}${system_disk}${W} and create partitions"
 parted "${system_disk}" mklabel gpt
+parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
+parted "${system_disk}" set 1 esp on
+parted "${system_disk}" mkpart primary ext4 301MiB 130GB
+parted "${system_disk}" mkpart primary linux-swap $((END_SWAP / 1024))MiB $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB
+parted "{$system_disk}" mkpart primary ext4 $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB 100%
+#parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
 
 # Get system RAM in MB (assuming it's less than 2TB)
 RAM_SIZE=$(free -m | awk '/^Mem/ { print $2 }')
@@ -71,39 +77,34 @@ echo "RAM size: ${RAM_SIZE} MB. Setting swap size to ${SWAP_SIZE} MB."
 START_SWAP=$((130 * 1024))     # Root partition ends at 130GB (130 * 1024 MiB)
 END_SWAP=$((START_SWAP + SWAP_SIZE))
 
-parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
-parted "${system_disk}" set 1 esp on
-parted "${system_disk}" mkpart primary ext4 301MiB 130GB
-parted "${system_disk}" mkpart primary linux-swap $((END_SWAP / 1024))MiB $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB
-parted "{$system_disk}" mkpart primary ext4 $((END_SWAP / 1024 + SWAP_SIZE / 1024))MiB 100%
-#parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
-
 # Guess partition names
-if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
-  efi_partition="${system_disk}1"
-  root_partition="${system_disk}2"
-  swap_partition="${system_disk}3"
-  home_partition="${system_disk}4"
-else
-  efi_partition="${system_disk}p1"
-  root_partition="${system_disk}p2"
-  swap_partition="${system_disk}p3"
-  home_partition="${system_disk}p4"
-fi
+#if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
+ # efi_partition="${system_disk}1"
+  #root_partition="${system_disk}2"
+  #swap_partition="${system_disk}3"
+  #home_partition="${system_disk}4"
+#else
+ # efi_partition="${system_disk}p1"
+ # root_partition="${system_disk}p2"
+ # swap_partition="${system_disk}p3"
+ # home_partition="${system_disk}p4"
+#fi
 
 #Format the partitions
 echo "Formatting partitions"
-mkfs.fat -F32 "${efi_partition}" #boot
-mkfs.ext4 "${root_partition}"  # / root
-mkfs.ext4 "${home_partition}" # /home
+mkfs.fat -F32 "${system_disk}1" #/boot
+mkfs.ext4 "${system_disk}2"  # / root
+mkswap "${system_disk}3" #/swap
+mkfs.ext4 "${system_disk}4" # /home
+
 
 #Mount partitions
 echo "Mounting partitions..."
-mount "{${root_partition}" /mnt #mount root
+mount "{${system_disk}2" /mnt #mount root
 mkdir -p /mnt/home
-mount "${home_partition}" #mount home
+mount "${system_disk}3" #mount home
 mkdir -p /mnt/boot/efi
-mount "${efi_partition}" #mount EFI
+mount "${system_disk}1" #mount EFI
 swapon "${swap_partition}" #enable swap
 
 #if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
