@@ -112,7 +112,7 @@ swapon /dev/SYSTEM/swap
 
 # Install Arch
 echo -e "[${B}INFO${W}] Install Arch Linux"
-pacstrap /mnt --color auto base base-devel linux linux-firmware intel-ucode amd-ucode efibootmgr lvm2
+pacstrap /mnt --color auto base base-devel linux linux-zen linux-firmware linux-headers intel-ucode amd-ucode efibootmgr lvm2
 
 # Generate fstab
 echo -e "[${B}INFO${W}] Generate fstab"
