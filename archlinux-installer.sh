@@ -655,12 +655,10 @@ echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
 echo "  reboot"
 echo
-echo "If you want I can extend this script to:"
-echo "  - set up LUKS encryption (root and swap) + LVM"
-echo "  - install a desktop environment and display manager"
-echo "  - configure automatic locale/timezone from system settings"
-echo
 echo "Done."
+
+echo "Postinstall inside chroot finished."
+EOF
 
 
 
