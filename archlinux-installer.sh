@@ -168,8 +168,7 @@ swapon /dev/vg_arch/lv_swap
 
 # Install Arch
 echo -e "[${B}INFO${W}] Install Arch Linux"
-pacstrap /mnt --color auto base base-devel vim nano sudo linux linux-zen linux-firmware linux-headers intel-ucode amd-ucode grub efibootmgr 
-#lvm2
+pacstrap /mnt --color auto base base-devel vim nano sudo linux linux-zen linux-firmware linux-headers intel-ucode amd-ucode grub efibootmgr lvm2
 
 # Generate fstab
 echo -e "[${B}INFO${W}] Generate fstab"
