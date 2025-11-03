@@ -356,8 +356,8 @@ mkdir -p /mnt/boot/grub/themes
 mkdir -p /mnt/boot/grub/themes/starfield
 mkdir -p /mnt/boot/grub/x86_64-efi
 
-arch-chroot /mnt grub-install --target=x86_64-efi --boot-directory=$P1/EFI/BOOT --efi-directory=$P1/grub/x86_64-efi --bootloader-id=ArchLinux --recheck
-arch-chroot /mnt grub-mkconfig -o $P1/grub/grub.cfg
+arch-chroot grub-install --target=x86_64-efi --boot-directory=$P1/EFI/BOOT --efi-directory=$P1/grub/x86_64-efi --bootloader-id=ArchLinux --recheck
+arch-chroot grub-mkconfig -o $P1/grub/grub.cfg
 #======================================================================================================================================
 
 mount "$P2" /mnt
