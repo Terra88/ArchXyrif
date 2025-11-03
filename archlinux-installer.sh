@@ -694,31 +694,6 @@ echo "Done."
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-#Install GRUB Bootloader
-# Check for UEFI or BIOS boot mode
-
-#if [[ -d /sys/firmware/efi ]]; then
-#   UEFI Mode
-#  echo "UEFI boot detected. Installing GRUB for UEFI..."
-  
-#  Ensure EFI partition is mounted at /mnt/boot
-#  mkdir -p /mnt/boot
-#  mount "$P1" /mnt/boot
-  
-#  Install GRUB for UEFI
-#  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/$P1 --bootloader-id=GRUB --recheck
-#  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-  
-#else
-#  BIOS Mode
-#  echo "BIOS boot detected. Installing GRUB for BIOS..."
-  
-#  Install GRUB for BIOS
-#  arch-chroot /mnt grub-install --target=i386-pc --recheck --bootloader-id=GRUB "$DEV"
-#  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-#fi
-#done
 #======================================================================================================================================
