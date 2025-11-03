@@ -351,7 +351,6 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
   mkdir -p /mnt/boot
   mount "$P1" /mnt/boot
   
-  Install GRUB for UEFI
   grub-install --target=x86_64-efi --efi-directory=/${P1} --bootloader-id=GRUB --recheck
   grub-mkconfig -o /boot/grub/grub.cfg
 
