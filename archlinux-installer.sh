@@ -417,6 +417,95 @@ chmod +x /mnt/root/postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
 
+# ---------------------------
+# Extra packages installation (official + AUR)
+# ---------------------------
+
+# Define the lists below — edit as you like
+EXTRA_PKGS=(
+  git
+  curl
+  wget
+  zsh
+  neovim
+  htop
+  unzip
+  base-devel  # needed for AUR building
+)
+
+AUR_PKGS=(
+  google-chrome
+  visual-studio-code-bin
+  brave-bin
+  spotify
+)
+
+# Optional prompt
+echo
+read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
+if [[ "$install_extra" =~ ^[Yy]$ ]]; then
+  echo "Installing extra packages inside chroot..."
+  arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
+fi
+
+read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
+if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+  echo "Setting up paru AUR helper inside chroot..."
+
+  # Create a postinstall script for AUR setup inside chroot
+  cat > /mnt/root/install_aur.sh <<'AURINSTALL'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Variables injected by outer script
+NEWUSER="{{NEWUSER}}"
+
+# 1) Switch to new user (non-root) to build AUR packages
+#    Paru is used as AUR helper. You can switch to yay if preferred.
+
+sudo -u "${NEWUSER}" bash <<'INNER'
+set -euo pipefail
+cd ~
+if ! command -v paru >/dev/null 2>&1; then
+  echo "Installing paru..."
+  git clone https://aur.archlinux.org/paru.git
+  cd paru
+  makepkg -si --noconfirm
+  cd ..
+  rm -rf paru
+fi
+
+# Now install your AUR packages
+AUR_PKGS=({{AUR_PKGS}})
+paru -S --noconfirm --needed "${AUR_PKGS[@]}"
+INNER
+AURINSTALL
+
+  # Inject variables (username and AUR package list)
+  sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
+  sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]}|g" /mnt/root/install_aur.sh
+
+  chmod +x /mnt/root/install_aur.sh
+
+  echo "Running AUR installation inside chroot..."
+  arch-chroot /mnt /root/install_aur.sh
+
+  rm -f /mnt/root/install_aur.sh
+fi
+
+echo
+echo "Custom package installation phase complete."
+echo "You can later add more software manually or extend these lists:"
+echo "  - EXTRA_PKGS[] for pacman packages"
+echo "  - AUR_PKGS[] for AUR software"
+echo
+echo "Full base + extras installation is complete."
+echo "You can now unmount and reboot:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P3} || true"
+e
+cho "  reboot"
+
 # 8) Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
 
@@ -441,21 +530,3 @@ echo "Done."
 
 
 
-# Install Arch
-echo -e "[${B}INFO${W}] Install Arch Linux"
-pacstrap /mnt --color auto base base-devel vim nano sudo linux linux-zen linux-firmware linux-headers intel-ucode amd-ucode grub efibootmgr lvm2
-
-# Generate fstab
-echo -e "[${B}INFO${W}] Generate fstab"
-genfstab -U /mnt >> /mnt/etc/fstab
-
-# Copy postinstall files to /mnt chroot
-echo -e "[${B}INFO${W}] Copy installation material for post-install"
-cp -v archlinux-postinstall.sh /mnt/opt
-cp -v archlinux-postinstall-desktop.sh /mnt/opt
-cp -v config-variables.sh /mnt/opt
-
-#echo -e "\nluks_partition=\"${luks_partition}\"" >> /mnt/opt/config-variables.sh
-
-echo -e "[${B}INFO${W}] Installation complete!"
-echo -e "[${B}INFO${W}] Please run ${Y}arch-chroot /mnt${W}, ${Y}cd /opt${W} and ${Y}./archlinux-postinstall.sh${W} to continue"
