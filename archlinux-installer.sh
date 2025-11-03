@@ -341,6 +341,23 @@ read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 
+#====================================================================================================================================
+# 9) Install GRUB for UEFI / BIOS
+# EFI partition is expected to be mounted on /boot (as done before chroot)
+#echo "Installing GRUB (UEFI)..."
+mkdir -p /mnt/boot/efi
+mkdir -p /mnt/boot/grub
+mkdir -p /mnt/boot/grub/fonts
+mkdir -p /mnt/boot/grub/locale
+mkdir -p /mnt/boot/grub/themes
+mkdir -p /mnt/boot/grub/themes/starfield
+mkdir -p /mnt/boot/grub/x86_64-efi
+mount $P1 /mnt/boot
+
+grub-install --target=x86_64-efi --boot-directory=$P1/EFI/BOOT --efi-directory=$P1/grub/x86_64-efi --bootloader-id=ArchLinux --recheck
+grub-mkconfig -o $P1/grub/grub.cfg
+#======================================================================================================================================
+
 # Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
@@ -403,23 +420,6 @@ systemctl enable sshd
 
 echo "Postinstall inside chroot finished."
 EOF
-#====================================================================================================================================
-# 9) Install GRUB for UEFI / BIOS
-# EFI partition is expected to be mounted on /boot (as done before chroot)
-#echo "Installing GRUB (UEFI)..."
-mkdir -p /mnt/boot/efi
-mkdir -p /mnt/boot/grub
-mkdir -p /mnt/boot/grub/fonts
-mkdir -p /mnt/boot/grub/locale
-mkdir -p /mnt/boot/grub/themes
-mkdir -p /mnt/boot/grub/themes/starfield
-mkdir -p /mnt/boot/grub/x86_64-efi
-mount $P1 /mnt/boot
-
-grub-install --target=x86_64-efi --boot-directory=$P1/EFI/BOOT --efi-directory=$P1/grub/x86_64-efi --bootloader-id=ArchLinux --recheck
-grub-mkconfig -o $P1/grub/grub.cfg
-#======================================================================================================================================
-
 
 set -euo pipefail
 
