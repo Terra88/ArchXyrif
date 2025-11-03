@@ -19,7 +19,7 @@ set -euo pipefail
 
 # Arch logo from : https://wiki.archlinux.org/title/ASCII_art
 # Text generated with : https://textkool.com/en/ascii-art-generator?font=Big&text=Arch%20Installer
-echo -e "${B}
+echo"
                     -@
                    .##@
                   .####@
