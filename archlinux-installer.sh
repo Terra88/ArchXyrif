@@ -362,8 +362,6 @@ arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bo
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 #======================================================================================================================================
 
-mount "$P2" /mnt
-
 # Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
@@ -441,7 +439,10 @@ chmod +x /mnt/root/postinstall.sh
 
 # 7) chroot and run postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
-arch-chroot /mnt/root/postinstall.sh
+arch-chroot /mnt /root/postinstall.sh
+
+# 8) Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
 
 # ---------------------------
 # Extra packages installation (official + AUR)
@@ -634,9 +635,6 @@ echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
 e
 cho "  reboot"
-
-# 8) Cleanup postinstall script
-rm -f /mnt/root/postinstall.sh
 
 # 9) Final messages & instructions
 echo
