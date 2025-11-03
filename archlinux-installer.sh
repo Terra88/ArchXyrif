@@ -40,7 +40,7 @@ echo "
        @###@                  @###@
       @###@-                  -@###@
      
-echo "\n \n"
+echo "\n \n \n"
 
 loadkeys fi
 timedatectl set-ntp true
