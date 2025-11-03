@@ -346,7 +346,7 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 #arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
 #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
-Install GRUB Bootloader
+#Install GRUB Bootloader
  Check for UEFI or BIOS boot mode
 
 if [[ -d /sys/firmware/efi ]]; then
