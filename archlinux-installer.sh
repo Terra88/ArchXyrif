@@ -512,7 +512,6 @@ EXTRA_PKGS=(
     qbittorrent
     qt5ct
     smartmontools
-    steam
     sway
     thermald
     ttf-hack
