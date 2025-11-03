@@ -340,6 +340,14 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
+# Ensure EFI partition is mounted at /mnt/boot
+mkdir -p /mnt/boot
+mount "$P1" /mnt/boot
+
+# Install GRUB for UEFI
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
 # Prompt for passwords (will be set inside chroot)
 echo "You will be asked to enter the root and the new user's passwords inside the chroot."
 echo
@@ -404,13 +412,14 @@ sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
 systemctl enable NetworkManager
 systemctl enable sshd
 
+#====================================================================================================================================
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
 
- arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
- arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-#====================================================================================================================================
+#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
 #Install GRUB Bootloader
 # Check for UEFI or BIOS boot mode
 
