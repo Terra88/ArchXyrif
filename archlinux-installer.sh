@@ -29,7 +29,7 @@ echo "               @@
                     @##@
                    @####@
                   @######@
-                 @########@                                _       _____           _        _ _            
+                 @########@                               _       _____           _        _ _            
                 @##########@               /\            | |     |_   _|         | |      | | |           
                @############@             /  \   _ __ ___| |__     | |  _ __  ___| |_ __ _| | | ___ _ __  
               @##############@           / /\ \ | '__/ __| '_ \    | | | '_ \/ __| __/ _\` | | |/_ \ '__|
@@ -341,21 +341,50 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
-# 9) Install GRUB for UEFI / BIOS
-# EFI partition is expected to be mounted on /boot (as done before chroot)
-#echo "Installing GRUB (UEFI)..."
-#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
-#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+# 9) Detect whether the system is UEFI or BIOS
+echo "Checking boot mode..."
 
+# Check if the system is running in UEFI mode
+if [ -d /sys/firmware/efi ]; then
+  echo "System is booted in UEFI mode."
+  UEFI_MODE=true
+else
+  echo "System is booted in BIOS (Legacy) mode."
+  UEFI_MODE=false
+fi
 
- #Ensure EFI partition is mounted at /mnt/boot
-  mkdir -p /mnt/boot
-  mount "$P1" /mnt/boot
-  
-  grub-install --target=x86_64-efi --efi-directory=/${P1} --bootloader-id=GRUB --recheck
-  grub-mkconfig -o /boot/grub/grub.cfg
+# 10) Install bootloader: GRUB (UEFI or BIOS)
+echo "Installing bootloader (GRUB)..."
 
-# 10) Create an inline script for arch-chroot operations
+if $UEFI_MODE; then
+  # For UEFI systems, install GRUB with UEFI support
+  pacman -S --noconfirm grub efibootmgr
+
+  # Mount EFI partition (P1)
+  mkdir -p /mnt/boot/efi
+  mount "$P1" /mnt/boot/efi
+
+  # Install GRUB for UEFI
+  grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
+  grub-mkconfig -o /mnt/boot/grub/grub.cfg
+
+else
+  # For BIOS systems, install GRUB with BIOS support
+  pacman -S --noconfirm grub
+
+  # Install GRUB for BIOS
+  grub-install --target=i386-pc --recheck "$DEV"
+  grub-mkconfig -o /mnt/boot/grub/grub.cfg
+fi
+
+# 11) Finalize configuration
+echo "Finalizing the installation..."
+arch-chroot /mnt /root/postinstall.sh
+
+# Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
+
+# 12) Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
