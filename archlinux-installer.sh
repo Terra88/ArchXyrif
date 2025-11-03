@@ -72,7 +72,7 @@ pvcreate ${DISK}1
 
 # 4. Create volume group (VG) named "vg_arch"
 echo "Creating volume group 'vg_arch'..."
-vgcreate -ff vg_arch ${DISK}1
+vgcreate vg_arch ${DISK}1
 
 # 5. Create logical volumes (LV):
 # - /boot (FAT32)
