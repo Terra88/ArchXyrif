@@ -408,12 +408,9 @@ systemctl enable sshd
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
 
-  mkdir -p /mnt/boot
-  mount /mnt/boot
-
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
   grub-mkconfig -o /boot/grub/grub.cfg
-
+#====================================================================================================================================
 #Install GRUB Bootloader
 # Check for UEFI or BIOS boot mode
 
@@ -438,7 +435,7 @@ systemctl enable sshd
   #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 #fi
 #done
-
+#======================================================================================================================================
 echo "Postinstall inside chroot finished."
 EOF
 
