@@ -43,7 +43,7 @@ timedatectl set-ntp true
 # archformat.sh
 # - shows lsblk and asks which device to use
 # - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)
-# - partitions: EFI(512MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)
+# - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)
 # - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap
 #
 # WARNING: destructive. Run as root. Double-check device before continuing.
