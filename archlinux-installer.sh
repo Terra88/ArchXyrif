@@ -58,8 +58,15 @@ fi
 echo "Formatting Drive ${system_disk}"
 swapoff -a || true
 umount ${system_disk}?* 2>/dev/null || true
+vgchange -an || true # deactivate any active volume groups
 
-partprobe "${system_disk}"
+#wipe out old signatures lvm raid fs etc.
+wipefs -a "${system_disk}"
+
+# zero out first few MB to remove old headers
+dd if=/dev/zero of ="${system_disk}" bs=1M count=10 status=none
+
+#partprobe "${system_disk}"
 
 # 1. wipe partition table
 sgdisk --zap-all "${system_disk}"
