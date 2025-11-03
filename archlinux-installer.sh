@@ -56,23 +56,28 @@ if [[ "${system_disk_format}" != "y" ]] ; then
 fi
 
 DISK="${system_disk}"
-sfdisk --delete "${system_disk}"
 
-# 1. Create GPT partition table
-echo "Creating partition table..."
-parted $DISK --script mklabel gpt
+echo "Formatting Drive $DISK"
+swapoff -a || true
+umount $DISK?* 2>/dev/null || true
 
+# 1. wipe partition table
+sgdisk --zap-all "$DISK"
+parted -s "$DISK" mklabel gpt
 # 2. Create a single partition for LVM
 echo "Creating LVM partition..."
-parted $DISK --script mkpart primary 1MiB 100%
+parted -s "$DISK" mkpart primary 1MiB 100%
+
+partprobe "$DISK"
+sleep2
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
-pvcreate ${DISK}1
+pvcreate "${DISK}1"
 
 # 4. Create volume group (VG) named "vg_arch"
 echo "Creating volume group 'vg_arch'..."
-vgcreate vg_arch ${DISK}1
+vgcreate vg_arch "${DISK}1"
 
 # 5. Create logical volumes (LV):
 # - /boot (FAT32)
@@ -86,12 +91,12 @@ RAM_SIZE=$(free -m | awk '/^Mem/ { print $2 }')
 # Set swap size based on RAM (in MB)
 SWAP_SIZE=$((RAM_SIZE))  # Swap size = RAM size
 
-echo "RAM size: ${RAM_SIZE} MB. Setting swap size to ${SWAP_SIZE} MB."
+echo "RAM size: "${RAM_SIZE}" MB. Setting swap size to "${SWAP_SIZE}" MB."
 
 # Create logical volumes for each partition
 lvcreate -L 300M -n lv_boot vg_arch      # /boot (300 MiB)
 lvcreate -L 130301M -n lv_root vg_arch     # / (root, 130 GB)
-lvcreate -L ${SWAP_SIZE}M -n lv_swap vg_arch # Swap (equal to RAM size)
+lvcreate -L "${SWAP_SIZE}"M -n lv_swap vg_arch # Swap (equal to RAM size)
 lvcreate -l 100%FREE -n lv_home vg_arch # /home (remaining space)
 
 # 6. Format the logical volumes:
