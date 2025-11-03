@@ -503,7 +503,7 @@ set -euo pipefail
 NEWUSER="{{NEWUSER}}"
 
 # 1) Switch to new user (non-root) to build AUR packages
-#    Paru is used as AUR helper. You can switch to yay if preferred.
+#    yay is used as AUR helper. 
 
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
