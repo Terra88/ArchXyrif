@@ -1,9 +1,9 @@
 #!/bin/bash
 ################################################################################
 #
-# Author  : David Calvert
+# Author  : 
 # Purpose : Arch Linux custom installer
-# GitHub  : https://github.com/dotdc/archlinux-installer
+# GitHub  :
 #
 ################################################################################
 
@@ -117,54 +117,6 @@ mount /dev/vg_arch/lv_home /mnt/home
 
 # Enable swap
 swapon /dev/vg_arch/lv_swap
-#if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
-#  efi_partition="${system_disk}1"
-#  luks_partition="${system_disk}2"
-#else
-#  efi_partition="${system_disk}p1"
-#  luks_partition="${system_disk}p2"
-#fi
-#---------------------------------------------------------
-# LUKS configuration  -- If you want to encrypt the disc.
-#---------------------------------------------------------
-#echo -e "[${B}INFO${W}] Create luks partition on ${Y}${luks_partition}${W}"
-#cryptsetup luksFormat "${luks_partition}"
-#echo -e "[${B}INFO${W}] Mount the luks partition as ${Y}cryptlvm${W}"
-#cryptsetup open "${luks_partition}" cryptlvm
-
-
-# Create PV/VG
-#echo -e "[${B}INFO${W}] Create LVM Physical Volume"
-#pvcreate /dev/mapper/cryptlvm
-#echo -e "[${B}INFO${W}] Create LVM Volume Group"
-#vgcreate SYSTEM /dev/mapper/cryptlvm
-
-# Create LVs
-#echo -e "[${B}INFO${W}] Create LVM Logical Volumes"
-#lvcreate -L "${lv_swap_size}" SYSTEM -n swap
-#lvcreate -L "${lv_root_size}" SYSTEM -n root
-#[[ "${create_home_fs}" == "true" ]] && lvcreate -l "${lv_home_size}" SYSTEM -n home
-
-# Format LVs
-#echo -e "[${B}INFO${W}] Format LVM Logical Volumes"
-#mkswap /dev/SYSTEM/swap
-#mkfs.ext4 /dev/SYSTEM/root
-#[[ "${create_home_fs}" == "true" ]] && mkfs.ext4 /dev/SYSTEM/home
-
-# Mount LVs
-#echo -e "[${B}INFO${W}] Mount LVM Logical Volumes"
-#mount /dev/SYSTEM/root /mnt
-#[[ "${create_home_fs}" == "true" ]] && mkdir /mnt/home
-#[[ "${create_home_fs}" == "true" ]] && mount /dev/SYSTEM/home /mnt/home
-
-# Mount EFI
-#echo -e "[${B}INFO${W}] Mount EFI Partition"
-#mkdir /mnt/boot
-#mkfs.fat -F 32 "${efi_partition}"
-#mount "${efi_partition}" /mnt/boot
-
-# Mount swap
-#swapon /dev/SYSTEM/swap
 
 # Install Arch
 echo -e "[${B}INFO${W}] Install Arch Linux"
