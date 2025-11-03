@@ -72,7 +72,7 @@ parted -s "${system_disk}" mklabel gpt
 
 # 2. Create a single partition for LVM
 echo "Creating LVM partition..."
-parted -s "${system_disk}" mkpart primary 1MiB 100%
+parted -s "${system_disk}" mkpart "$system_disk}1" 1MiB 100%
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
