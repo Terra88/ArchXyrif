@@ -423,21 +423,124 @@ arch-chroot /mnt /root/postinstall.sh
 
 # Define the lists below — edit as you like
 EXTRA_PKGS=(
-  git
-  curl
-  wget
-  zsh
-  neovim
-  htop
-  unzip
-  base-devel  # needed for AUR building
+    blueman
+    bluez
+    bluez-utils
+    dolphin
+    dolphin-plugins
+    dunst
+    git
+    gdm
+    grim
+    grub
+    htop
+    hypridle
+    hyprland
+    hyprlock
+    hyprpaper
+    hyprshot
+    kitty
+    nano
+    network-manager-applet
+    networkmanager
+    polkit-kde-agent
+    qt5-wayland
+    qt6-wayland
+    unzip
+    uwsm
+    rofi
+    slurp
+    vim
+    wget
+    wofi
+    nftables
+    waybar
+    wine-staging
+    wine-gecko
+    wine-mono
+    winetricks
+    archlinux-xdg-menu
+    ark
+    bemenu-wayland
+    breeze
+    brightnessctl
+    btop
+    cliphist
+    cpupower
+    discord
+    discover
+    efibootmgr
+    evtest
+    firefox
+    flatpak
+    gamemode
+    goverlay
+    gst-libav
+    gst-plugin-pipewire
+    gst-plugins-bad
+    gst-plugins-base
+    gst-plugins-good
+    gst-plugins-ugly
+    iwd
+    kate
+    konsole
+    kvantum
+    libpulse
+    linuxconsole
+    lutris
+    mangohud
+    nvtop
+    nwg-displays
+    nwg-look
+    otf-font-awesome
+    pavucontrol
+    pipewire
+    pipewire-alsa
+    pipewire-jack
+    pipewire-pulse
+    qbittorrent
+    qt5ct
+    smartmontools
+    steam
+    sway
+    thermald
+    ttf-hack
+    vlc-plugin-ffmpeg
+    vlc-plugins-all
+    vulkan-radeon
+    wireless_tools
+    wireplumber
+    wl-clipboard
+    xdg-desktop-portal-wlr
+    xdg-utils
+    xf86-video-amdgpu
+    xf86-video-ati
+    xorg-server
+    xorg-xinit
+    zram-generator
+    base-devel  # needed for AUR building
 )
 
 AUR_PKGS=(
-  google-chrome
-  visual-studio-code-bin
-  brave-bin
-  spotify
+hyprland-protocols-git
+hyprlang-git
+hyprlang-git-debug 
+hyprutils-git 
+hyprutils-git-debug 
+hyprwayland-scanner-git 
+hyprwayland-scanner-git-debug 
+kvantum-theme-catppuccin-git 
+obs-studio-git 
+proton-ge-custom-bin 
+protonup-qt 
+python-inputs 
+python-steam 
+python-vdf 
+qt6ct-kde 
+wlogout 
+wlrobs-hg 
+xdg-desktop-portal-hyprland-git 
+xdg-desktop-portal-hyprland-git-debug
 )
 
 # Optional prompt
