@@ -355,7 +355,7 @@ mkdir -p /mnt/boot/grub/themes
 mkdir -p /mnt/boot/grub/themes/starfield
 mkdir -p /mnt/boot/grub/x86_64-efi
 
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/EFI/BOOT --bootloader-id=GRUB --recheck
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 #======================================================================================================================================
 
