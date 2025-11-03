@@ -346,6 +346,7 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
 mkdir -p /mnt/boot/efi
+mkdir -p /mnt/boot/EFI/BOOT
 mkdir -p /mnt/boot/grub
 mkdir -p /mnt/boot/grub/fonts
 mkdir -p /mnt/boot/grub/locale
