@@ -60,7 +60,6 @@ swapoff -a || true
 umount ${system_disk}?* 2>/dev/null || true
 
 partprobe "${system_disk}"
-sleep2
 
 # 1. wipe partition table
 sgdisk --zap-all "${system_disk}"
@@ -71,7 +70,6 @@ echo "Creating LVM partition..."
 parted -s "${system_disk}" mkpart primary 1MiB 100%
 
 partprobe "${system_disk}"
-sleep2
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
