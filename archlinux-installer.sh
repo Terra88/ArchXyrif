@@ -345,7 +345,7 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-mount "$P1" /mnt/boot
+#mount "$P1" /mnt/boot
 
 mkdir -p /mnt/boot/efi
 mkdir -p /mnt/boot/EFI/BOOT
