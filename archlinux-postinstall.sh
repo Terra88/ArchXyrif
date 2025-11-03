@@ -74,7 +74,6 @@ initrd /initramfs-linux.img
 initrd /initramfs-linux-zen.img
 initrd /intel-ucode.img
 initrd /amd-ucode.img
-#options cryptdevice=UUID=${uuid}:cryptlvm root=/dev/mapper/SYSTEM-root rw" > /boot/loader/entries/arch.conf
 
 mkdir -p /etc/pacman.d/hooks
 
