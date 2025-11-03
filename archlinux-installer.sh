@@ -301,6 +301,8 @@ PKGS=(
   grub
   efibootmgr
   openssh
+  intel-ucode
+  amd-ucode
   btrfs-progs     # optional, keep or remove
   base-devel      # helpful if you build packages later
 )
@@ -317,7 +319,7 @@ DEFAULT_TZ="Europe/Helsinki"
 read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
 TZ="${TZ:-$DEFAULT_TZ}"
 
-DEFAULT_LOCALE="en_US.UTF-8"
+DEFAULT_LOCALE="fi_FI.UTF-8"
 read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
 LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
