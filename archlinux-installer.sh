@@ -88,7 +88,7 @@ SWAP_SIZE=$((RAM_SIZE))  # Swap size = RAM size
 echo "RAM size: ${RAM_SIZE} MB. Setting swap size to ${SWAP_SIZE} MB."
 
 # Create logical volumes for each partition
-lvcreate -L 300M -n lv_boot vg_arch     # /boot (300 MiB)
+lvcreate -L 300M -n lv_boot vg_arch      # /boot (300 MiB)
 lvcreate -L 130301M -n lv_root vg_arch     # / (root, 130 GB)
 lvcreate -L ${SWAP_SIZE}M -n lv_swap vg_arch # Swap (equal to RAM size)
 lvcreate -l 100%FREE -n lv_home vg_arch # /home (remaining space)
