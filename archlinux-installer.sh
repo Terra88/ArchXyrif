@@ -470,7 +470,6 @@ EXTRA_PKGS=(
     uwsm
     rofi
     slurp
-    vim
     wget
     wofi
     nftables
@@ -533,7 +532,7 @@ EXTRA_PKGS=(
     xorg-server
     xorg-xinit
     zram-generator
-    base-devel  # needed for AUR building
+    #base-devel  # needed for AUR building
 )
 
 AUR_PKGS=(
@@ -564,8 +563,10 @@ read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
   echo "Installing extra packages inside chroot..."
   arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
+  #pacstrap /mnt -Syu --noconfirm "${EXTRA_PKGS[@]}"
 fi
 
+echo
 read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
   echo "Setting up paru AUR helper inside chroot..."
