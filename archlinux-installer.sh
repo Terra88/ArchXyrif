@@ -298,7 +298,6 @@ swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 PKGS=(
   base
   base-devel
-  cat
   git
   grub
   linux
