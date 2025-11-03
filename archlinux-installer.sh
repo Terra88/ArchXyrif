@@ -295,6 +295,8 @@ PKGS=(
   base
   linux
   linux-firmware
+  linux-zen
+  linux-headers
   vim
   sudo
   networkmanager
