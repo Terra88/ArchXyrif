@@ -347,7 +347,7 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
 #Install GRUB Bootloader
- Check for UEFI or BIOS boot mode
+#Check for UEFI or BIOS boot mode
 
 if [[ -d /sys/firmware/efi ]]; then
    UEFI Mode
