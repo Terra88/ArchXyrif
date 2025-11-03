@@ -76,7 +76,7 @@ parted -s "${system_disk}" mkpart primary 1MiB 100%
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
-pvcreate "${system_disk}1"
+pvcreate -ff "${system_disk}1"
 
 # 4. Create volume group (VG) named "vg_arch"
 echo "Creating volume group 'vg_arch'..."
