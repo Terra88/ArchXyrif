@@ -298,20 +298,23 @@ swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 # You can modify the package list below as needed.
 PKGS=(
   base
+  base-devel
+  cat
+  git
+  grub
   linux
   linux-firmware
   linux-zen
   linux-headers
   vim
   sudo
+  nano
   networkmanager
-  grub
   efibootmgr
   openssh
   intel-ucode
   amd-ucode
   btrfs-progs     # optional, keep or remove
-  base-devel      # helpful if you build packages later
 )
 
 echo "Installing base system packages: ${PKGS[*]}"
@@ -587,7 +590,7 @@ fi
 
 read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-  echo "Setting up paru AUR helper inside chroot..."
+  echo "Setting up yay AUR helper inside chroot..."
 
   # Create a postinstall script for AUR setup inside chroot
   cat > /mnt/root/install_aur.sh <<'AURINSTALL'
@@ -603,18 +606,18 @@ NEWUSER="{{NEWUSER}}"
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
-if ! command -v paru >/dev/null 2>&1; then
-  echo "Installing paru..."
-  git clone https://aur.archlinux.org/paru.git
-  cd paru
+if ! command -v yay >/dev/null 2>&1; then
+  echo "Installing yay..."
+  git clone https://aur.archlinux.org/yay.git
+  cd yay
   makepkg -si --noconfirm
   cd ..
-  rm -rf paru
+  rm -rf yay
 fi
 
 # Now install your AUR packages
 AUR_PKGS=({{AUR_PKGS}})
-paru -S --noconfirm --needed "${AUR_PKGS[@]}"
+yay -S --noconfirm --needed "${AUR_PKGS[@]}"
 INNER
 AURINSTALL
 
