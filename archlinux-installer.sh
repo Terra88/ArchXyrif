@@ -370,17 +370,6 @@ else
   arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 fi
 done
-# Ensure EFI partition is mounted at /mnt/boot
-#mkdir -p /mnt/boot
-#mount "$P1" /mnt/boot
-
-# Install GRUB for UEFI
-#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
-#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-# Prompt for passwords (will be set inside chroot)
-#echo "You will be asked to enter the root and the new user's passwords inside the chroot."
-#echo
 
 # 10) Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
