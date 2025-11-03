@@ -434,6 +434,8 @@ fi
 echo "Postinstall inside chroot finished."
 EOF
 
+set -euo pipefail
+
 # 6) Inject variables into /mnt/root/postinstall.sh
 # Replace placeholders with actual values (safe substitution)
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
