@@ -415,7 +415,7 @@ if [[ -d /sys/firmware/efi ]]; then
   mount "$P1" /mnt/boot
   
   # Install GRUB for UEFI
-  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
+  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
   arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
   
 else
