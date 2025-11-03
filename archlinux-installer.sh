@@ -660,8 +660,5 @@ echo "  reboot"
 echo
 echo "Done."
 
-echo "Postinstall inside chroot finished."
-EOF
-
 
 
