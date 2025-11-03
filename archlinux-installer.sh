@@ -448,8 +448,8 @@ systemctl enable sshd
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
-grub-mkconfig -o /mnt/boot/grub/grub.cfg
+grub-install --target=x86_64-efi --efi-directory=/mnt/chroot/boot/efi --bootloader-id=ArchLinux --recheck
+grub-mkconfig -o /mnt/chroot/boot/grub/grub.cfg
 #======================================================================================================================================
 echo "Postinstall inside chroot finished."
 EOF
