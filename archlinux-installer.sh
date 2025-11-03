@@ -23,6 +23,7 @@ set -euo pipefail
 
 # Arch logo: Edited manually by Terra88
 # Text generated with : https://textkool.com/en/ascii-art-generator?font=Big&text=Arch%20Installer
+echo "====================================================================================================="
 echo "
                     @@
                    @##@
