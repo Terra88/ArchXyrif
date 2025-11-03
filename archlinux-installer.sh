@@ -345,7 +345,8 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-mount "$P1" /mnt
+mount "$P1" /mnt/boot
+
 mkdir -p /mnt/boot/efi
 mkdir -p /mnt/boot/EFI/BOOT
 mkdir -p /mnt/boot/grub
@@ -358,6 +359,8 @@ mkdir -p /mnt/boot/grub/x86_64-efi
 arch-chroot /mnt grub-install --target=x86_64-efi --boot-directory=$P1/EFI/BOOT --efi-directory=$P1/grub/x86_64-efi --bootloader-id=ArchLinux --recheck
 arch-chroot /mnt grub-mkconfig -o $P1/grub/grub.cfg
 #======================================================================================================================================
+
+mount "$P2" /mnt
 
 # Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
