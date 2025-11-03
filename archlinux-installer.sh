@@ -55,29 +55,27 @@ if [[ "${system_disk_format}" != "y" ]] ; then
     exit 0
 fi
 
-DISK="${system_disk}"
-
-echo "Formatting Drive $DISK"
+echo "Formatting Drive ${system_disk}"
 swapoff -a || true
-umount $DISK?* 2>/dev/null || true
+umount ${system_disk}?* 2>/dev/null || true
 
 # 1. wipe partition table
-sgdisk --zap-all "$DISK"
-parted -s "$DISK" mklabel gpt
+sgdisk --zap-all "${system_disk}"
+parted -s "${system_disk}" mklabel gpt
 # 2. Create a single partition for LVM
 echo "Creating LVM partition..."
-parted -s "$DISK" mkpart primary 1MiB 100%
+parted -s "${system_disk}" mkpart primary 1MiB 100%
 
-partprobe "$DISK"
+partprobe "${system_disk}"
 sleep2
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
-pvcreate "${DISK}1"
+pvcreate "${system_disk}1"
 
 # 4. Create volume group (VG) named "vg_arch"
 echo "Creating volume group 'vg_arch'..."
-vgcreate vg_arch "${DISK}1"
+vgcreate vg_arch "${system_disk}1"
 
 # 5. Create logical volumes (LV):
 # - /boot (FAT32)
