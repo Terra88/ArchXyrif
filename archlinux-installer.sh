@@ -356,7 +356,7 @@ fi
 echo "Installing bootloader (GRUB)..."
 
 #if $UEFI_MODE; then
-  For UEFI systems, install GRUB with UEFI support
+#For UEFI systems, install GRUB with UEFI support
   pacman -S --noconfirm grub efibootmgr
 
   #Mount EFI partition (P1)
