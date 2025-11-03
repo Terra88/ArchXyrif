@@ -510,7 +510,6 @@ EXTRA_PKGS=(
     pipewire-alsa
     pipewire-jack
     pipewire-pulse
-    qbittorrent
     qt5ct
     smartmontools
     sway
