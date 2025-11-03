@@ -64,7 +64,7 @@ vgchange -an || true # deactivate any active volume groups
 wipefs -a "${system_disk}"
 
 # zero out first few MB to remove old headers
-dd if=/dev/zero of ="${system_disk}" bs=1M count=10 status=none
+#dd if=/dev/zero of ="${system_disk}" bs=1M count=10 status=none
 
 # 1. wipe partition table
 sgdisk --zap-all "${system_disk}"
