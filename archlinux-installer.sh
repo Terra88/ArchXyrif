@@ -358,23 +358,23 @@ echo "Installing bootloader (GRUB)..."
 
 if $UEFI_MODE; then
   # For UEFI systems, install GRUB with UEFI support
-  pacman -S --noconfirm grub efibootmgr
+  #pacman -S --noconfirm grub efibootmgr
 
   # Mount EFI partition (P1)
   mkdir -p /mnt/boot/efi
   mount "$P1" /mnt/boot/efi
 
   # Install GRUB for UEFI
-  grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
-  grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
+  arch-chroot /mnt grub-mkconfig -o /mnt/boot/grub/grub.cfg
 
 else
   # For BIOS systems, install GRUB with BIOS support
-  pacman -S --noconfirm grub
+  #pacman -S --noconfirm grub
 
   # Install GRUB for BIOS
-  grub-install --target=i386-pc --recheck "$DEV"
-  grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV"
+  arch-chroot /mnt grub-mkconfig -o /mnt/boot/grub/grub.cfg
 fi
 
 # 11) Finalize configuration
@@ -382,7 +382,7 @@ echo "Finalizing the installation..."
 arch-chroot /mnt /root/postinstall.sh
 
 # Cleanup postinstall script
-rm -f /mnt/root/postinstall.sh
+# rm -f /mnt/root/postinstall.sh
 
 # 12) Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
