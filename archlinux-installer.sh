@@ -56,7 +56,7 @@ if [[ "${system_disk_format}" != "y" ]] ; then
 fi
 
 DISK="${system_disk}"
-sfdisk --delete $Disk
+sfdisk --delete "${system_disk}"
 
 # 1. Create GPT partition table
 echo "Creating partition table..."
