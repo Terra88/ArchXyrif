@@ -409,7 +409,7 @@ systemctl enable sshd
 #echo "Installing GRUB (UEFI)..."
 
   mkdir -p /mnt/boot
-  mount "$P1" /mnt/boot
+  mount /mnt/boot
 
   grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
   grub-mkconfig -o /boot/grub/grub.cfg
@@ -437,6 +437,7 @@ systemctl enable sshd
   #arch-chroot /mnt grub-install --target=i386-pc --recheck --bootloader-id=GRUB "$DEV"
   #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 #fi
+#done
 
 echo "Postinstall inside chroot finished."
 EOF
