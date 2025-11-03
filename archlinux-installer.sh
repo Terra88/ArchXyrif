@@ -425,7 +425,7 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 
-set -euo pipefail
+#set -euo pipefail
 
 # 6) Inject variables into /mnt/root/postinstall.sh
 # Replace placeholders with actual values (safe substitution)
@@ -441,9 +441,6 @@ chmod +x /mnt/root/postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
 
-# 8) Cleanup postinstall script
-rm -f /mnt/root/postinstall.sh
-
 # ---------------------------
 # Extra packages installation (official + AUR)
 # ---------------------------
@@ -456,10 +453,8 @@ EXTRA_PKGS=(
     dolphin
     dolphin-plugins
     dunst
-    git
     gdm
     grim
-    grub
     htop
     hypridle
     hyprland
@@ -467,9 +462,7 @@ EXTRA_PKGS=(
     hyprpaper
     hyprshot
     kitty
-    nano
     network-manager-applet
-    networkmanager
     polkit-kde-agent
     qt5-wayland
     qt6-wayland
@@ -482,10 +475,6 @@ EXTRA_PKGS=(
     wofi
     nftables
     waybar
-    wine-staging
-    wine-gecko
-    wine-mono
-    winetricks
     archlinux-xdg-menu
     ark
     bemenu-wayland
@@ -496,7 +485,6 @@ EXTRA_PKGS=(
     cpupower
     discord
     discover
-    efibootmgr
     evtest
     firefox
     flatpak
@@ -580,7 +568,7 @@ fi
 
 read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-  echo "Setting up yay AUR helper inside chroot..."
+  echo "Setting up paru AUR helper inside chroot..."
 
   # Create a postinstall script for AUR setup inside chroot
   cat > /mnt/root/install_aur.sh <<'AURINSTALL'
@@ -591,23 +579,23 @@ set -euo pipefail
 NEWUSER="{{NEWUSER}}"
 
 # 1) Switch to new user (non-root) to build AUR packages
-#    yay is used as AUR helper. 
+#    Paru is used as AUR helper. You can switch to yay if preferred.
 
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
-if ! command -v yay >/dev/null 2>&1; then
-  echo "Installing yay..."
-  git clone https://aur.archlinux.org/yay.git
-  cd yay
+if ! command -v paru >/dev/null 2>&1; then
+  echo "Installing paru..."
+  git clone https://aur.archlinux.org/paru.git
+  cd paru
   makepkg -si --noconfirm
   cd ..
-  rm -rf yay
+  rm -rf paru
 fi
 
 # Now install your AUR packages
 AUR_PKGS=({{AUR_PKGS}})
-yay -S --noconfirm --needed "${AUR_PKGS[@]}"
+paru -S --noconfirm --needed "${AUR_PKGS[@]}"
 INNER
 AURINSTALL
 
@@ -635,6 +623,9 @@ echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
 e
 cho "  reboot"
+
+# 8) Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
 
 # 9) Final messages & instructions
 echo
