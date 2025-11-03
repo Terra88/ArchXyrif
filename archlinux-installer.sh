@@ -340,114 +340,6 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
-# Ensure EFI partition is mounted at /mnt/boot
-mkdir -p /mnt/boot
-mount "$P1" /mnt/boot
-
-# Install GRUB for UEFI
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-# Prompt for passwords (will be set inside chroot)
-echo "You will be asked to enter the root and the new user's passwords inside the chroot."
-echo
-
-# 5) Create an inline script for arch-chroot operations
-cat > /mnt/root/postinstall.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# This script runs inside the new system (chroot). Variables are injected from the outer script.
-# It will:
-#  - set timezone and hwclock
-#  - generate locales
-#  - set hostname and /etc/hosts
-#  - install and configure GRUB (UEFI)
-#  - generate initramfs
-#  - enable NetworkManager and sshd
-#  - create a user, add to wheel group and enable sudo for wheel
-
-# Replace placeholders injected by outer script
-TZ="{{TIMEZONE}}"
-LANG_LOCALE="{{LANG_LOCALE}}"
-HOSTNAME="{{HOSTNAME}}"
-NEWUSER="{{NEWUSER}}"
-
-# 1) Timezone
-ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
-hwclock --systohc
-
-# 2) Locale
-if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-  echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
-fi
-locale-gen
-echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
-
-# 3) Hostname and hosts
-echo "${HOSTNAME}" > /etc/hostname
-cat > /etc/hosts <<HOSTS
-127.0.0.1   localhost
-::1         localhost
-127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
-HOSTS
-
-# 4) Initramfs
-# Use mkinitcpio -P to rebuild all preset kernels
-mkinitcpio -P
-
-# 5) Set root password (prompt)
-echo "Set root password:"
-passwd
-
-# 6) Create user and set password
-useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-echo "Set password for user ${NEWUSER}:"
-passwd "${NEWUSER}"
-
-# 7) Enable wheel sudo (uncomment %wheel line)
-sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
-
-# 8) Enable basic services
-systemctl enable NetworkManager
-systemctl enable sshd
-
-#====================================================================================================================================
-# 9) Install GRUB for UEFI / BIOS
-# EFI partition is expected to be mounted on /boot (as done before chroot)
-#echo "Installing GRUB (UEFI)..."
-
-#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
-#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-#Install GRUB Bootloader
-# Check for UEFI or BIOS boot mode
-
-#if [[ -d /sys/firmware/efi ]]; then
-  # UEFI Mode
-  #echo "UEFI boot detected. Installing GRUB for UEFI..."
-  
-  # Ensure EFI partition is mounted at /mnt/boot
-  #mkdir -p /mnt/boot
-  #mount "$P1" /mnt/boot
-  
-  # Install GRUB for UEFI
-  #arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
-  #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-  
-#else
-  # BIOS Mode
-  #echo "BIOS boot detected. Installing GRUB for BIOS..."
-  
-  # Install GRUB for BIOS
-  #arch-chroot /mnt grub-install --target=i386-pc --recheck --bootloader-id=GRUB "$DEV"
-  #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-#fi
-#done
-#======================================================================================================================================
-echo "Postinstall inside chroot finished."
-EOF
-
 set -euo pipefail
 
 # 6) Inject variables into /mnt/root/postinstall.sh
@@ -658,6 +550,143 @@ cho "  reboot"
 
 # 8) Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
+
+# 9) Install GRUB for UEFI / BIOS
+# EFI partition is expected to be mounted on /boot (as done before chroot)
+#echo "Installing GRUB (UEFI)..."
+#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+Install GRUB Bootloader
+ Check for UEFI or BIOS boot mode
+
+if [[ -d /sys/firmware/efi ]]; then
+   UEFI Mode
+  echo "UEFI boot detected. Installing GRUB for UEFI..."
+  
+  Ensure EFI partition is mounted at /mnt/boot
+  mkdir -p /mnt/boot
+  mount "$P1" /mnt/boot
+  
+  Install GRUB for UEFI
+  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+  
+else
+  BIOS Mode
+  echo "BIOS boot detected. Installing GRUB for BIOS..."
+  
+  Install GRUB for BIOS
+  arch-chroot /mnt grub-install --target=i386-pc --recheck --bootloader-id=GRUB "$DEV"
+  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+fi
+done
+# Ensure EFI partition is mounted at /mnt/boot
+#mkdir -p /mnt/boot
+#mount "$P1" /mnt/boot
+
+# Install GRUB for UEFI
+#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+# Prompt for passwords (will be set inside chroot)
+#echo "You will be asked to enter the root and the new user's passwords inside the chroot."
+#echo
+
+# 10) Create an inline script for arch-chroot operations
+cat > /mnt/root/postinstall.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This script runs inside the new system (chroot). Variables are injected from the outer script.
+# It will:
+#  - set timezone and hwclock
+#  - generate locales
+#  - set hostname and /etc/hosts
+#  - install and configure GRUB (UEFI)
+#  - generate initramfs
+#  - enable NetworkManager and sshd
+#  - create a user, add to wheel group and enable sudo for wheel
+
+# Replace placeholders injected by outer script
+TZ="{{TIMEZONE}}"
+LANG_LOCALE="{{LANG_LOCALE}}"
+HOSTNAME="{{HOSTNAME}}"
+NEWUSER="{{NEWUSER}}"
+
+# 1) Timezone
+ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+hwclock --systohc
+
+# 2) Locale
+if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+  echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+fi
+locale-gen
+echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
+
+# 3) Hostname and hosts
+echo "${HOSTNAME}" > /etc/hostname
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+
+# 4) Initramfs
+# Use mkinitcpio -P to rebuild all preset kernels
+mkinitcpio -P
+
+# 5) Set root password (prompt)
+echo "Set root password:"
+passwd
+
+# 6) Create user and set password
+useradd -m -G wheel -s /bin/bash "${NEWUSER}"
+echo "Set password for user ${NEWUSER}:"
+passwd "${NEWUSER}"
+
+# 7) Enable wheel sudo (uncomment %wheel line)
+sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
+
+# 8) Enable basic services
+systemctl enable NetworkManager
+systemctl enable sshd
+
+#====================================================================================================================================
+# 9) Install GRUB for UEFI / BIOS
+# EFI partition is expected to be mounted on /boot (as done before chroot)
+#echo "Installing GRUB (UEFI)..."
+#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+Install GRUB Bootloader
+ Check for UEFI or BIOS boot mode
+
+if [[ -d /sys/firmware/efi ]]; then
+   UEFI Mode
+  echo "UEFI boot detected. Installing GRUB for UEFI..."
+  
+  Ensure EFI partition is mounted at /mnt/boot
+  mkdir -p /mnt/boot
+  mount "$P1" /mnt/boot
+  
+  Install GRUB for UEFI
+  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+  
+else
+  BIOS Mode
+  echo "BIOS boot detected. Installing GRUB for BIOS..."
+  
+  Install GRUB for BIOS
+  arch-chroot /mnt grub-install --target=i386-pc --recheck --bootloader-id=GRUB "$DEV"
+  arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+fi
+done
+#======================================================================================================================================
+echo "Postinstall inside chroot finished."
+EOF
 
 # 9) Final messages & instructions
 echo
