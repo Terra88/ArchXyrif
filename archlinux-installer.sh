@@ -39,7 +39,8 @@ echo "
        /#####h**\`\`    \`**%@####@
       @H@*\`                  \`*%#@
      *\`                        \`* "
-
+     
+echo "\n \n"
 
 loadkeys fi
 timedatectl set-ntp true
