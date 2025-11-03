@@ -155,8 +155,8 @@ fi
 partprobe "$DEV" || true
 
 # 5) Compute sizes
-# EFI: 512 MiB
-EFI_SIZE_MIB=512
+# EFI: 1024 MiB
+EFI_SIZE_MIB=1024
 
 # Root: ~120 GiB -> 120*1024 MiB
 ROOT_SIZE_MIB=$((120 * 1024))
@@ -181,7 +181,7 @@ echo
 echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
 echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
 echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~120 GiB)."
-echo "EFI will be ${EFI_SIZE_MIB} MiB (512 MiB)."
+echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
 echo
 
 if ! confirm "Proceed to partition $DEV with the sizes above?"; then
@@ -196,7 +196,7 @@ parted -s "$DEV" mklabel gpt
 
 # Calculate partition boundaries (MiB)
 p1_start=1
-p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..513MiB
+p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..1024MiB
 
 p2_start=$p1_end                             # root start
 p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
