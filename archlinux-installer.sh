@@ -60,33 +60,31 @@ echo -e "[${B}INFO${W}] Format ${Y}${system_disk}${W} and create partitions"
 parted "${system_disk}" mklabel gpt
 parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
 parted "${system_disk}" set 1 esp on
-parted "${system_disk}" mkpart primary ext4 301MiB 130301MiB
-parted "{$system_disk}" mkpart primary ext4 130301MiB 100%
+parted "${system_disk}" mkpart primary ext4 301MiB 100001MiB
+parted "{$system_disk}" mkpart primary ext4 100001MiB 100%
 #parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
 
 # Guess partition names
-#if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
- # efi_partition="${system_disk}1"
-  #root_partition="${system_disk}2"
-  #swap_partition="${system_disk}3"
-  #home_partition="${system_disk}4"
-#else
- # efi_partition="${system_disk}p1"
- # root_partition="${system_disk}p2"
- # swap_partition="${system_disk}p3"
- # home_partition="${system_disk}p4"
-#fi
+if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
+ efi_partition="${system_disk}1"
+  root_partition="${system_disk}2"
+  home_partition="${system_disk}3"
+else
+ efi_partition="${system_disk}p1"
+ root_partition="${system_disk}p2"
+ home_partition="${system_disk}p3"
+fi
 
 #Format the partitions
 echo "Formatting partitions"
-mkfs.fat -F32 "${system_disk}1" #/boot
-mkfs.ext4 "${system_disk}2"  # / root
-mkfs.ext4 "${system_disk}3" # /home
+mkfs.fat -F32 "${efi_partition}" #/boot
+mkfs.ext4 "${root_partition}"  # / root
+mkfs.ext4 "${home_partition}" # /home
 
 
 #Mount partitions
 echo "Mounting partitions..."
-mount "{${system_disk}2" /mnt #mount root
+mount "${system_disk}2" /mnt #mount root
 mkdir -p /mnt/home
 mount "${system_disk}3" #mount home
 mkdir -p /mnt/boot/efi
