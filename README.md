@@ -1,4 +1,5 @@
 # ArchXyrif
+Warning!!! This script is not ready to use!!! Warning 
 Automated Install Script for Archinstall
 <br>
 loadkeys fi - en - etc. 
