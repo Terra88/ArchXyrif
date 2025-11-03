@@ -58,8 +58,8 @@ passwd "${username}"
 # Install bootloader and all necessary packages
 # https://wiki.archlinux.org/title/Systemd-boot
 echo -e "[${B}INFO${W}] Install & configure bootloader"
-grub-install
-#bootctl install
+bootctl install
+#grub-install
 
 echo "default arch
 timeout 1" > /boot/loader/loader.conf
@@ -74,7 +74,7 @@ initrd /initramfs-linux.img
 initrd /initramfs-linux-zen.img
 initrd /intel-ucode.img
 initrd /amd-ucode.img
-options cryptdevice=UUID=${uuid}:cryptlvm root=/dev/mapper/SYSTEM-root rw" > /boot/loader/entries/arch.conf
+#options cryptdevice=UUID=${uuid}:cryptlvm root=/dev/mapper/SYSTEM-root rw" > /boot/loader/entries/arch.conf
 
 mkdir -p /etc/pacman.d/hooks
 
