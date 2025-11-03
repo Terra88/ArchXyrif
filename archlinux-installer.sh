@@ -407,13 +407,14 @@ EOF
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-mkdir -p $P1/mnt/boot/efi
-mkdir -p $P1/mnt/boot/grub
-mkdir -p $P1/mnt/boot/grub/fonts
-mkdir -p $P1/mnt/boot/grub/locale
-mkdir -p $P1/mnt/boot/grub/themes
-mkdir -p $P1/mnt/boot/grub/themes/starfield
-mkdir -p $P1/mnt/boot/grub/x86_64-efi
+mount $P1 /mnt
+mkdir -p /mnt/boot/efi
+mkdir -p /mnt/boot/grub
+mkdir -p /mnt/boot/grub/fonts
+mkdir -p /mnt/boot/grub/locale
+mkdir -p /mnt/boot/grub/themes
+mkdir -p /mnt/boot/grub/themes/starfield
+mkdir -p /mnt/boot/grub/x86_64-efi
 
 mount $P1 /mnt/boot
 
