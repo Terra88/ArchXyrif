@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 ################################################################################
 #
 # Author  : 
@@ -7,7 +7,7 @@
 #
 ################################################################################
 
-set -e
+set -euo pipefail
 
 ################################################################################
 # Source variables
@@ -41,91 +41,405 @@ echo -e "${B}
 loadkeys fi
 timedatectl set-ntp true
 
-# Disk partition
-echo -e "[${B}INFO${W}] Select destination disk for Arch Linux"
-echo "Disk(s) available:"
-parted -l | awk '/Disk \//{ gsub(":","") ; print "- \033[93m"$2"\033[0m",$3}' | column -t
-read -r -p "Please enter destination disk: " system_disk
+# archformat.sh
+# - shows lsblk and asks which device to use
+# - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)
+# - partitions: EFI(512MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)
+# - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap
+#
+# WARNING: destructive. Run as root. Double-check device before continuing.
 
-echo -e "Disk ${Y}${system_disk}${W} will be ${R}ERASED${W} !"
-read -r -p "Are you sure you want to proceed? (y/n)" system_disk_format
+# Helpers
+confirm() {
+  # ask Yes/No, return 0 if yes
+  local msg="${1:-Continue?}"
+  read -r -p "$msg [yes/NO]: " ans
+  case "$ans" in
+    [yY]|[yY][eE][sS]) return 0 ;;
+    *) return 1 ;;
+  esac
+}
 
-if [[ "${system_disk_format}" != "y" ]] ; then
-    echo "Installation aborted!"
-    exit 0
+part_suffix() {
+  # given /dev/sdX or /dev/nvme0n1, print partition suffix ('' or 'p')
+  local dev="$1"
+  if [[ "$dev" =~ nvme|mmcblk ]]; then
+    echo "p"
+  else
+    echo ""
+  fi
+}
+
+die() {
+  echo "ERROR: $*" >&2
+  exit 1
+}
+
+# 1) Show devices
+echo "Available block devices (lsblk):"
+lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
+
+# 2) Ask device
+read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
+DEV="${DEV:-}"
+
+if [[ -z "$DEV" ]]; then
+  die "No device given. Exiting."
 fi
 
-echo "Formatting Drive ${system_disk}"
-swapoff -a || true
-umount ${system_disk}?* 2>/dev/null || true
-vgchange -an || true # deactivate any active volume groups
+if [[ ! -b "$DEV" ]]; then
+  die "Device '$DEV' not found or not a block device."
+fi
 
-#wipe out old signatures lvm raid fs etc.
-wipefs -a "${system_disk}"
+echo
+echo "You selected: $DEV"
+echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
+if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
+  die "User cancelled."
+fi
 
-# zero out first few MB to remove old headers
-#dd if=/dev/zero of ="${system_disk}" bs=1M count=10 status=none
+# 3) Unmount any mounted partitions and swapoff
+echo "Attempting to unmount any mounted partitions and disable swap on $DEV..."
+mapfile -t MOUNTS < <(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!="" {print $1":"$2}')
+for m in "${MOUNTS[@]:-}"; do
+  name="${m%%:*}"
+  mnt="${m#*:}"
+  if [[ -n "$mnt" ]]; then
+    echo "  Unmounting /dev/$name from $mnt"
+    umount -l "/dev/$name" || true
+  fi
+done
 
-# 1. wipe partition table
-sgdisk --zap-all "${system_disk}"
-parted -s "${system_disk}" mklabel gpt
+# swapoff on partitions of this device
+for sw in $(cat /proc/swaps | awk 'NR>1 {print $1}'); do
+  if [[ "$sw" == "$DEV"* ]]; then
+    echo "  Turning off swap on $sw"
+    swapoff "$sw" || true
+  fi
+done
 
-# 2. Create a single partition for LVM
-echo "Creating LVM partition..."
-parted -s "${system_disk}" mkpart "$system_disk}1" 1MiB 100%
+# 4) Clear partition table / LUKS / LVM signatures
+echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
+which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
+which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
 
-# 3. Create physical volume (PV) on the partition
-echo "Creating physical volume on the disk..."
-pvcreate -ff "${system_disk}1"
+# try to shut down any open LUKS mappings referring to this device (best-effort)
+echo "Attempting to close any open LUKS mappings referencing $DEV..."
+for map in /dev/mapper/*; do
+  if [[ -L "$map" ]]; then
+    target=$(readlink -f "$map" || true)
+    if [[ "$target" == "$DEV"* ]]; then
+      name=$(basename "$map")
+      echo "  Closing mapper $name (points at $target)"
+      cryptsetup luksClose "$name" || true
+    fi
+  fi
+done
 
-# 4. Create volume group (VG) named "vg_arch"
-echo "Creating volume group 'vg_arch'..."
-vgcreate vg_arch "${system_disk}1"
+# Zap GPT, MBR, etc.
+sgdisk --zap-all "$DEV" || true
 
-# 5. Create logical volumes (LV):
-# - /boot (FAT32)
-# - / (root, ext4)
-# - swap
-# - /home (ext4)
+# Wipe filesystem signatures on whole device
+wipefs -a "$DEV" || true
 
-# Get system RAM size for swap
-RAM_SIZE=$(free -m | awk '/^Mem/ { print $2 }')
+# Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
+echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
+dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
 
-# Set swap size based on RAM (in MB)
-SWAP_SIZE=$((RAM_SIZE))  # Swap size = RAM size
+# If device supports it, also zero last MiB (LVM metadata sometimes at end)
+devsize_bytes=$(blockdev --getsize64 "$DEV")
+if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
+  last_offset=$((devsize_bytes - 1*1024*1024))
+  dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
+fi
 
-echo "RAM size: "${RAM_SIZE}" MB. Setting swap size to "${SWAP_SIZE}" MB."
+partprobe "$DEV" || true
 
-# Create logical volumes for each partition
-lvcreate -L 300M -n lv_boot vg_arch      # /boot (300 MiB)
-lvcreate -L 130301M -n lv_root vg_arch     # / (root, 130 GB)
-lvcreate -L "${SWAP_SIZE}"M -n lv_swap vg_arch # Swap (equal to RAM size)
-lvcreate -l 100%FREE -n lv_home vg_arch # /home (remaining space)
+# 5) Compute sizes
+# EFI: 512 MiB
+EFI_SIZE_MIB=512
 
-# 6. Format the logical volumes:
-echo "Formatting logical volumes..."
+# Root: ~120 GiB -> 120*1024 MiB
+ROOT_SIZE_MIB=$((120 * 1024))
 
-mkfs.fat -F32 /dev/vg_arch/lv_boot       # /boot
-mkfs.ext4 /dev/vg_arch/lv_root           # /
-mkswap /dev/vg_arch/lv_swap             # swap
-mkfs.ext4 /dev/vg_arch/lv_home           # /home
+# Detect RAM in MiB
+ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+if [[ -z "$ram_kb" ]]; then
+  die "Failed to read RAM from /proc/meminfo"
+fi
+ram_mib=$(( (ram_kb + 1023) / 1024 ))
 
-# 7. Mount the partitions:
-echo "Mounting logical volumes..."
+# Swap sizing policy:
+# - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
+# - Otherwise swap = RAM (1:1)
+if (( ram_mib <= 8192 )); then
+  SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+else
+  SWAP_SIZE_MIB=$(( ram_mib ))
+fi
 
-# Mount root
-mount /dev/vg_arch/lv_root /mnt
+echo
+echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
+echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~120 GiB)."
+echo "EFI will be ${EFI_SIZE_MIB} MiB (512 MiB)."
+echo
 
-# Mount /boot
+if ! confirm "Proceed to partition $DEV with the sizes above?"; then
+  die "User cancelled."
+fi
+
+# 6) Partitioning with parted (using MiB units)
+which parted >/dev/null 2>&1 || die "parted required but not found."
+
+echo "Creating GPT label and partitions..."
+parted -s "$DEV" mklabel gpt
+
+# Calculate partition boundaries (MiB)
+p1_start=1
+p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..513MiB
+
+p2_start=$p1_end                             # root start
+p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
+
+p3_start=$p2_end                             # swap start
+p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
+
+p4_start=$p3_end                             # home start; end = 100%
+
+# Rounded values to avoid fractional MiB
+echo "Partition table (MiB):"
+echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
+echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~120GiB, ext4)"
+echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
+echo "  4) Home   : ${p4_start}MiB - 100% (ext4)"
+
+# Create partitions
+parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
+
+# Set boot flag on partition 1 (UEFI)
+parted -s "$DEV" set 1 boot on
+
+# Inform kernel of new partitions
+partprobe "$DEV"
+sleep 1
+
+# 7) Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+PSUFF=$(part_suffix "$DEV")
+P1="${DEV}${PSUFF}1"
+P2="${DEV}${PSUFF}2"
+P3="${DEV}${PSUFF}3"
+P4="${DEV}${PSUFF}4"
+
+echo "Partitions created:"
+lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+
+# Wait a bit for device nodes to appear
+sleep 1
+if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
+  echo "Waiting for partition nodes..."
+  sleep 2
+fi
+
+# 8) Filesystems
+echo "Creating filesystems:"
+echo "  EFI -> $P1 (FAT32)"
+echo "  Root -> $P2 (ext4)"
+echo "  Swap -> $P3 (mkswap)"
+echo "  Home -> $P4 (ext4)"
+
+# Format EFI
+mkfs.fat -F32 "$P1"
+
+# Format root and home
+mkfs.ext4 -F "$P2"
+mkfs.ext4 -F "$P4"
+
+# Setup swap
+mkswap "$P3"
+# Optionally enable swap now (comment/uncomment as needed)
+# swapon "$P3"
+
+# ---------------------------
+# Continue: mount / pacstrap / arch-chroot / mkinitcpio / grub
+# Assumes P1,P2,P3,P4 defined as in previous script
+# ---------------------------
+
+set -euo pipefail
+
+# Sanity check: ensure partitions exist
+for p in "$P1" "$P2" "$P3" "$P4"; do
+  if [[ ! -b "$p" ]]; then
+    echo "ERROR: Partition $p not found. Aborting." >&2
+    exit 1
+  fi
+done
+
+# 1) Mount root and other partitions
+echo "Mounting partitions..."
+mount "$P2" /mnt
 mkdir -p /mnt/boot
-mount /dev/vg_arch/lv_boot /mnt/boot
-
-# Mount /home
+mount "$P1" /mnt/boot
 mkdir -p /mnt/home
-mount /dev/vg_arch/lv_home /mnt/home
+mount "$P4" /mnt/home
 
-# Enable swap
-swapon /dev/vg_arch/lv_swap
+# Enable swap now (so pacstrap has more headroom if needed)
+echo "Enabling swap on $P3..."
+swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
+
+# 2) Pacstrap: base system + recommended packages for basic use
+# You can modify the package list below as needed.
+PKGS=(
+  base
+  linux
+  linux-firmware
+  vim
+  sudo
+  networkmanager
+  grub
+  efibootmgr
+  openssh
+  btrfs-progs     # optional, keep or remove
+  base-devel      # helpful if you build packages later
+)
+
+echo "Installing base system packages: ${PKGS[*]}"
+pacstrap /mnt "${PKGS[@]}"
+
+# 3) Generate fstab
+echo "Generating /etc/fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+
+# 4) Basic variables for chroot steps (defaults provided)
+DEFAULT_TZ="Europe/Helsinki"
+read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+TZ="${TZ:-$DEFAULT_TZ}"
+
+DEFAULT_LOCALE="en_US.UTF-8"
+read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+
+DEFAULT_HOSTNAME="archbox"
+read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+
+DEFAULT_USER="user"
+read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+
+# Prompt for passwords (will be set inside chroot)
+echo "You will be asked to enter the root and the new user's passwords inside the chroot."
+echo
+
+# 5) Create an inline script for arch-chroot operations
+cat > /mnt/root/postinstall.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# This script runs inside the new system (chroot). Variables are injected from the outer script.
+# It will:
+#  - set timezone and hwclock
+#  - generate locales
+#  - set hostname and /etc/hosts
+#  - install and configure GRUB (UEFI)
+#  - generate initramfs
+#  - enable NetworkManager and sshd
+#  - create a user, add to wheel group and enable sudo for wheel
+
+# Replace placeholders injected by outer script
+TZ="{{TIMEZONE}}"
+LANG_LOCALE="{{LANG_LOCALE}}"
+HOSTNAME="{{HOSTNAME}}"
+NEWUSER="{{NEWUSER}}"
+
+# 1) Timezone
+ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+hwclock --systohc
+
+# 2) Locale
+if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+  echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+fi
+locale-gen
+echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
+
+# 3) Hostname and hosts
+echo "${HOSTNAME}" > /etc/hostname
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+
+# 4) Initramfs
+# Use mkinitcpio -P to rebuild all preset kernels
+mkinitcpio -P
+
+# 5) Set root password (prompt)
+echo "Set root password:"
+passwd
+
+# 6) Create user and set password
+useradd -m -G wheel -s /bin/bash "${NEWUSER}"
+echo "Set password for user ${NEWUSER}:"
+passwd "${NEWUSER}"
+
+# 7) Enable wheel sudo (uncomment %wheel line)
+sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
+
+# 8) Enable basic services
+systemctl enable NetworkManager
+systemctl enable sshd
+
+# 9) Install GRUB for UEFI
+# EFI partition is expected to be mounted on /boot (as done before chroot)
+echo "Installing GRUB (UEFI)..."
+grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+grub-mkconfig -o /boot/grub/grub.cfg
+
+echo "Postinstall inside chroot finished."
+EOF
+
+# 6) Inject variables into /mnt/root/postinstall.sh
+# Replace placeholders with actual values (safe substitution)
+sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+
+# Make the script executable
+chmod +x /mnt/root/postinstall.sh
+
+# 7) chroot and run postinstall.sh
+echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
+arch-chroot /mnt /root/postinstall.sh
+
+# 8) Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
+
+# 9) Final messages & instructions
+echo
+echo "Installation base and basic configuration finished."
+echo "Suggested next steps:"
+echo "  - If you mounted extra disks, add them to /etc/fstab inside the new system."
+echo "  - Install any additional packages (e.g. desktop environment, display manager)."
+echo
+echo "To reboot into your new system:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P3} || true"
+echo "  reboot"
+echo
+echo "If you want I can extend this script to:"
+echo "  - set up LUKS encryption (root and swap) + LVM"
+echo "  - install a desktop environment and display manager"
+echo "  - configure automatic locale/timezone from system settings"
+echo
+echo "Done."
+
+
 
 # Install Arch
 echo -e "[${B}INFO${W}] Install Arch Linux"
