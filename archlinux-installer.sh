@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 ################################################################################
 #
-# Author  : 
+# Author  : Terra88 
 # Purpose : Arch Linux custom installer
-# GitHub  :
+# GitHub  : http://github.com/Terra88
 #
 ################################################################################
 
