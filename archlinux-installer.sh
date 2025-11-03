@@ -559,7 +559,6 @@ read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
   echo "Installing extra packages inside chroot..."
   arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
-  #pacstrap /mnt -Syu --noconfirm "${EXTRA_PKGS[@]}"
 fi
 
 echo
@@ -576,23 +575,23 @@ set -euo pipefail
 NEWUSER="{{NEWUSER}}"
 
 # 1) Switch to new user (non-root) to build AUR packages
-#    Paru is used as AUR helper. You can switch to yay if preferred.
+#    YaY is used as AUR helper.
 
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
 if ! command -v paru >/dev/null 2>&1; then
   echo "Installing paru..."
-  git clone https://aur.archlinux.org/paru.git
-  cd paru
+  git clone https://aur.archlinux.org/yay.git
+  cd yay
   makepkg -si --noconfirm
   cd ..
-  rm -rf paru
+  rm -rf yay
 fi
 
 # Now install your AUR packages
 AUR_PKGS=({{AUR_PKGS}})
-paru -S --noconfirm --needed "${AUR_PKGS[@]}"
+yay -S --noconfirm --needed "${AUR_PKGS[@]}"
 INNER
 AURINSTALL
 
