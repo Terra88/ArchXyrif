@@ -365,16 +365,20 @@ if $UEFI_MODE; then
   mount "$P1" /mnt/boot/efi
 
   # Install GRUB for UEFI
-  arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
-  arch-chroot /mnt grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
+
+  mkdir -p /mnt/boot/grub
+  mount "$P1" /mnt/boot/grub
+  
+  grub-mkconfig -o /mnt/boot/grub/grub.cfg
 
 else
   # For BIOS systems, install GRUB with BIOS support
   #pacman -S --noconfirm grub
 
   # Install GRUB for BIOS
-  arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV"
-  arch-chroot /mnt grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  grub-install --target=i386-pc --recheck "$DEV"
+  grub-mkconfig -o /mnt/boot/grub/grub.cfg
 fi
 
 # 11) Finalize configuration
