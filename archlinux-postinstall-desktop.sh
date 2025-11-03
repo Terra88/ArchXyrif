@@ -70,6 +70,7 @@ mkdir -p /home/${username}/Documents/workspace/repos/
 mkdir -p /home/wallpaper/
 cd /home/${username}/Documents/workspace/repos/
 git clone https://github.com/Terra88/hyprland-setup
+chmod -R +x ~/hyprland-setup/
 cd hyprland-setup
 unzip .config.zip
 cp -Rp /home/${username}/Documents/workspace/repos/hyprland-setup/.config/ /home/${username}/
