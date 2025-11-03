@@ -55,41 +55,68 @@ if [[ "${system_disk_format}" != "y" ]] ; then
     exit 0
 fi
 
-# CREATE PARTED GUID + PARTITIONS
-echo -e "[${B}INFO${W}] Format ${Y}${system_disk}${W} and create partitions"
-parted "${system_disk}" mklabel gpt
-parted "${system_disk}" mkpart primary fat32 1MiB 301MiB
-parted "${system_disk}" set 1 esp on
-parted "${system_disk}" mkpart primary ext4 301MiB 100001MiB
-parted "{$system_disk}" mkpart primary ext4 100001MiB 100%
-#parted "${system_disk}" mkpart "LUKS-SYSTEM" ext4 301MiB 100%
+DISK="${system_disk}"
 
-# Guess partition names
-if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
- efi_partition="${system_disk}1"
-  root_partition="${system_disk}2"
-  home_partition="${system_disk}3"
-else
- efi_partition="${system_disk}p1"
- root_partition="${system_disk}p2"
- home_partition="${system_disk}p3"
-fi
+# 1. Create GPT partition table
+echo "Creating partition table..."
+parted $DISK --script mklabel gpt
 
-#Format the partitions
-echo "Formatting partitions"
-mkfs.fat -F32 "${efi_partition}" #/boot
-mkfs.ext4 "${root_partition}"  # / root
-mkfs.ext4 "${home_partition}" # /home
+# 2. Create a single partition for LVM
+echo "Creating LVM partition..."
+parted $DISK --script mkpart primary 1MiB 100%
 
+# 3. Create physical volume (PV) on the partition
+echo "Creating physical volume on the disk..."
+pvcreate ${DISK}1
 
-#Mount partitions
-echo "Mounting partitions..."
-mount "${system_disk}2" /mnt #mount root
+# 4. Create volume group (VG) named "vg_arch"
+echo "Creating volume group 'vg_arch'..."
+vgcreate vg_arch ${DISK}1
+
+# 5. Create logical volumes (LV):
+# - /boot (FAT32)
+# - / (root, ext4)
+# - swap
+# - /home (ext4)
+
+# Get system RAM size for swap
+RAM_SIZE=$(free -m | awk '/^Mem/ { print $2 }')
+
+# Set swap size based on RAM (in MB)
+SWAP_SIZE=$((RAM_SIZE))  # Swap size = RAM size
+
+echo "RAM size: ${RAM_SIZE} MB. Setting swap size to ${SWAP_SIZE} MB."
+
+# Create logical volumes for each partition
+lvcreate -L 300M -n lv_boot vg_arch     # /boot (300 MiB)
+lvcreate -L 130301M -n lv_root vg_arch     # / (root, 130 GB)
+lvcreate -L ${SWAP_SIZE}M -n lv_swap vg_arch # Swap (equal to RAM size)
+lvcreate -l 100%FREE -n lv_home vg_arch # /home (remaining space)
+
+# 6. Format the logical volumes:
+echo "Formatting logical volumes..."
+
+mkfs.fat -F32 /dev/vg_arch/lv_boot       # /boot
+mkfs.ext4 /dev/vg_arch/lv_root           # /
+mkswap /dev/vg_arch/lv_swap             # swap
+mkfs.ext4 /dev/vg_arch/lv_home           # /home
+
+# 7. Mount the partitions:
+echo "Mounting logical volumes..."
+
+# Mount root
+mount /dev/vg_arch/lv_root /mnt
+
+# Mount /boot
+mkdir -p /mnt/boot
+mount /dev/vg_arch/lv_boot /mnt/boot
+
+# Mount /home
 mkdir -p /mnt/home
-mount "${system_disk}3" #mount home
-mkdir -p /mnt/boot/efi
-mount "${system_disk}1" #mount EFI
+mount /dev/vg_arch/lv_home /mnt/home
 
+# Enable swap
+swapon /dev/vg_arch/lv_swap
 #if [[ "${system_disk}" =~ "/dev/sd" ]] ; then
 #  efi_partition="${system_disk}1"
 #  luks_partition="${system_disk}2"
