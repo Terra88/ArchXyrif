@@ -407,9 +407,10 @@ EOF
 # 9) Install GRUB for UEFI / BIOS
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 #echo "Installing GRUB (UEFI)..."
-#$P1=${/mount/boot}
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=ArchLinux --recheck
-arch-chroot /mnt grub-mkconfig -o /mnt/boot/grub/grub.cfg
+#$P1=${/mount/b
+mount "$P1" /mnt/boot
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/mnt/$P1/boot/efi --bootloader-id=ArchLinux --recheck
+arch-chroot /mnt grub-mkconfig -o /mnt/$P1/boot/grub/grub.cfg
 #======================================================================================================================================
 
 
