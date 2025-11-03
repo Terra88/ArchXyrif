@@ -59,9 +59,13 @@ echo "Formatting Drive ${system_disk}"
 swapoff -a || true
 umount ${system_disk}?* 2>/dev/null || true
 
+partprobe "${system_disk}"
+sleep2
+
 # 1. wipe partition table
 sgdisk --zap-all "${system_disk}"
 parted -s "${system_disk}" mklabel gpt
+
 # 2. Create a single partition for LVM
 echo "Creating LVM partition..."
 parted -s "${system_disk}" mkpart primary 1MiB 100%
