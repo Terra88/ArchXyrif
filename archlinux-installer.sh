@@ -36,7 +36,7 @@ echo "
             @######@    @######@       /_/    \_\_|  \___|_| |_| |_____|_| |_|___/\__\__,_|_|_|\___|_|   
            @######@      @######@      =================================================================
           @######@        @######@
-         @######@          @######@
+         @######@==========@######@
         @####@-              -@####@
        @###@-                  -@###@ "
 echo "====================================================================================================="       
@@ -364,12 +364,9 @@ if $UEFI_MODE; then
   mount "$P1" /mnt/boot/efi
 
   # Install GRUB for UEFI
-  grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB --recheck
-
-  mkdir -p /mnt/boot/grub
-  mount "$P1" /mnt/boot/grub
-  
-  grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  grub-install --target=x86_64-efi --efi-directory=/mnt/boot/efi --bootloader-id=GRUB 
+  update-grub
+  #grub-mkconfig -o /mnt/boot/grub/grub.cfg
 
 else
   # For BIOS systems, install GRUB with BIOS support
@@ -378,6 +375,7 @@ else
   # Install GRUB for BIOS
   grub-install --target=i386-pc --recheck "$DEV"
   grub-mkconfig -o /mnt/boot/grub/grub.cfg
+  #update-grub
 fi
 
 # 11) Finalize configuration
@@ -385,7 +383,7 @@ echo "Finalizing the installation..."
 arch-chroot /mnt /root/postinstall.sh
 
 # Cleanup postinstall script
-# rm -f /mnt/root/postinstall.sh
+ rm -f /mnt/root/postinstall.sh
 
 # 12) Create an inline script for arch-chroot operations
 cat > /mnt/root/postinstall.sh <<'EOF'
