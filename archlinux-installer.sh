@@ -66,8 +66,6 @@ wipefs -a "${system_disk}"
 # zero out first few MB to remove old headers
 dd if=/dev/zero of ="${system_disk}" bs=1M count=10 status=none
 
-#partprobe "${system_disk}"
-
 # 1. wipe partition table
 sgdisk --zap-all "${system_disk}"
 parted -s "${system_disk}" mklabel gpt
@@ -75,8 +73,6 @@ parted -s "${system_disk}" mklabel gpt
 # 2. Create a single partition for LVM
 echo "Creating LVM partition..."
 parted -s "${system_disk}" mkpart primary 1MiB 100%
-
-partprobe "${system_disk}"
 
 # 3. Create physical volume (PV) on the partition
 echo "Creating physical volume on the disk..."
