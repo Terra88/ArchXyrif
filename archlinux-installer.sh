@@ -434,8 +434,8 @@ else
   arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 fi
 
-echo "Postinstall inside chroot finished."
-EOF
+#echo "Postinstall inside chroot finished."
+#EOF
 
 set -euo pipefail
 
@@ -662,5 +662,6 @@ echo "  reboot"
 echo
 echo "Done."
 
-
+echo "Postinstall inside chroot finished."
+EOF
 
