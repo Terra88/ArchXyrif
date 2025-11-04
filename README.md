@@ -1,6 +1,6 @@
 # ArchXyrif
-Warning!!! This script is not ready to use!!! Warning 
-Automated Install Script for Archinstall
+Automated Install Script for Archinstall - Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
+MIT License - Copyright (c) 2025 Terra88 - Read LICENCE section for more.
 <br>
 loadkeys fi - en - etc. 
 <br>
