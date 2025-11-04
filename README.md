@@ -1,5 +1,5 @@
 # ArchXyrif
-<img width="422" height="332" alt="2025-11-04-230326_hyprshot" src="https://github.com/user-attachments/assets/8bcb6d0a-cd96-4ba8-8ffd-0f9743637fb1" />
+<img width="422" height="332" alt="2025-11-04-230326_hyprshot" src="https://github.com/user-attachments/assets/8bcb6d0a-cd96-4ba8-8ffd-0f9743637fb1" /><br>
 Automated Install Script for Archinstall - Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 MIT License - Copyright (c) 2025 Terra88 - Read LICENCE section for more.
 <br>
