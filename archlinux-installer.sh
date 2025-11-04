@@ -576,6 +576,7 @@ echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
 echo "Setting up yay AUR helper inside chroot..."
+#arch-chroot /mnt pacman -Syu --noconfirm "${AUR_PKGS[*]}"
 
 cp /etc/resolv.conf /mnt/etc/resolv.conf
 mount --bind /proc /mnt/proc
@@ -597,6 +598,7 @@ ping -c1 archlinux.org >/dev/null 2>&1 || {
 
 # Ensure base-devel and git are present
 pacman -Sy --noconfirm --needed base-devel git sudo
+chown -R "${NEWUSER}:${NEWUSER}" /home/${NEWUSER}
 
 # Switch to non-root user to build AUR packages
 sudo -u "${NEWUSER}" bash <<'INNER'
@@ -635,6 +637,7 @@ sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]}|g" /mnt/root/install_aur.sh
 chmod +x /mnt/root/install_aur.sh
 echo "▶ Running AUR installation inside chroot..."
 
+arch-chroot /mnt pacman -Sy --noconfirm --needed base-devel git
 arch-chroot /mnt /root/install_aur.sh
 rm -f /mnt/root/install_aur.sh
 
