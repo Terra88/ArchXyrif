@@ -544,9 +544,6 @@ hyprlang-git
 hyprutils-git 
 hyprwayland-scanner-git 
 kvantum-theme-catppuccin-git 
-python-inputs 
-python-steam 
-python-vdf 
 qt6ct-kde 
 wlogout 
 wlrobs-hg 
