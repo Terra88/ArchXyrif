@@ -627,7 +627,7 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages in one chroot session
+# 9) Installing extra Pacman and AUR packages in one chroot session (fixed)
 #===================================================================================================#
 
 echo
@@ -638,42 +638,39 @@ read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ ! "$install_extra" =~ ^[Yy]$ && ! "$install_aur" =~ ^[Yy]$ ]]; then
     echo "Skipping extra package installation."
 else
-    # Prepare a chroot script to handle both Pacman and AUR safely
-cat > /mnt/root/install_extra.sh <<'EOF'
+    # Convert Bash arrays to space-separated strings
+    EXTRA_PKGS_STR="${EXTRA_PKGS[*]}"
+    AUR_PKGS_STR="${AUR_PKGS[*]}"
+
+    # Create chroot installer script
+    cat > /mnt/root/install_extra.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --- Arrays and variables ---
+# Placeholder arrays and variables
 EXTRA_PKGS=({EXTRA_PKGS})
 AUR_PKGS=({AUR_PKGS})
 NEWUSER="{NEWUSER}"
 
-# Ensure variables are defined
 INSTALL_EXTRA=${INSTALL_EXTRA:-0}
 INSTALL_AUR=${INSTALL_AUR:-0}
 
-# --- Update package database ---
-echo "Updating pacman database..."
+# Sync databases
 pacman -Sy --noconfirm
 
-# --- Install extra official packages ---
+# Install extra official packages
 if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
     echo "Installing extra official packages..."
-    # Use || true to continue if a package fails
-    pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}" || echo "Warning: some packages failed, continuing..."
-else
-    echo "Skipping extra official packages."
+    pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}" || echo "Warning: some packages failed."
 fi
 
-# --- Install yay and AUR packages ---
+# Install AUR packages
 if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Installing AUR packages..."
-    # Ensure base-devel, git, sudo, go are installed
+    echo "Installing base-devel and git for AUR building..."
     pacman -S --needed --noconfirm base-devel git sudo go || true
 
-    # Install yay if not already installed
+    # Install yay if not present
     if ! command -v yay >/dev/null 2>&1; then
-        echo "Installing yay..."
         sudo -u "${NEWUSER}" bash <<'INNER'
 cd ~
 git clone https://aur.archlinux.org/yay.git
@@ -684,35 +681,32 @@ rm -rf yay
 INNER
     fi
 
-    # Install AUR packages safely
+    # Install AUR packages
     if command -v yay >/dev/null 2>&1; then
+        echo "Installing AUR packages..."
         sudo -u "${NEWUSER}" yay -S --needed --noconfirm "${AUR_PKGS[@]}" || echo "Warning: some AUR packages failed."
-    else
-        echo "Error: yay not found, skipping AUR packages."
     fi
-else
-    echo "Skipping AUR packages."
 fi
 
 echo "Extra packages installation finished."
 EOF
 
-# Replace placeholders safely (with quotes to preserve spaces)
-sed -i "s|{EXTRA_PKGS}|\"${EXTRA_PKGS[@]}\"|g" /mnt/root/install_extra.sh
-sed -i "s|{AUR_PKGS}|\"${AUR_PKGS[@]}\"|g" /mnt/root/install_extra.sh
-sed -i "s|{NEWUSER}|${NEWUSER}|g" /mnt/root/install_extra.sh
-sed -i "s|{INSTALL_EXTRA}|$([[ "$install_extra" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
-sed -i "s|{INSTALL_AUR}|$([[ "$install_aur" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
+    # Replace placeholders with proper array values
+    sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
+    sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
+    sed -i "s|{NEWUSER}|${NEWUSER}|g" /mnt/root/install_extra.sh
+    sed -i "s|{INSTALL_EXTRA}|$([[ "$install_extra" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
+    sed -i "s|{INSTALL_AUR}|$([[ "$install_aur" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
 
-chmod +x /mnt/root/install_extra.sh
+    chmod +x /mnt/root/install_extra.sh
 
-# Run the script in chroot
-echo "▶ Running extra package installation inside chroot..."
-cp /etc/resolv.conf /mnt/etc/resolv.conf
-arch-chroot /mnt /root/install_extra.sh
+    # Run the installer inside chroot
+    echo "▶ Running extra package installation inside chroot..."
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    arch-chroot /mnt /root/install_extra.sh
 
-# Cleanup
-rm -f /mnt/root/install_extra.sh
+    # Cleanup
+    rm -f /mnt/root/install_extra.sh
 fi
 
 #===================================================================================================#
