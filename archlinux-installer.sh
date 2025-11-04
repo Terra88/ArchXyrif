@@ -421,8 +421,9 @@ echo "Set password for user ${NEWUSER}:"
 passwd "${NEWUSER}"
 
 # 7) Enable wheel sudo (uncomment %wheel line)
-sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
+sed -i 's/^ %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
 sed -i 's/^ %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+sed -i 's/^ ${NEWUSER} ALL=(ALL:ALL) ALL/${NEWUSER} ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 
 # 8) Enable basic services
@@ -441,6 +442,7 @@ sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+
 
 # Make the script executable
 chmod +x /mnt/root/postinstall.sh
