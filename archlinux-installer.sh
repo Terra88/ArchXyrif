@@ -679,7 +679,7 @@ pacman -Sy --noconfirm --needed base-devel git sudo go
 chown -R "${NEWUSER}:${NEWUSER}" "/home/${NEWUSER}"
 
 # --- Regular package install ---
-if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]:-0} -gt 0 ]]; then
+if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
   echo "Installing extra packages: ${EXTRA_PKGS[*]}"
   pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
 else
@@ -687,7 +687,7 @@ else
 fi
 
 # --- AUR package install ---
-if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]:-0} -gt 0 ]]; then
+if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
   echo "Installing AUR packages via yay..."
   sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
