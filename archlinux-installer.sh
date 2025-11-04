@@ -638,22 +638,21 @@ read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ ! "$install_extra" =~ ^[Yy]$ && ! "$install_aur" =~ ^[Yy]$ ]]; then
     echo "Skipping extra package installation."
 else
-    # Convert Bash arrays to space-separated strings
-    EXTRA_PKGS_STR="${EXTRA_PKGS[*]}"
-    AUR_PKGS_STR="${AUR_PKGS[*]}"
+    # Convert Bash arrays to proper array syntax for injection
+    EXTRA_PKGS_STR=$(printf "'%s' " "${EXTRA_PKGS[@]}")
+    AUR_PKGS_STR=$(printf "'%s' " "${AUR_PKGS[@]}")
 
     # Create chroot installer script
     cat > /mnt/root/install_extra.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Placeholder arrays and variables
 EXTRA_PKGS=({EXTRA_PKGS})
 AUR_PKGS=({AUR_PKGS})
 NEWUSER="{NEWUSER}"
 
-INSTALL_EXTRA=${INSTALL_EXTRA:-0}
-INSTALL_AUR=${INSTALL_AUR:-0}
+INSTALL_EXTRA={INSTALL_EXTRA}
+INSTALL_AUR={INSTALL_AUR}
 
 # Sync databases
 pacman -Sy --noconfirm
@@ -691,10 +690,10 @@ fi
 echo "Extra packages installation finished."
 EOF
 
-    # Replace placeholders with proper array values
-    sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
-    sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
-    sed -i "s|{NEWUSER}|${NEWUSER}|g" /mnt/root/install_extra.sh
+    # Replace placeholders with proper array values and flags
+    sed -i "s|{EXTRA_PKGS}|$EXTRA_PKGS_STR|g" /mnt/root/install_extra.sh
+    sed -i "s|{AUR_PKGS}|$AUR_PKGS_STR|g" /mnt/root/install_extra.sh
+    sed -i "s|{NEWUSER}|$NEWUSER|g" /mnt/root/install_extra.sh
     sed -i "s|{INSTALL_EXTRA}|$([[ "$install_extra" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
     sed -i "s|{INSTALL_AUR}|$([[ "$install_aur" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
 
