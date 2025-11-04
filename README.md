@@ -23,14 +23,14 @@ Features:<br>
 <br><br>
 -checks and should remove encryptions from disk that you are installing on automatically.
 <br><br>
--Formats the disk to Boot, Root, Home, Swap (Fat32 boot&Efi and ext4 for Root & Home).
+-Formats & Partitions the disk to Boot, Root, Home, Swap (Fat32 boot&Efi and ext4 for Root & Home).
 <br><br>
 -Calculates swap from ram, Boot is 1024MiB so you can fit more kernels in it, root is 120GB and rest 100% left goes to /home depending on ur hdd/ssd/nvme size. "can be changed & tinkered".
 <br><br>
 -Can turn on or off swap from the code, by putting comment mark # before swapon
 -automatically mounts disks.
 <br><br>
--Mounts the discs and saves fstab.
+-Gives $DEV/$P1 etc values to the drives and Mounts them and saves to fstab.
 <br><br>
 -Basic pacstrap packages are base base-devel go git grub linux linux-zen linux-headers linux-firmware vim sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 <br><br>
