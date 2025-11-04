@@ -642,70 +642,83 @@ else
     EXTRA_PKGS_STR=$(printf "'%s' " "${EXTRA_PKGS[@]}")
     AUR_PKGS_STR=$(printf "'%s' " "${AUR_PKGS[@]}")
 
-    # Create chroot installer script
-    cat > /mnt/root/install_extra.sh <<'EOF'
+echo ">>> Preparing /mnt/root/install_extra.sh"
+
+cat > /mnt/root/install_extra.sh <<'EXTRA_SCRIPT'
 #!/usr/bin/env bash
 set -euo pipefail
 
+NEWUSER="{{NEWUSER}}"
+INSTALL_AUR="{{INSTALL_AUR}}"
+INSTALL_EXTRA="{{INSTALL_EXTRA}}"
+
 EXTRA_PKGS=({EXTRA_PKGS})
 AUR_PKGS=({AUR_PKGS})
-NEWUSER="{NEWUSER}"
 
-INSTALL_EXTRA={INSTALL_EXTRA}
-INSTALL_AUR={INSTALL_AUR}
-
-# Sync databases
+# --- Fix repo setup for missing lib32 etc ---
+sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
 pacman -Sy --noconfirm
 
-# Install extra official packages
-if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages..."
-    pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}" || echo "Warning: some packages failed."
+# --- Install essential build deps ---
+pacman -Sy --noconfirm --needed base-devel git sudo go
+
+# Ensure correct permissions
+chown -R "${NEWUSER}:${NEWUSER}" "/home/${NEWUSER}"
+
+# --- Regular package install ---
+if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]:-0} -gt 0 ]]; then
+  echo "Installing extra packages: ${EXTRA_PKGS[*]}"
+  pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+else
+  echo "Skipping extra packages..."
 fi
 
-# Install AUR packages
-if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Installing base-devel and git for AUR building..."
-    pacman -S --needed --noconfirm base-devel git sudo go || true
-
-    # Install yay if not present
-    if ! command -v yay >/dev/null 2>&1; then
-        sudo -u "${NEWUSER}" bash <<'INNER'
+# --- AUR package install ---
+if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]:-0} -gt 0 ]]; then
+  echo "Installing AUR packages via yay..."
+  sudo -u "${NEWUSER}" bash <<'INNER'
+set -euo pipefail
 cd ~
-git clone https://aur.archlinux.org/yay.git
-cd yay
-makepkg -si --noconfirm --skippgpcheck || true
-cd ..
-rm -rf yay
-INNER
-    fi
 
-    # Install AUR packages
-    if command -v yay >/dev/null 2>&1; then
-        echo "Installing AUR packages..."
-        sudo -u "${NEWUSER}" yay -S --needed --noconfirm "${AUR_PKGS[@]}" || echo "Warning: some AUR packages failed."
-    fi
+# Install yay if not already installed
+if ! command -v yay >/dev/null 2>&1; then
+  echo "Installing yay AUR helper..."
+  git clone https://aur.archlinux.org/yay.git
+  cd yay
+  makepkg -si --noconfirm --skippgpcheck
+  cd ..
+  rm -rf yay
 fi
 
-echo "Extra packages installation finished."
-EOF
+# Reinitialize DB just in case
+yay -Y --gendb || true
 
-    # Replace placeholders with proper array values and flags
-    sed -i "s|{EXTRA_PKGS}|$EXTRA_PKGS_STR|g" /mnt/root/install_extra.sh
-    sed -i "s|{AUR_PKGS}|$AUR_PKGS_STR|g" /mnt/root/install_extra.sh
-    sed -i "s|{NEWUSER}|$NEWUSER|g" /mnt/root/install_extra.sh
-    sed -i "s|{INSTALL_EXTRA}|$([[ "$install_extra" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
-    sed -i "s|{INSTALL_AUR}|$([[ "$install_aur" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
+yay -S --needed --noconfirm --removemake --disable-download-timeout "${AUR_PKGS[@]}" || {
+  echo "⚠️ Retry with AUR-only mode..."
+  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "${AUR_PKGS[@]}"
+}
+INNER
+else
+  echo "Skipping AUR packages..."
+fi
 
-    chmod +x /mnt/root/install_extra.sh
+echo "✅ Extra installation complete!"
+EXTRA_SCRIPT
 
-    # Run the installer inside chroot
-    echo "▶ Running extra package installation inside chroot..."
-    cp /etc/resolv.conf /mnt/etc/resolv.conf
-    arch-chroot /mnt /root/install_extra.sh
+# --- Inject dynamic variables safely ---
+EXTRA_PKGS_STR=$(printf "\"%s\" " "${EXTRA_PKGS[@]}")
+AUR_PKGS_STR=$(printf "\"%s\" " "${AUR_PKGS[@]}")
 
-    # Cleanup
-    rm -f /mnt/root/install_extra.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_extra.sh
+sed -i "s|{{INSTALL_AUR}}|${INSTALL_AUR}|g" /mnt/root/install_extra.sh
+sed -i "s|{{INSTALL_EXTRA}}|${INSTALL_EXTRA}|g" /mnt/root/install_extra.sh
+sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
+sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
+
+chmod +x /mnt/root/install_extra.sh
+echo "▶ Running extra installation inside chroot..."
+arch-chroot /mnt /root/install_extra.sh
+rm -f /mnt/root/install_extra.sh
 fi
 
 #===================================================================================================#
