@@ -279,7 +279,7 @@ mkfs.ext4 -F "$P4"
 # 1.4) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
 #===================================================================================================#
 mkswap "$P3"
-#swapon "$P3"
+swapon "$P3"
 
 set -euo pipefail
 
