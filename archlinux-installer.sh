@@ -609,21 +609,21 @@ EXTRA_PKGS=(
 )
 
 AUR_PKGS=(
-'hyprland-protocols-git'
-'hyprlang-git'
-'hyprutils-git
-'hyprwayland-scanner-git'
-'kvantum-theme-catppuccin-git'
-'obs-studio-git'
-'proton-ge-custom'
-'protonup-qt'
-'python-inputs'
-'python-steam'
-'python-vdf'
-'qt6ct-kde'
-'wlogout'
-'wlrobs-hg'
-'xdg-desktop-portal-hyprland-git'
+hyprland-protocols-git
+hyprlang-git
+hyprutils-git
+hyprwayland-scanner-git
+kvantum-theme-catppuccin-git
+obs-studio-git
+proton-ge-custom
+protonup-qt
+python-inputs
+python-steam
+python-vdf
+qt6ct-kde
+wlogout
+wlrobs-hg
+xdg-desktop-portal-hyprland-git
 )
 
 #===================================================================================================#
@@ -689,7 +689,7 @@ fi
 # --- AUR package install ---
 if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
   echo "Installing AUR packages via yay..."
-  sudo -u "${NEWUSER}" bash <<'INNER'
+  sudo -u "${NEWUSER}" bash <<INNER
 set -euo pipefail
 cd ~
 
