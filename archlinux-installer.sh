@@ -54,7 +54,7 @@ timedatectl set-ntp true
 # WARNING: destructive. Run as root. Double-check device before continuing.
 
 #===================================================================================================#
-# Disk Selection & Format
+# 1) Disk Selection & Format
 #===================================================================================================#
 
 # Helpers
@@ -127,7 +127,7 @@ for sw in $(cat /proc/swaps | awk 'NR>1 {print $1}'); do
 done
 
 #===================================================================================================#
-# Clearing Partition Tables / Luks / LVM Signatures
+# 1.1) Clearing Partition Tables / Luks / LVM Signatures
 #===================================================================================================#
 
 # 4) Clear partition table / LUKS / LVM signatures
@@ -166,7 +166,7 @@ if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
 fi
 
 #===================================================================================================#
-# Re-Partitioning Selected Drive
+# 1.2) Re-Partitioning Selected Drive
 #===================================================================================================#
 
 partprobe "$DEV" || true
@@ -261,7 +261,7 @@ if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
 fi
 
 #===================================================================================================#
-# Mounting Created Partitions
+# 1.3) Mounting Created Partitions
 #===================================================================================================#
 
 # 8) Filesystems
@@ -278,15 +278,11 @@ mkfs.fat -F32 "$P1"
 mkfs.ext4 -F "$P2"
 mkfs.ext4 -F "$P4"
 
-# Setup swap
+#===================================================================================================#
+# 1.4) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
+#===================================================================================================#
 mkswap "$P3"
-# Optionally enable swap now (comment/uncomment as needed)
-# swapon "$P3"
-
-# ---------------------------
-# Continue: mount / pacstrap / arch-chroot / mkinitcpio / grub
-# Assumes P1,P2,P3,P4 defined as in previous script
-# ---------------------------
+#swapon "$P3"
 
 set -euo pipefail
 
@@ -298,7 +294,7 @@ for p in "$P1" "$P2" "$P3" "$P4"; do
   fi
 done
 
-# 1) Mount root and other partitions
+#Mount root and other partitions
 echo "Mounting partitions..."
 mount "$P2" /mnt
 mkdir -p /mnt/boot
@@ -311,7 +307,7 @@ echo "Enabling swap on $P3..."
 swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 
 #===================================================================================================#
-# 2) Pacstra: Installing Base system + recommended packages for basic use
+# 2) Pacstrap: Installing Base system + recommended packages for basic use
 #===================================================================================================#
 # You can modify the package list below as needed.
 
