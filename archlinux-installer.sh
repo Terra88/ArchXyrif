@@ -421,7 +421,7 @@ echo "Set password for user ${NEWUSER}:"
 passwd "${NEWUSER}"
 
 # 7) Enable wheel sudo (uncomment %wheel line)
-sed -i 's/^# %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
+sed -i 's/^ %wheel ALL=(ALL) ALL/%wheel ALL=(ALL) ALL/' /etc/sudoers || true
 
 # 8) Enable basic services
 systemctl enable NetworkManager
