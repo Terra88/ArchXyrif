@@ -369,10 +369,10 @@ echo "Installing GRUB (UEFI)..."
 
 # Determine EFI partition mountpoint and ensure it’s /boot/efi
 if ! mountpoint -q /mnt/boot/efi; then
-  echo "→ Remounting EFI system partition under /boot/efi..."
-  mkdir -p /mnt/boot/efi
+ echo "→ Remounting EFI system partition under /boot/efi..."
   umount /mnt/boot 2>/dev/null || true
   mount "$P2" /mnt/boot        # root
+  mkdir -p /mnt/boot/efi       # ensure mountpoint exists AFTER mounting root
   mount "$P1" /mnt/boot/efi    # EFI
 fi
 
