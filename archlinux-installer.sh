@@ -285,8 +285,8 @@ done
 # 1) Mount root and other partitions
 echo "Mounting partitions..."
 mount "$P2" /mnt
-mkdir -p /mnt/boot
-mount "$P1" /mnt/boot
+mkdir -p /mnt/boot/efi
+mount "$P1" /mnt/boot/efi
 mkdir -p /mnt/home
 mount "$P4" /mnt/home
 
@@ -357,7 +357,7 @@ mkdir -p /mnt/boot/grub/themes
 mkdir -p /mnt/boot/grub/themes/starfield
 mkdir -p /mnt/boot/grub/x86_64-efi
 
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB --recheck
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 #======================================================================================================================================
 
@@ -563,7 +563,7 @@ if [[ "$install_extra" =~ ^[Yy]$ ]]; then
 fi
 
 echo
-read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
+read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
   echo "Setting up paru AUR helper inside chroot..."
 
@@ -581,7 +581,7 @@ NEWUSER="{{NEWUSER}}"
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
-if ! command -v paru >/dev/null 2>&1; then
+if ! command -v yay >/dev/null 2>&1; then
   echo "Installing paru..."
   git clone https://aur.archlinux.org/yay.git
   cd yay
