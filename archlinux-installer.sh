@@ -686,12 +686,18 @@ else
   echo "Skipping extra packages..."
 fi
 
-# --- AUR package install ---
+# --- AUR package install (corrected) ---
 if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
   echo "Installing AUR packages via yay..."
+
   sudo -u "${NEWUSER}" bash <<INNER
 set -euo pipefail
 cd ~
+
+# Ensure network is up (optional but recommended)
+if ! ping -c 1 aur.archlinux.org &>/dev/null; then
+  echo "⚠️ Warning: Network seems down inside chroot. Make sure NetworkManager is enabled."
+fi
 
 # Install yay if not already installed
 if ! command -v yay >/dev/null 2>&1; then
@@ -703,13 +709,19 @@ if ! command -v yay >/dev/null 2>&1; then
   rm -rf yay
 fi
 
-# Reinitialize DB just in case
-yay -Y --gendb || true
+# Update pacman & yay DB including AUR
+pacman -Sy --noconfirm
+yay -Syu --noconfirm --aur || true
 
-yay -S --needed --noconfirm --removemake --disable-download-timeout "${AUR_PKGS[@]}" || {
-  echo "⚠️ Retry with AUR-only mode..."
-  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "${AUR_PKGS[@]}"
-}
+# Install AUR packages one by one
+for pkg in "${AUR_PKGS[@]}"; do
+  echo "→ Installing AUR package: \$pkg"
+  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "\$pkg" || {
+    echo "⚠️ Failed to install \$pkg. Skipping..."
+  }
+done
+
+echo "✅ AUR packages installation complete!"
 INNER
 else
   echo "Skipping AUR packages..."
