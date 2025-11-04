@@ -627,93 +627,83 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Extra Pacman Packages Installer (Optional)
+# 9) Installing extra Pacman and AUR packages in one chroot session
 #===================================================================================================#
-read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-if [[ "$install_extra" =~ ^[Yy]$ ]]; then
-    echo "Installing extra packages inside chroot..."
-    
-    # Enable multilib repo inside chroot
-    arch-chroot /mnt bash -c "sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf && pacman -Sy"
 
-    # Install EXTRA_PKGS
-    arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
-else
-    echo "Skipping extra official packages."
-fi
-
-#===================================================================================================#
-# 10) AUR - Extra Package Installer promt & runner in chroot
-#===================================================================================================#
 echo
+read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
-if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-  echo "Setting up yay AUR helper inside chroot..."
 
-  # Ensure networking and bind mounts
-  cp /etc/resolv.conf /mnt/etc/resolv.conf
-  for dir in proc sys dev run; do
-    mount --bind "/$dir" "/mnt/$dir"
-  done
-
-  # Create chroot AUR installer script
-  cat > /mnt/root/install_aur.sh <<'AURINSTALL'
+# Skip if both are "no"
+if [[ ! "$install_extra" =~ ^[Yy]$ && ! "$install_aur" =~ ^[Yy]$ ]]; then
+    echo "Skipping extra package installation."
+else
+    # Prepare a chroot script to handle both Pacman and AUR
+    cat > /mnt/root/install_extra.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-NEWUSER="{{NEWUSER}}"
-AUR_PKGS=({{AUR_PKGS}})
+EXTRA_PKGS=({EXTRA_PKGS})
+AUR_PKGS=({AUR_PKGS})
+NEWUSER="{NEWUSER}"
 
-# 1) Ensure network connectivity
-ping -c1 aur.archlinux.org >/dev/null 2>&1 || { echo "⚠️ Network unavailable inside chroot."; exit 1; }
+# Enable multilib repository
+sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+pacman -Sy --noconfirm
 
-# 2) Install prerequisites as root
-pacman -Sy --noconfirm --needed base-devel git sudo
+# Install extra official packages
+if [[ {INSTALL_EXTRA} == 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+    pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+fi
 
-# 3) Switch to NEWUSER for yay operations
-sudo -u "${NEWUSER}" bash <<'YAYINNER'
-set -euo pipefail
+# Install yay and AUR packages
+if [[ {INSTALL_AUR} == 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+    # Ensure basic tools
+    pacman -S --needed --noconfirm base-devel git sudo go
+
+    # Install yay if not present
+    if ! command -v yay >/dev/null 2>&1; then
+        sudo -u "${NEWUSER}" bash <<'INNER'
 cd ~
+git clone https://aur.archlinux.org/yay.git
+cd yay
+makepkg -si --noconfirm --skippgpcheck
+cd ..
+rm -rf yay
+INNER
+    fi
 
-# Install yay if missing
-if ! command -v yay >/dev/null 2>&1; then
-  git clone https://aur.archlinux.org/yay.git
-  cd yay
-  makepkg -si --noconfirm --skippgpcheck
-  cd ..
-  rm -rf yay
+    # Install AUR packages
+    sudo -u "${NEWUSER}" yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
 
-# Update package database and install AUR packages
-yay -Sy --noconfirm
-if [ ${#AUR_PKGS[@]} -gt 0 ]; then
-  yay -S --needed --noconfirm "${AUR_PKGS[@]}"
-fi
-YAYINNER
-AURINSTALL
+echo "Extra packages installation finished."
+EOF
 
-  # Inject variables safely
-  sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
-  # Convert array to quoted space-separated list
-  sed -i "s|{{AUR_PKGS}}|\"${AUR_PKGS[@]}\"|g" /mnt/root/install_aur.sh
+    # Replace placeholders
+    sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS[*]}|g" /mnt/root/install_extra.sh
+    sed -i "s|{AUR_PKGS}|${AUR_PKGS[*]}|g" /mnt/root/install_extra.sh
+    sed -i "s|{NEWUSER}|${NEWUSER}|g" /mnt/root/install_extra.sh
+    sed -i "s|{INSTALL_EXTRA}|$([[ "$install_extra" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
+    sed -i "s|{INSTALL_AUR}|$([[ "$install_aur" =~ ^[Yy]$ ]] && echo 1 || echo 0)|g" /mnt/root/install_extra.sh
 
-  chmod +x /mnt/root/install_aur.sh
-  echo "▶ Running AUR installation inside chroot..."
-  arch-chroot /mnt /root/install_aur.sh
-  rm -f /mnt/root/install_aur.sh
+    chmod +x /mnt/root/install_extra.sh
 
-  # Cleanup bind mounts
-  for dir in run dev sys proc; do
-    umount -l "/mnt/$dir" 2>/dev/null || true
-  done
+    # Run everything inside a single chroot
+    echo "▶ Running extra package installation inside chroot..."
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    arch-chroot /mnt /root/install_extra.sh
+
+    # Cleanup
+    rm -f /mnt/root/install_extra.sh
 fi
 
 #===================================================================================================#
-# 11 Hyprland Configs - "Coming Later"
+# 10 Hyprland Configs - "Coming Later"
 #===================================================================================================#
 
 #===================================================================================================#
-# 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
+# 11 Cleanup postinstall script & Final Messages & Instructions - Not Finished
 #===================================================================================================#
 echo
 echo "Custom package installation phase complete."
