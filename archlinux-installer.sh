@@ -634,15 +634,28 @@ echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
+# --- Convert Y/N responses into numeric flags for injection ---
+if [[ "$install_extra" =~ ^[Yy]$ ]]; then
+    INSTALL_EXTRA=1
+else
+    INSTALL_EXTRA=0
+fi
+
+if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+    INSTALL_AUR=1
+else
+    INSTALL_AUR=0
+fi
+
 # Skip if both are "no"
-if [[ ! "$install_extra" =~ ^[Yy]$ && ! "$install_aur" =~ ^[Yy]$ ]]; then
+if [[ "$INSTALL_EXTRA" -eq 0 && "$INSTALL_AUR" -eq 0 ]]; then
     echo "Skipping extra package installation."
 else
     # Convert Bash arrays to proper array syntax for injection
     EXTRA_PKGS_STR=$(printf "'%s' " "${EXTRA_PKGS[@]}")
     AUR_PKGS_STR=$(printf "'%s' " "${AUR_PKGS[@]}")
 
-echo ">>> Preparing /mnt/root/install_extra.sh"
+    echo ">>> Preparing /mnt/root/install_extra.sh"
 
 cat > /mnt/root/install_extra.sh <<'EXTRA_SCRIPT'
 #!/usr/bin/env bash
@@ -705,21 +718,22 @@ fi
 echo "✅ Extra installation complete!"
 EXTRA_SCRIPT
 
-# --- Inject dynamic variables safely ---
-EXTRA_PKGS_STR=$(printf "\"%s\" " "${EXTRA_PKGS[@]}")
-AUR_PKGS_STR=$(printf "\"%s\" " "${AUR_PKGS[@]}")
+    # --- Inject dynamic variables safely ---
+    EXTRA_PKGS_STR=$(printf "\"%s\" " "${EXTRA_PKGS[@]}")
+    AUR_PKGS_STR=$(printf "\"%s\" " "${AUR_PKGS[@]}")
 
-sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_extra.sh
-sed -i "s|{{INSTALL_AUR}}|${INSTALL_AUR}|g" /mnt/root/install_extra.sh
-sed -i "s|{{INSTALL_EXTRA}}|${INSTALL_EXTRA}|g" /mnt/root/install_extra.sh
-sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
-sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
+    sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_extra.sh
+    sed -i "s|{{INSTALL_AUR}}|${INSTALL_AUR}|g" /mnt/root/install_extra.sh
+    sed -i "s|{{INSTALL_EXTRA}}|${INSTALL_EXTRA}|g" /mnt/root/install_extra.sh
+    sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
+    sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
 
-chmod +x /mnt/root/install_extra.sh
-echo "▶ Running extra installation inside chroot..."
-arch-chroot /mnt /root/install_extra.sh
-rm -f /mnt/root/install_extra.sh
+    chmod +x /mnt/root/install_extra.sh
+    echo "▶ Running extra installation inside chroot..."
+    arch-chroot /mnt /root/install_extra.sh
+    rm -f /mnt/root/install_extra.sh
 fi
+
 
 #===================================================================================================#
 # 10 Hyprland Configs - "Coming Later"
