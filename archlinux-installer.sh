@@ -285,8 +285,8 @@ done
 # 1) Mount root and other partitions
 echo "Mounting partitions..."
 mount "$P2" /mnt
-mkdir -p /mnt/boot/efi
-mount "$P1" /mnt/boot/efi
+mkdir -p /mnt/boot
+mount "$P1" /mnt/boot
 mkdir -p /mnt/home
 mount "$P4" /mnt/home
 
