@@ -424,6 +424,7 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 
+#==============================================================================================================
 #set -euo pipefail
 
 # 6) Inject variables into /mnt/root/postinstall.sh
@@ -565,24 +566,37 @@ fi
 echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-  echo "Setting up paru AUR helper inside chroot..."
+echo "Setting up yay AUR helper inside chroot..."
 
-  # Create a postinstall script for AUR setup inside chroot
-  cat > /mnt/root/install_aur.sh <<'AURINSTALL'
+cp /etc/resolv.conf /mnt/etc/resolv.conf
+mount --bind /proc /mnt/proc
+mount --bind /sys /mnt/sys
+mount --bind /dev /mnt/dev
+mount --bind /run /mnt/run
+
+cat > /mnt/root/install_aur.sh <<'AURINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Variables injected by outer script
 NEWUSER="{{NEWUSER}}"
 
-# 1) Switch to new user (non-root) to build AUR packages
-#    YaY is used as AUR helper.
+# Ensure networking works inside chroot
+ping -c1 archlinux.org >/dev/null 2>&1 || {
+  echo "⚠️ Network appears unavailable inside chroot."
+  exit 1
+}
 
+# Ensure base-devel and git are present
+pacman -Sy --noconfirm --needed base-devel git sudo
+
+# Switch to non-root user to build AUR packages
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
+
+# Install yay if missing
 if ! command -v yay >/dev/null 2>&1; then
-  echo "Installing paru..."
+  echo "Installing yay AUR helper..."
   git clone https://aur.archlinux.org/yay.git
   cd yay
   makepkg -si --noconfirm
@@ -590,24 +604,34 @@ if ! command -v yay >/dev/null 2>&1; then
   rm -rf yay
 fi
 
-# Now install your AUR packages
+# AUR package list (injected)
 AUR_PKGS=({{AUR_PKGS}})
-yay -S --noconfirm --needed "${AUR_PKGS[@]}"
-INNER
-AURINSTALL
 
-  # Inject variables (username and AUR package list)
-  sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
-  sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]}|g" /mnt/root/install_aur.sh
-
-  chmod +x /mnt/root/install_aur.sh
-
-  echo "Running AUR installation inside chroot..."
-  arch-chroot /mnt /root/install_aur.sh
-
-  rm -f /mnt/root/install_aur.sh
+# Sanity check
+if [ ${#AUR_PKGS[@]} -eq 0 ]; then
+  echo "No AUR packages specified."
+  exit 0
 fi
 
+# Install AUR packages
+yay -S --needed --noconfirm "${AUR_PKGS[@]}"
+INNER
+
+AURINSTALL
+
+# Inject variables
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
+sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]}|g" /mnt/root/install_aur.sh
+
+chmod +x /mnt/root/install_aur.sh
+echo "▶ Running AUR installation inside chroot..."
+
+arch-chroot /mnt /root/install_aur.sh
+rm -f /mnt/root/install_aur.sh
+
+fi
+
+#===================================================================================================
 echo
 echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
