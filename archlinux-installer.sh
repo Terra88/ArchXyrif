@@ -315,9 +315,9 @@ PKGS=(
   git
   grub
   linux
-  linux-firmware
   linux-zen
   linux-headers
+  linux-firmware
   vim
   sudo
   nano
