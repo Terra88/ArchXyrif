@@ -428,7 +428,7 @@ efibootmgr -v || true
 # /boot/efi/EFI/Boot/BOOTX64.EFI
 
 #===================================================================================================#
-# 6) Running chroot and setting mkinitcpio - Setting Systemname, username, enabling services etc.
+# 6) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.
 #===================================================================================================#
 # inline script for arch-chroot operations "postinstall.sh"
 
