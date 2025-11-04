@@ -420,10 +420,7 @@ useradd -m -G wheel -s /bin/bash "${NEWUSER}"
 echo "Set password for user ${NEWUSER}:"
 passwd "${NEWUSER}"
 
-# 7) Add user to sudoer
-useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-
-# Ensure user has sudo privileges
+# 7) Ensure user has sudo privileges
 # Create sudoers drop-in file (recommended method)
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
