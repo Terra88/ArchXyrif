@@ -281,8 +281,6 @@ mkfs.ext4 -F "$P4"
 mkswap "$P3"
 swapon "$P3"
 
-set -euo pipefail
-
 # Sanity check: ensure partitions exist
 for p in "$P1" "$P2" "$P3" "$P4"; do
   if [[ ! -b "$p" ]]; then
