@@ -638,6 +638,10 @@ echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
   echo "Installing extra packages inside chroot..."
+  
+  # Enable multilib repo inside chroot(remove/add # before sed however you wish)
+  sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+  arch-chroot / mnt pacman -Sy
   arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
 fi
 
@@ -670,6 +674,10 @@ ping -c1 aur.archlinux.org >/dev/null 2>&1 || {
 # Install essentials
 pacman -Sy --noconfirm --needed base-devel git sudo go
 chown -R "${NEWUSER}:${NEWUSER}" /home/${NEWUSER}
+
+# Enable multilib repository for 32-bit dependencies
+sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
+pacman -Sy --noconfirm
 
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
