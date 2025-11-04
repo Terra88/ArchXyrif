@@ -360,7 +360,7 @@ read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 #===================================================================================================#
-# 5) Installing GRUB for UEFI - Requires tinkering
+# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)
 #===================================================================================================#
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
