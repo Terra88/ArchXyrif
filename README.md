@@ -8,7 +8,7 @@ git clone https://github.com/Terra88/ArchXyrif <br>
 cd ArchXyrif <br>
 chmod +x archlinux-installer.sh <br>
 ./archlinux-installer.sh <br> <br>
-<img width="845" height="775" alt="2025-11-04-230326_hyprshot" src="https://github.com/user-attachments/assets/8bcb6d0a-cd96-4ba8-8ffd-0f9743637fb1" />
+<img width="422" height="332" alt="2025-11-04-230326_hyprshot" src="https://github.com/user-attachments/assets/8bcb6d0a-cd96-4ba8-8ffd-0f9743637fb1" />
 
 Versio 1.0 - Automated arch linux install script - archlinux-installer.sh
 https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
