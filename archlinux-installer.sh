@@ -322,6 +322,7 @@ pacstrap /mnt "${PKGS[@]}"
 # 3) Generate fstab
 echo "Generating /etc/fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
+echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
 
 # 4) Basic variables for chroot steps (defaults provided)
