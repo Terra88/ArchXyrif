@@ -53,6 +53,10 @@ timedatectl set-ntp true
 #
 # WARNING: destructive. Run as root. Double-check device before continuing.
 
+#===================================================================================================#
+# Disk Selection & Format
+#===================================================================================================#
+
 # Helpers
 confirm() {
   # ask Yes/No, return 0 if yes
@@ -122,6 +126,10 @@ for sw in $(cat /proc/swaps | awk 'NR>1 {print $1}'); do
   fi
 done
 
+#===================================================================================================#
+# Clearing Partition Tables / Luks / LVM Signatures
+#===================================================================================================#
+
 # 4) Clear partition table / LUKS / LVM signatures
 echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
 which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
@@ -156,6 +164,10 @@ if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
   last_offset=$((devsize_bytes - 1*1024*1024))
   dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
 fi
+
+#===================================================================================================#
+# Re-Partitioning Selected Drive
+#===================================================================================================#
 
 partprobe "$DEV" || true
 
@@ -248,6 +260,10 @@ if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
   sleep 2
 fi
 
+#===================================================================================================#
+# Mounting Created Partitions
+#===================================================================================================#
+
 # 8) Filesystems
 echo "Creating filesystems:"
 echo "  EFI -> $P1 (FAT32)"
@@ -294,8 +310,11 @@ mount "$P4" /mnt/home
 echo "Enabling swap on $P3..."
 swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 
-# 2) Pacstrap: base system + recommended packages for basic use
+#===================================================================================================#
+# 2) Pacstra: Installing Base system + recommended packages for basic use
+#===================================================================================================#
 # You can modify the package list below as needed.
+
 PKGS=(
   base
   base-devel
@@ -320,13 +339,19 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 
-# 3) Generate fstab
+#===================================================================================================#
+# 3) Generating fstab & Showing Partition Table / Mountpoints
+#===================================================================================================#
+
 echo "Generating /etc/fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
 
-# 4) Basic variables for chroot steps (defaults provided)
+#===================================================================================================#
+# 4) Setting Basic variables for chroot (defaults provided)
+#===================================================================================================#
+
 DEFAULT_TZ="Europe/Helsinki"
 read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
 TZ="${TZ:-$DEFAULT_TZ}"
@@ -343,31 +368,34 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
-
-#====================================================================================================================================
-# 9) Install GRUB for UEFI 
+#===================================================================================================#
+# 5) Installing GRUB for UEFI - Requires tinkering
+#===================================================================================================#
 # EFI partition is expected to be mounted on /boot (as done before chroot)
-#echo "Installing GRUB (UEFI)..."
+echo "Installing GRUB (UEFI)..."
 
-mkdir -p /mnt/boot/efi
-mkdir -p /mnt/boot/EFI/BOOT
-mkdir -p /mnt/boot/grub
-mkdir -p /mnt/boot/grub/fonts
-mkdir -p /mnt/boot/grub/locale
-mkdir -p /mnt/boot/grub/themes
-mkdir -p /mnt/boot/grub/themes/starfield
-mkdir -p /mnt/boot/grub/x86_64-efi
+#mkdir -p /mnt/boot/efi
+#mkdir -p /mnt/boot/EFI/BOOT
+#mkdir -p /mnt/boot/grub
+#mkdir -p /mnt/boot/grub/fonts
+#mkdir -p /mnt/boot/grub/locale
+#mkdir -p /mnt/boot/grub/themes
+#mkdir -p /mnt/boot/grub/themes/starfield
+#mkdir -p /mnt/boot/grub/x86_64-efi
 
 
 GRUB_MODULES="ext2 fat part_gpt part_msdos linux search search_fs_uuid search_fs_file search_label normal efinet all_video boot btrfs cat chain configfile echo efifwsetup efinet ext2 fat font gettext gfxmenu gfxterm gfxterm_background gzio halt help hfsplus iso9660 jpeg keystatus loadenv loopback linux ls lsefi lsefimmap lsefisystab lssal memdisk minicmd normal ntfs part_apple part_msdos part_gpt password_pbkdf2 png probe reboot regexp search search_fs_uuid search_fs_file search_label serial sleep smbios squash4 test tpm true video xfs zfs zfscrypt zfsinfo cpuid play cryptodisk gcry_arcfour gcry_blowfish gcry_camellia gcry_cast5 gcry_crc gcry_des gcry_dsa gcry_idea gcry_md4 gcry_md5 gcry_rfc2268 gcry_rijndael gcry_rmd160 gcry_rsa gcry_seed gcry_serpent gcry_sha1 gcry_sha256 gcry_sha512 gcry_tiger gcry_twofish gcry_whirlpool luks lvm mdraid09 mdraid1x raid5rec raid6rec http tftp"
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi/ --modules="$GRUB_MODULES" --sbat /usr/share/grub/sbat.csv
+arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --modules="$GRUB_MODULES" --sbat /usr/share/grub/sbat.csv
 arch-chroot /mnt efibootmgr --unicode --disk $P1 --part 1 --create --label "Arch-shim" --loader /EFI/BOOT/BOOTX64.EFI
 
 #arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-#======================================================================================================================================
 
-# Create an inline script for arch-chroot operations
+#===================================================================================================#
+# 6) Running chroot and setting mkinitcpio - Setting Systemname, username, enabling services etc.
+#===================================================================================================#
+# inline script for arch-chroot operations "postinstall.sh"
+
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -435,30 +463,28 @@ systemctl enable sshd
 
 echo "Postinstall inside chroot finished."
 EOF
-
-#==============================================================================================================
-#set -euo pipefail
-
-# 6) Inject variables into /mnt/root/postinstall.sh
+#===================================================================================================#
+# 7) Inject variables into /mnt/root/postinstall.sh
+#===================================================================================================#
 # Replace placeholders with actual values (safe substitution)
+
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 
-
 # Make the script executable
 chmod +x /mnt/root/postinstall.sh
 
-# 7) chroot and run postinstall.sh
+# chroot and run postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
 
-# ---------------------------
-# Extra packages installation (official + AUR)
-# ---------------------------
-
+#===================================================================================================#
+# 8) Extra Pacman/Aur package lists.
+#===================================================================================================#
 # Define the lists below — edit as you like
+
 EXTRA_PKGS=(
     blueman
     bluez
@@ -543,7 +569,7 @@ EXTRA_PKGS=(
     xorg-server
     xorg-xinit
     zram-generator
-    #base-devel  # needed for AUR building
+    base-devel  # needed for AUR building
 )
 
 AUR_PKGS=(
@@ -564,13 +590,20 @@ wlrobs-hg
 xdg-desktop-portal-hyprland-git
 )
 
-# Optional prompt
+#===================================================================================================#
+# 9) Pacman - Extra Package Installer promt & runner.
+#===================================================================================================#
+
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
   echo "Installing extra packages inside chroot..."
   arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
 fi
+
+#===================================================================================================#
+# 10) AUR - Extra Package Installer promt & runner in chroot - Requires tinkering
+#===================================================================================================#
 
 echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
@@ -584,6 +617,7 @@ mount --bind /sys /mnt/sys
 mount --bind /dev /mnt/dev
 mount --bind /run /mnt/run
 
+#Entering Chroot
 cat > /mnt/root/install_aur.sh <<'AURINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -642,8 +676,13 @@ arch-chroot /mnt /root/install_aur.sh
 rm -f /mnt/root/install_aur.sh
 
 fi
+#===================================================================================================#
+# 11 Hyprland Configs - "Coming Later"
+#===================================================================================================#
 
-#===================================================================================================
+#===================================================================================================#
+# 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
+#===================================================================================================#
 echo
 echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
@@ -657,10 +696,10 @@ echo "  swapoff ${P3} || true"
 e
 cho "  reboot"
 
-# 8) Cleanup postinstall script
+#Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
 
-# 9) Final messages & instructions
+#Final messages & instructions
 echo
 echo "Installation base and basic configuration finished."
 echo "Suggested next steps:"
