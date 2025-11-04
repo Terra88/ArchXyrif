@@ -629,32 +629,46 @@ xdg-desktop-portal-hyprland-git
 )
 
 #===================================================================================================#
-# 9) Pacman - Extra Package Installer promt & runner.
+# 9) Extra Pacman Packages Installer (Optional)
 #===================================================================================================#
-
-echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
-  echo "Installing extra packages inside chroot..."
-  
-# Enable multilib repo inside chroot
-sed -i '/^\[multilib\]/,/Include/ s/^#//' /mnt/etc/pacman.conf
+    echo "Installing extra packages inside chroot..."
+    
+    # Enable multilib repo inside chroot
+    arch-chroot /mnt bash -c "sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf && pacman -Sy"
 
-# Sync package database inside chroot
-arch-chroot /mnt pacman -Sy
-
-# Upgrade and install extra packages inside chroot
-arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
+    # Install EXTRA_PKGS
+    arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
+else
+    echo "Skipping extra official packages."
 fi
 
 #===================================================================================================#
-# 10) AUR - Extra Package Installer promt & runner in chroot - Requires tinkering
+# 10) AUR Package Installer (Optional)
 #===================================================================================================#
-
-echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-  echo "Setting up yay AUR helper inside chroot..."
+    echo "Preparing AUR installation inside chroot..."
+
+    # Ensure network and bind mounts for chroot
+    cp /etc/resolv.conf /mnt/etc/resolv.conf
+    for dir in proc sys dev run; do
+        mount --bind "/$dir" "/mnt/$dir"
+    done
+
+    # Run AUR installer
+    arch-chroot /mnt /root/install_aur.sh
+
+    # Cleanup bind mounts
+    for dir in run dev sys proc; do
+        umount -l "/mnt/$dir" 2>/dev/null || true
+    done
+else
+    echo "Skipping AUR installation."
+fi
+
+echo "Package installation steps complete. Continuing..."
 
   cp /etc/resolv.conf /mnt/etc/resolv.conf
   mount --bind /proc /mnt/proc
