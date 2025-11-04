@@ -637,10 +637,14 @@ read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 if [[ "$install_extra" =~ ^[Yy]$ ]]; then
   echo "Installing extra packages inside chroot..."
   
-  # Enable multilib repo inside chroot(remove/add # before sed however you wish)
-  sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
-  arch-chroot / mnt pacman -Sy
-  arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
+# Enable multilib repo inside chroot
+sed -i '/^\[multilib\]/,/Include/ s/^#//' /mnt/etc/pacman.conf
+
+# Sync package database inside chroot
+arch-chroot /mnt pacman -Sy
+
+# Upgrade and install extra packages inside chroot
+arch-chroot /mnt pacman -Syu --noconfirm "${EXTRA_PKGS[@]}"
 fi
 
 #===================================================================================================#
