@@ -627,125 +627,74 @@ xdg-desktop-portal-hyprland-git
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages in one chroot session (fixed)
+# 9) Installing extra Pacman and AUR packages
 #===================================================================================================#
 
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
-# --- Convert Y/N responses into numeric flags for injection ---
-if [[ "$install_extra" =~ ^[Yy]$ ]]; then
-    INSTALL_EXTRA=1
-else
-    INSTALL_EXTRA=0
-fi
+# Convert Y/N to numeric flags
+INSTALL_EXTRA=0
+INSTALL_AUR=0
+[[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
+[[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    INSTALL_AUR=1
-else
-    INSTALL_AUR=0
-fi
-
-# Skip if both are "no"
-if [[ "$INSTALL_EXTRA" -eq 0 && "$INSTALL_AUR" -eq 0 ]]; then
+# Skip everything if both are no
+if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     echo "Skipping extra package installation."
 else
-    # Convert Bash arrays to proper array syntax for injection
-    EXTRA_PKGS_STR=$(printf "'%s' " "${EXTRA_PKGS[@]}")
-    AUR_PKGS_STR=$(printf "'%s' " "${AUR_PKGS[@]}")
+    echo ">>> Preparing extra package installation inside chroot..."
 
-    echo ">>> Preparing /mnt/root/install_extra.sh"
+    # -------------------------------
+    # 1) Pacman packages
+    # -------------------------------
+    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+        arch-chroot /mnt pacman -Sy --noconfirm
+        arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+    else
+        echo "Skipping extra official packages..."
+    fi
 
-cat > /mnt/root/install_extra.sh <<'EXTRA_SCRIPT'
-#!/usr/bin/env bash
-set -euo pipefail
+    # -------------------------------
+    # 2) AUR packages
+    # -------------------------------
+    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+        echo "Installing AUR packages via yay..."
 
-NEWUSER="{{NEWUSER}}"
-INSTALL_AUR="{{INSTALL_AUR}}"
-INSTALL_EXTRA="{{INSTALL_EXTRA}}"
+        # Step 1: Ensure yay is installed as NEWUSER
+        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+        set -euo pipefail
+        if ! command -v yay >/dev/null 2>&1; then
+            echo "Installing yay AUR helper as $USER..."
+            cd ~
+            git clone https://aur.archlinux.org/yay.git
+            cd yay
+            makepkg -si --noconfirm --skippgpcheck
+            cd ..
+            rm -rf yay
+        fi
+        '
 
-EXTRA_PKGS=({EXTRA_PKGS})
-AUR_PKGS=({AUR_PKGS})
+        # Step 2: Install each AUR package individually
+        for pkg in "${AUR_PKGS[@]}"; do
+            echo "→ Installing AUR package: $pkg"
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+            set -euo pipefail
+            yay -S --needed --noconfirm --removemake --disable-download-timeout --aur $pkg || \
+            echo '⚠️ Failed to install $pkg, skipping...'
+            "
+        done
 
-# --- Fix repo setup for missing lib32 etc ---
-sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
-pacman -Sy --noconfirm
-
-# --- Install essential build deps ---
-pacman -Sy --noconfirm --needed base-devel git sudo go
-
-# Ensure correct permissions
-chown -R "${NEWUSER}:${NEWUSER}" "/home/${NEWUSER}"
-
-# --- Regular package install ---
-if [[ "$INSTALL_EXTRA" -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-  echo "Installing extra packages: ${EXTRA_PKGS[*]}"
-  pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-else
-  echo "Skipping extra packages..."
+        echo "✅ AUR packages installation complete!"
+    else
+        echo "Skipping AUR packages..."
+    fi
 fi
 
-# --- AUR package install (corrected) ---
-if [[ "$INSTALL_AUR" -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-  echo "Installing AUR packages via yay..."
-
-  sudo -u "${NEWUSER}" bash <<INNER
-set -euo pipefail
-cd ~
-
-# Ensure network is up (optional but recommended)
-if ! ping -c 1 aur.archlinux.org &>/dev/null; then
-  echo "⚠️ Warning: Network seems down inside chroot. Make sure NetworkManager is enabled."
-fi
-
-# Install yay if not already installed
-if ! command -v yay >/dev/null 2>&1; then
-  echo "Installing yay AUR helper..."
-  git clone https://aur.archlinux.org/yay.git
-  cd yay
-  makepkg -si --noconfirm --skippgpcheck
-  cd ..
-  rm -rf yay
-fi
-
-# Update pacman & yay DB including AUR
-pacman -Sy --noconfirm
-yay -Syu --noconfirm --aur || true
-
-# Install AUR packages one by one
-for pkg in "${AUR_PKGS[@]}"; do
-  echo "→ Installing AUR package: \$pkg"
-  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "\$pkg" || {
-    echo "⚠️ Failed to install \$pkg. Skipping..."
-  }
-done
-
-echo "✅ AUR packages installation complete!"
-INNER
-else
-  echo "Skipping AUR packages..."
-fi
-
-echo "✅ Extra installation complete!"
-EXTRA_SCRIPT
-
-    # --- Inject dynamic variables safely ---
-    EXTRA_PKGS_STR=$(printf "\"%s\" " "${EXTRA_PKGS[@]}")
-    AUR_PKGS_STR=$(printf "\"%s\" " "${AUR_PKGS[@]}")
-
-    sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_extra.sh
-    sed -i "s|{{INSTALL_AUR}}|${INSTALL_AUR}|g" /mnt/root/install_extra.sh
-    sed -i "s|{{INSTALL_EXTRA}}|${INSTALL_EXTRA}|g" /mnt/root/install_extra.sh
-    sed -i "s|{EXTRA_PKGS}|${EXTRA_PKGS_STR}|g" /mnt/root/install_extra.sh
-    sed -i "s|{AUR_PKGS}|${AUR_PKGS_STR}|g" /mnt/root/install_extra.sh
-
-    chmod +x /mnt/root/install_extra.sh
-    echo "▶ Running extra installation inside chroot..."
-    arch-chroot /mnt /root/install_extra.sh
-    rm -f /mnt/root/install_extra.sh
-fi
-
+echo
+echo "▶ Extra installation phase finished."
 
 #===================================================================================================#
 # 10 Hyprland Configs - "Coming Later"
