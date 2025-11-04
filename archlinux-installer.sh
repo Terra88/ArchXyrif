@@ -429,6 +429,7 @@ echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 
 # 8) Alternatively, enable wheel group sudo rights (optional)
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 # sed -i -E 's/^#?\s*%wheel\s+ALL=\(ALL(:ALL)?\)\s+ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 # 9) Enable basic services
