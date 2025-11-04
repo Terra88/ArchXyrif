@@ -367,22 +367,69 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
-#mkdir -p /mnt/boot/efi
-#mkdir -p /mnt/boot/EFI/BOOT
-#mkdir -p /mnt/boot/grub
-#mkdir -p /mnt/boot/grub/fonts
-#mkdir -p /mnt/boot/grub/locale
-#mkdir -p /mnt/boot/grub/themes
-#mkdir -p /mnt/boot/grub/themes/starfield
-#mkdir -p /mnt/boot/grub/x86_64-efi
+# Determine EFI partition mountpoint and ensure it’s /boot/efi
+if ! mountpoint -q /mnt/boot/efi; then
+  echo "→ Remounting EFI system partition under /boot/efi..."
+  mkdir -p /mnt/boot/efi
+  umount /mnt/boot 2>/dev/null || true
+  mount "$P2" /mnt/boot        # root
+  mount "$P1" /mnt/boot/efi    # EFI
+fi
+
+# Basic, minimal GRUB modules needed for UEFI boot
+GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+
+# Run grub-install safely inside chroot
+arch-chroot /mnt grub-install \
+  --target=x86_64-efi \
+  --efi-directory=/boot/efi \
+  --bootloader-id=GRUB \
+  --modules="$GRUB_MODULES" \
+  --recheck \
+  --no-nvram
+
+# Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
+echo "→ Copying fallback EFI binary..."
+arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+# Ensure a clean efibootmgr entry (use the parent disk of $P1)
+DISK="${DEV}"
+PARTNUM=1
+LABEL="Arch Linux"
+LOADER='\EFI\GRUB\grubx64.efi'
+
+# Delete stale entries with same label to avoid duplicates
+for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+  efibootmgr -b "$bootnum" -B || true
+done
+
+# Create new entry
+efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+
+# Generate GRUB config inside chroot
+arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+# Secure Boot Integration
+if command -v sbctl >/dev/null 2>&1; then
+  echo "→ Signing EFI binaries for Secure Boot..."
+  arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+  arch-chroot /mnt sbctl enroll-keys --microsoft
+  arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+  arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+fi
+
+echo "GRUB installation complete."
+echo
+echo "Verifying EFI boot entries..."
+efibootmgr -v || true
 
 
-GRUB_MODULES="ext2 fat part_gpt part_msdos linux search search_fs_uuid search_fs_file search_label normal efinet all_video boot btrfs cat chain configfile echo efifwsetup efinet ext2 fat font gettext gfxmenu gfxterm gfxterm_background gzio halt help hfsplus iso9660 jpeg keystatus loadenv loopback linux ls lsefi lsefimmap lsefisystab lssal memdisk minicmd normal ntfs part_apple part_msdos part_gpt password_pbkdf2 png probe reboot regexp search search_fs_uuid search_fs_file search_label serial sleep smbios squash4 test tpm true video xfs zfs zfscrypt zfsinfo cpuid play cryptodisk gcry_arcfour gcry_blowfish gcry_camellia gcry_cast5 gcry_crc gcry_des gcry_dsa gcry_idea gcry_md4 gcry_md5 gcry_rfc2268 gcry_rijndael gcry_rmd160 gcry_rsa gcry_seed gcry_serpent gcry_sha1 gcry_sha256 gcry_sha512 gcry_tiger gcry_twofish gcry_whirlpool luks lvm mdraid09 mdraid1x raid5rec raid6rec http tftp"
-arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --modules="$GRUB_MODULES" --sbat /usr/share/grub/sbat.csv
-arch-chroot /mnt efibootmgr --unicode --disk $P1 --part 1 --create --label "Arch-shim" --loader /EFI/BOOT/BOOTX64.EFI
-
-#arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
-#arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+# Grub Troubleshoot if needed - commands are here after install - you can run:
+# efibootmgr -v
+# ls /boot/efi/EFI/
+#-Should Show:
+# /boot/efi/EFI/GRUB/grubx64.efi
+# /boot/efi/EFI/Boot/BOOTX64.EFI
 
 #===================================================================================================#
 # 6) Running chroot and setting mkinitcpio - Setting Systemname, username, enabling services etc.
