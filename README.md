@@ -3,7 +3,7 @@
 Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 MIT License - Copyright (c) 2025 Terra88 - Read LICENCE section for more.<br>
 <br>
-HOW TO USE:<br>
+HOW TO USE: From Archlinux Bootable installer ISO(USB ETC) booted:<br>
 loadkeys fi or en etc. 
 <br>
 git clone https://github.com/Terra88/ArchXyrif <br>
