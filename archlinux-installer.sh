@@ -299,6 +299,7 @@ swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 PKGS=(
   base
   base-devel
+  go
   git
   grub
   linux
@@ -541,13 +542,19 @@ EXTRA_PKGS=(
 AUR_PKGS=(
 hyprland-protocols-git
 hyprlang-git
-hyprutils-git 
-hyprwayland-scanner-git 
-kvantum-theme-catppuccin-git 
-qt6ct-kde 
-wlogout 
-wlrobs-hg 
-xdg-desktop-portal-hyprland-git 
+hyprutils-git
+hyprwayland-scanner-git
+kvantum-theme-catppuccin-git
+obs-studio-git
+proton-ge-custom
+protonup-qt
+python-inputs
+python-steam
+python-vdf
+qt6ct-kde
+wlogout
+wlrobs-hg
+xdg-desktop-portal-hyprland-git
 )
 
 # Optional prompt
