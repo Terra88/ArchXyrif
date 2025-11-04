@@ -360,6 +360,7 @@ mkdir -p /mnt/boot/grub/x86_64-efi
 
 GRUB_MODULES="ext2 fat part_gpt part_msdos linux search search_fs_uuid search_fs_file search_label normal efinet all_video boot btrfs cat chain configfile echo efifwsetup efinet ext2 fat font gettext gfxmenu gfxterm gfxterm_background gzio halt help hfsplus iso9660 jpeg keystatus loadenv loopback linux ls lsefi lsefimmap lsefisystab lssal memdisk minicmd normal ntfs part_apple part_msdos part_gpt password_pbkdf2 png probe reboot regexp search search_fs_uuid search_fs_file search_label serial sleep smbios squash4 test tpm true video xfs zfs zfscrypt zfsinfo cpuid play cryptodisk gcry_arcfour gcry_blowfish gcry_camellia gcry_cast5 gcry_crc gcry_des gcry_dsa gcry_idea gcry_md4 gcry_md5 gcry_rfc2268 gcry_rijndael gcry_rmd160 gcry_rsa gcry_seed gcry_serpent gcry_sha1 gcry_sha256 gcry_sha512 gcry_tiger gcry_twofish gcry_whirlpool luks lvm mdraid09 mdraid1x raid5rec raid6rec http tftp"
 arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi/ --modules="$GRUB_MODULES" --sbat /usr/share/grub/sbat.csv
+arch-chroot /mnt efibootmgr --unicode --disk $P1 --part 1 --create --label "Arch-shim" --loader /EFI/BOOT/BOOTX64.EFI
 
 #arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
 #arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
