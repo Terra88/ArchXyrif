@@ -609,23 +609,23 @@ EXTRA_PKGS=(
     zram-generator
     base-devel  # needed for AUR building
 )
-
+#Wrap AUR packages in quotes " " 
 AUR_PKGS=(
-hyprland-protocols-git
-hyprlang-git
-hyprutils-git
-hyprwayland-scanner-git
-kvantum-theme-catppuccin-git
-obs-studio-git
-proton-ge-custom
-protonup-qt
-python-inputs
-python-steam
-python-vdf
-qt6ct-kde
-wlogout
-wlrobs-hg
-xdg-desktop-portal-hyprland-git
+"hyprland-protocols-git"
+"hyprlang-git"
+"hyprutils-git"
+"hyprwayland-scanner-git"
+"kvantum-theme-catppuccin-git"
+"obs-studio-git"
+"proton-ge-custom"
+"protonup-qt"
+"python-inputs"
+"python-steam"
+"python-vdf"
+"qt6ct-kde"
+"wlogout"
+"wlrobs-hg"
+"xdg-desktop-portal-hyprland-git"
 )
 
 #===================================================================================================#
@@ -645,63 +645,40 @@ else
 fi
 
 #===================================================================================================#
-# 10) AUR Package Installer (Optional)
+# 10) AUR - Extra Package Installer promt & runner in chroot
 #===================================================================================================#
+echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    echo "Preparing AUR installation inside chroot..."
+  echo "Setting up yay AUR helper inside chroot..."
 
-    # Ensure network and bind mounts for chroot
-    cp /etc/resolv.conf /mnt/etc/resolv.conf
-    for dir in proc sys dev run; do
-        mount --bind "/$dir" "/mnt/$dir"
-    done
-
-    # Run AUR installer
-    arch-chroot /mnt /root/install_aur.sh
-
-    # Cleanup bind mounts
-    for dir in run dev sys proc; do
-        umount -l "/mnt/$dir" 2>/dev/null || true
-    done
-else
-    echo "Skipping AUR installation."
-fi
-
-echo "Package installation steps complete. Continuing..."
-
+  # Ensure networking and bind mounts
   cp /etc/resolv.conf /mnt/etc/resolv.conf
-  mount --bind /proc /mnt/proc
-  mount --bind /sys /mnt/sys
-  mount --bind /dev /mnt/dev
-  mount --bind /run /mnt/run
+  for dir in proc sys dev run; do
+    mount --bind "/$dir" "/mnt/$dir"
+  done
 
+  # Create chroot AUR installer script
   cat > /mnt/root/install_aur.sh <<'AURINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
+
 NEWUSER="{{NEWUSER}}"
+AUR_PKGS=({{AUR_PKGS}})
 
-# Ensure network
-ping -c1 aur.archlinux.org >/dev/null 2>&1 || {
-  echo "⚠️ Network unavailable inside chroot."
-  exit 1
-}
+# 1) Ensure network connectivity
+ping -c1 aur.archlinux.org >/dev/null 2>&1 || { echo "⚠️ Network unavailable inside chroot."; exit 1; }
 
-# Install essentials
-pacman -Sy --noconfirm --needed base-devel git sudo go
-chown -R "${NEWUSER}:${NEWUSER}" /home/${NEWUSER}
+# 2) Install prerequisites as root
+pacman -Sy --noconfirm --needed base-devel git sudo
 
-# Enable multilib repository for 32-bit dependencies
-sed -i '/^\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
-pacman -Sy --noconfirm
-
-sudo -u "${NEWUSER}" bash <<'INNER'
+# 3) Switch to NEWUSER for yay operations
+sudo -u "${NEWUSER}" bash <<'YAYINNER'
 set -euo pipefail
 cd ~
 
 # Install yay if missing
 if ! command -v yay >/dev/null 2>&1; then
-  echo "Installing yay AUR helper..."
   git clone https://aur.archlinux.org/yay.git
   cd yay
   makepkg -si --noconfirm --skippgpcheck
@@ -709,36 +686,28 @@ if ! command -v yay >/dev/null 2>&1; then
   rm -rf yay
 fi
 
-AUR_PKGS=({{AUR_PKGS}})
-if [ ${#AUR_PKGS[@]} -eq 0 ]; then
-  echo "No AUR packages specified."
-  exit 0
+# Update package database and install AUR packages
+yay -Sy --noconfirm
+if [ ${#AUR_PKGS[@]} -gt 0 ]; then
+  yay -S --needed --noconfirm "${AUR_PKGS[@]}"
 fi
-
-# Initialize yay DB
-yay -Y --gendb || true
-
-# Install AUR packages
-yay -S --needed --noconfirm --removemake --disable-download-timeout "${AUR_PKGS[@]}" || {
-  echo "⚠️ Retry with AUR-only mode..."
-  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "${AUR_PKGS[@]}"
-}
-INNER
+YAYINNER
 AURINSTALL
 
-  echo "DEBUG: AUR_PKGS=${AUR_PKGS[*]}"
-
+  # Inject variables safely
   sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
-  sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]//|/\\|}|g" /mnt/root/install_aur.sh
+  # Convert array to quoted space-separated list
+  sed -i "s|{{AUR_PKGS}}|\"${AUR_PKGS[@]}\"|g" /mnt/root/install_aur.sh
 
   chmod +x /mnt/root/install_aur.sh
   echo "▶ Running AUR installation inside chroot..."
-  cp /etc/resolv.conf /mnt/etc/resolv.conf
   arch-chroot /mnt /root/install_aur.sh
   rm -f /mnt/root/install_aur.sh
 
-  # Optional cleanup
-  umount -R /mnt/proc /mnt/sys /mnt/dev /mnt/run 2>/dev/null || true
+  # Cleanup bind mounts
+  for dir in run dev sys proc; do
+    umount -l "/mnt/$dir" 2>/dev/null || true
+  done
 fi
 
 #===================================================================================================#
