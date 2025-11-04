@@ -5,8 +5,8 @@ Automated Install Script for Archinstall
 loadkeys fi - en - etc. 
 <br>
 git clone https://github.com/Terra88/ArchXyrif <br>
-chmod -R +x /ArchXyrif/ <br>
 cd ArchXyrif <br>
+chmod +x archlinux-installer.sh <br>
 ./archlinux-installer.sh <br> <br>
 
 
