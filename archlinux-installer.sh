@@ -604,33 +604,29 @@ fi
 echo
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-echo "Setting up yay AUR helper inside chroot..."
-#arch-chroot /mnt pacman -Syu --noconfirm "${AUR_PKGS[*]}"
+  echo "Setting up yay AUR helper inside chroot..."
 
-cp /etc/resolv.conf /mnt/etc/resolv.conf
-mount --bind /proc /mnt/proc
-mount --bind /sys /mnt/sys
-mount --bind /dev /mnt/dev
-mount --bind /run /mnt/run
+  cp /etc/resolv.conf /mnt/etc/resolv.conf
+  mount --bind /proc /mnt/proc
+  mount --bind /sys /mnt/sys
+  mount --bind /dev /mnt/dev
+  mount --bind /run /mnt/run
 
-#Entering Chroot
-cat > /mnt/root/install_aur.sh <<'AURINSTALL'
+  cat > /mnt/root/install_aur.sh <<'AURINSTALL'
 #!/usr/bin/env bash
 set -euo pipefail
-
 NEWUSER="{{NEWUSER}}"
 
-# Ensure networking works inside chroot
-ping -c1 archlinux.org >/dev/null 2>&1 || {
-  echo "⚠️ Network appears unavailable inside chroot."
+# Ensure network
+ping -c1 aur.archlinux.org >/dev/null 2>&1 || {
+  echo "⚠️ Network unavailable inside chroot."
   exit 1
 }
 
-# Ensure base-devel and git are present
-pacman -Sy --noconfirm --needed base-devel git sudo
+# Install essentials
+pacman -Sy --noconfirm --needed base-devel git sudo go
 chown -R "${NEWUSER}:${NEWUSER}" /home/${NEWUSER}
 
-# Switch to non-root user to build AUR packages
 sudo -u "${NEWUSER}" bash <<'INNER'
 set -euo pipefail
 cd ~
@@ -640,38 +636,43 @@ if ! command -v yay >/dev/null 2>&1; then
   echo "Installing yay AUR helper..."
   git clone https://aur.archlinux.org/yay.git
   cd yay
-  makepkg -si --noconfirm
+  makepkg -si --noconfirm --skippgpcheck
   cd ..
   rm -rf yay
 fi
 
-# AUR package list (injected)
 AUR_PKGS=({{AUR_PKGS}})
-
-# Sanity check
 if [ ${#AUR_PKGS[@]} -eq 0 ]; then
   echo "No AUR packages specified."
   exit 0
 fi
 
-# Install AUR packages
-yay -S --needed --noconfirm "${AUR_PKGS[@]}"
-INNER
+# Initialize yay DB
+yay -Y --gendb || true
 
+# Install AUR packages
+yay -S --needed --noconfirm --removemake --disable-download-timeout "${AUR_PKGS[@]}" || {
+  echo "⚠️ Retry with AUR-only mode..."
+  yay -S --needed --noconfirm --removemake --disable-download-timeout --aur "${AUR_PKGS[@]}"
+}
+INNER
 AURINSTALL
 
-# Inject variables
-sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
-sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]}|g" /mnt/root/install_aur.sh
+  echo "DEBUG: AUR_PKGS=${AUR_PKGS[*]}"
 
-chmod +x /mnt/root/install_aur.sh
-echo "▶ Running AUR installation inside chroot..."
+  sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/install_aur.sh
+  sed -i "s|{{AUR_PKGS}}|${AUR_PKGS[*]//|/\\|}|g" /mnt/root/install_aur.sh
 
-arch-chroot /mnt pacman -Sy --noconfirm --needed base-devel git
-arch-chroot /mnt /root/install_aur.sh
-rm -f /mnt/root/install_aur.sh
+  chmod +x /mnt/root/install_aur.sh
+  echo "▶ Running AUR installation inside chroot..."
+  cp /etc/resolv.conf /mnt/etc/resolv.conf
+  arch-chroot /mnt /root/install_aur.sh
+  rm -f /mnt/root/install_aur.sh
 
+  # Optional cleanup
+  umount -R /mnt/proc /mnt/sys /mnt/dev /mnt/run 2>/dev/null || true
 fi
+
 #===================================================================================================#
 # 11 Hyprland Configs - "Coming Later"
 #===================================================================================================#
