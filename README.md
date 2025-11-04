@@ -47,4 +47,6 @@ Features:<br>
 <br>
 -Doesnt set up gui for window manager or loginmanager yet, so those are coming in the near future.
 <br>
+-For now this particular version boots to login prompt and after that you can type hyprland and press enter to get to hyprland window manager. No configs added yet.
+<br>
 -And more, just happy it finally works and have the first working version of it.
