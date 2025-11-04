@@ -83,11 +83,11 @@ die() {
   exit 1
 }
 
-# 1) Show devices
+# Show devices
 echo "Available block devices (lsblk):"
 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
 
-# 2) Ask device
+# Ask device
 read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
 DEV="${DEV:-}"
 
@@ -106,7 +106,7 @@ if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; t
   die "User cancelled."
 fi
 
-# 3) Unmount any mounted partitions and swapoff
+# Unmount any mounted partitions and swapoff
 echo "Attempting to unmount any mounted partitions and disable swap on $DEV..."
 mapfile -t MOUNTS < <(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!="" {print $1":"$2}')
 for m in "${MOUNTS[@]:-}"; do
@@ -130,7 +130,7 @@ done
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
 #===================================================================================================#
 
-# 4) Clear partition table / LUKS / LVM signatures
+# Clear partition table / LUKS / LVM signatures
 echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
 which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
 which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
@@ -171,7 +171,7 @@ fi
 
 partprobe "$DEV" || true
 
-# 5) Compute sizes
+# Compute sizes
 # EFI: 1024 MiB
 EFI_SIZE_MIB=1024
 
@@ -205,7 +205,7 @@ if ! confirm "Proceed to partition $DEV with the sizes above?"; then
   die "User cancelled."
 fi
 
-# 6) Partitioning with parted (using MiB units)
+# Partitioning with parted (using MiB units)
 which parted >/dev/null 2>&1 || die "parted required but not found."
 
 echo "Creating GPT label and partitions..."
@@ -243,7 +243,7 @@ parted -s "$DEV" set 1 boot on
 partprobe "$DEV"
 sleep 1
 
-# 7) Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+# Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
 PSUFF=$(part_suffix "$DEV")
 P1="${DEV}${PSUFF}1"
 P2="${DEV}${PSUFF}2"
@@ -264,7 +264,7 @@ fi
 # 1.3) Mounting Created Partitions
 #===================================================================================================#
 
-# 8) Filesystems
+# Filesystems
 echo "Creating filesystems:"
 echo "  EFI -> $P1 (FAT32)"
 echo "  Root -> $P2 (ext4)"
