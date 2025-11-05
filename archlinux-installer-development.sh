@@ -547,61 +547,74 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# GPU DRIVER SELECTION & INSTALLATION
+# 9A) GPU DRIVER SELECTION MODULE
 #===================================================================================================#
 
 echo
-echo "==================== GPU DRIVER INSTALLATION ===================="
-
-echo "Select your GPU setup:"
-echo "  1) Intel (integrated)"
-echo "  2) NVIDIA (dedicated)"
-echo "  3) Hybrid Intel+NVIDIA (Optimus / PRIME)"
-echo "  4) AMD"
-echo "  5) Install all available GPU drivers (desktop testing)"
-read -r -p "Enter choice [1-5]: " GPU_CHOICE
+echo "GPU DRIVER INSTALLATION OPTIONS:"
+echo "1) Intel (integrated)"
+echo "2) NVIDIA (discrete / hybrid)"
+echo "3) AMD (desktop GPU)"
+echo "4) All available drivers (Intel + NVIDIA + AMD)"
+read -r -p "Select your GPU to install drivers for [1-4]: " GPU_CHOICE
 
 GPU_PKGS=()
 
 case "$GPU_CHOICE" in
-  1)
-    echo "→ Installing Intel GPU drivers..."
-    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-    ;;
-  2)
-    echo "→ Installing NVIDIA GPU drivers..."
-    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
-    ;;
-  3)
-    echo "→ Installing Intel + NVIDIA (Hybrid / PRIME) drivers..."
-    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
-    ;;
-  4)
-    echo "→ Installing AMD GPU drivers..."
-    GPU_PKGS+=(mesa mesa-vulkan-drivers vulkan-radeon lib32-mesa lib32-vulkan-radeon)
-    ;;
-  5)
-    echo "→ Installing ALL GPU drivers..."
-    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
-    GPU_PKGS+=(mesa mesa-vulkan-drivers vulkan-radeon lib32-mesa lib32-vulkan-radeon)
-    ;;
-  *)
-    echo "No valid choice selected. Skipping GPU driver installation."
-    GPU_PKGS=()
-    ;;
+    1)
+        # Intel integrated graphics
+        GPU_PKGS=(
+            xf86-video-intel
+            mesa
+            libva-intel-driver
+            vulkan-intel
+            lib32-mesa
+            lib32-vulkan-intel
+        )
+        ;;
+    2)
+        # NVIDIA discrete / hybrid
+        GPU_PKGS=(
+            nvidia
+            nvidia-settings
+            nvidia-utils
+            lib32-nvidia-utils
+            nvidia-prime
+            vulkan-icd-loader
+            lib32-vulkan-icd-loader
+        )
+        ;;
+    3)
+        # AMD GPU
+        GPU_PKGS=(
+            xf86-video-amdgpu
+            mesa
+            vulkan-radeon
+            lib32-mesa
+            lib32-vulkan-radeon
+        )
+        ;;
+    4)
+        # Install all
+        GPU_PKGS=(
+            xf86-video-intel mesa libva-intel-driver vulkan-intel lib32-mesa lib32-vulkan-intel
+            nvidia nvidia-settings nvidia-utils lib32-nvidia-utils nvidia-prime vulkan-icd-loader lib32-vulkan-icd-loader
+            xf86-video-amdgpu mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon
+        )
+        ;;
+    *)
+        echo "No valid GPU choice selected, skipping GPU driver installation."
+        GPU_PKGS=()
+        ;;
 esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    echo "→ Installing selected GPU packages inside chroot: ${GPU_PKGS[*]}"
+    echo "Selected GPU packages to install: ${GPU_PKGS[*]}"
     arch-chroot /mnt pacman -Sy --noconfirm
     arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
 else
-    echo "→ No GPU packages selected for installation."
+    echo "No GPU drivers will be installed."
 fi
-
-echo "================== GPU DRIVER INSTALLATION COMPLETE =================="
 #===================================================================================================#
 # 9B) Installing extra Pacman and AUR packages (with safe AUR automation)
 #===================================================================================================#
