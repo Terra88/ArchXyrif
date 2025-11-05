@@ -658,40 +658,75 @@ else
     fi
 
     # -------------------------------
-    # 2) AUR packages
+    # 2)Prepare AUR build environment inside chroot
+    # -------------------------------
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland-protocols pkgconf
+    cp -L /etc/resolv.conf /mnt/etc/resolv.conf
+    arch-chroot /mnt swapon -a || true
+    arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
+
+    # -------------------------------
+    # 3) AUR packages (Installer)
     # -------------------------------
     if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing AUR packages via yay..."
-
-        # Step 1: Ensure yay is installed as NEWUSER
+        echo "Installing AUR packages via yay (with logging and retries)..."
+    
         arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
-        set -euo pipefail
-        if ! command -v yay >/dev/null 2>&1; then
-            echo "Installing yay AUR helper as $USER..."
-            cd ~
-            git clone https://aur.archlinux.org/yay.git
-            cd yay
-            makepkg -si --noconfirm --skippgpcheck
-            cd ..
-            rm -rf yay
-        fi
-        '
-
-        # Step 2: Install each AUR package individually
-        for pkg in "${AUR_PKGS[@]}"; do
-            echo "→ Installing AUR package: $pkg"
-            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
             set -euo pipefail
-            yay -S --needed --noconfirm --removemake --disable-download-timeout --aur $pkg || \
-            echo '⚠️ Failed to install $pkg, skipping...'
-            "
-        done
-
-        echo "✅ AUR packages installation complete!"
+            LOGFILE="/var/log/aur-install.log"
+            mkdir -p "$(dirname "$LOGFILE")"
+            touch "$LOGFILE"
+    
+            echo "==============================" | tee -a "$LOGFILE"
+            echo " AUR installation started: $(date)" | tee -a "$LOGFILE"
+            echo "==============================" | tee -a "$LOGFILE"
+    
+            # Ensure yay exists
+            if ! command -v yay >/dev/null 2>&1; then
+                echo "Installing yay AUR helper..." | tee -a "$LOGFILE"
+                cd ~
+                git clone https://aur.archlinux.org/yay.git >>"$LOGFILE" 2>&1
+                cd yay
+                makepkg -si --noconfirm --skippgpcheck >>"$LOGFILE" 2>&1
+                cd ..
+                rm -rf yay
+            fi
+    
+            # Refresh AUR DB
+            yay -Y --gendb >>"$LOGFILE" 2>&1
+            yay -Syu --devel --noconfirm >>"$LOGFILE" 2>&1
+    
+            # Package install loop with retries
+            RETRIES=2
+            for pkg in '"${AUR_PKGS[@]}"'; do
+                echo -e "\n→ Installing $pkg ..." | tee -a "$LOGFILE"
+                attempt=1
+                success=0
+                while (( attempt <= RETRIES )); do
+                    if yay -S --needed --noconfirm --mflags "--skippgpcheck" "$pkg" >>"$LOGFILE" 2>&1; then
+                        echo "✅ $pkg installed successfully (attempt $attempt)" | tee -a "$LOGFILE"
+                        success=1
+                        break
+                    else
+                        echo "⚠️  $pkg failed (attempt $attempt)" | tee -a "$LOGFILE"
+                        sleep 3
+                    fi
+                    ((attempt++))
+                done
+                if (( success == 0 )); then
+                    echo "❌ $pkg failed to install after $RETRIES attempts" | tee -a "$LOGFILE"
+                fi
+            done
+    
+            echo -e "\n==============================" | tee -a "$LOGFILE"
+            echo " AUR installation completed: $(date)" | tee -a "$LOGFILE"
+            echo " Logs saved to $LOGFILE"
+        '
+    
+        echo "✅ AUR package installation (with logging) completed."
     else
         echo "Skipping AUR packages..."
     fi
-fi
 
 echo
 echo "▶ Extra installation phase finished."
@@ -703,50 +738,50 @@ echo "▶ Extra installation phase finished."
 echo
 echo "Checking for installed graphical login managers..."
 
-# List of common display managers
-DISPLAY_MANAGERS=(
-  gdm
-  sddm
-  lightdm
-  lxdm
-  ly
-)
-
-# Detect which one exists in chroot and enable it
-ENABLED_DM=""
-for dm in "${DISPLAY_MANAGERS[@]}"; do
-  if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
-    echo "→ Found display manager: ${dm}"
-    echo "→ Enabling ${dm}..."
-    arch-chroot /mnt systemctl enable "${dm}.service" || true
-    ENABLED_DM="${dm}"
-    break
-  fi
-done
-
-if [[ -n "$ENABLED_DM" ]]; then
-  echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
-else
-  echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) was found installed."
-  echo "   You can install and enable one manually after reboot, for example:"
-  echo "     pacman -S sddm && systemctl enable sddm"
-fi
-
-echo
-echo "GUI setup step complete."
-
-# Optional: set Hyprland as default session if present
-if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
-  echo "→ Hyprland detected. Ensuring XDG session file exists..."
-  arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
-    cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
-[Desktop Entry]
-Name=Hyprland
-Comment=Dynamic tiling Wayland compositor
-Exec=Hyprland
-Type=Application
-EOF'
-fi
+    # List of common display managers
+    DISPLAY_MANAGERS=(
+      gdm
+      sddm
+      lightdm
+      lxdm
+      ly
+    )
+    
+    # Detect which one exists in chroot and enable it
+    ENABLED_DM=""
+    for dm in "${DISPLAY_MANAGERS[@]}"; do
+      if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
+        echo "→ Found display manager: ${dm}"
+        echo "→ Enabling ${dm}..."
+        arch-chroot /mnt systemctl enable "${dm}.service" || true
+        ENABLED_DM="${dm}"
+        break
+      fi
+    done
+    
+    if [[ -n "$ENABLED_DM" ]]; then
+      echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
+    else
+      echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) was found installed."
+      echo "   You can install and enable one manually after reboot, for example:"
+      echo "     pacman -S sddm && systemctl enable sddm"
+    fi
+    
+    echo
+    echo "GUI setup step complete."
+    
+    # Optional: set Hyprland as default session if present
+    if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
+      echo "→ Hyprland detected. Ensuring XDG session file exists..."
+      arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
+        cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
+    [Desktop Entry]
+    Name=Hyprland
+    Comment=Dynamic tiling Wayland compositor
+    Exec=Hyprland
+    Type=Application
+    EOF'
+    fi
 
 #===================================================================================================#
 # 11 Hyprland - Configs / Theme downloader
