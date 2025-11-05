@@ -630,22 +630,54 @@ AUR_PKGS=(
 # 9) Installing extra Pacman and AUR packages (Updated for Hyprland)
 #===================================================================================================#
 
-    echo
+echo
     read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
     read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
-    
+
     INSTALL_EXTRA=0
     INSTALL_AUR=0
     [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
     [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
-    
+
     if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
         echo "Skipping extra package installation."
     else
         echo ">>> Preparing extra package installation inside chroot..."
-    
+
         # -------------------------------
-        # 1) Pacman packages
+        # Prevent obvious conflicts:
+        # remove any names in EXTRA_PKGS that are the same as AUR packages (avoid collisions)
+        # We'll compare base-names: strip common AUR suffixes from AUR list (-git, -bin, -r, etc.)
+        # -------------------------------
+        sanitize_pkgname() {
+            local p="$1"
+            # remove trailing -git, -bin, -r, -aurish suffixes commonly used
+            p="${p%-git}"
+            p="${p%-bin}"
+            p="${p%-r}"
+            echo "$p"
+        }
+
+        # Build a set of AUR base-names
+        declare -A AUR_BASE
+        for ap in "${AUR_PKGS[@]:-}"; do
+            base="$(sanitize_pkgname "$ap")"
+            AUR_BASE["$base"]=1
+        done
+
+        # Filter EXTRA_PKGS to remove duplicates (in-place)
+        NEW_EXTRA=()
+        for ep in "${EXTRA_PKGS[@]:-}"; do
+            if [[ -n "${AUR_BASE["$(sanitize_pkgname "$ep")"]+x}" ]]; then
+                echo "→ Skipping '${ep}' from EXTRA_PKGS because an AUR package provides it (to avoid conflicts)."
+            else
+                NEW_EXTRA+=("$ep")
+            fi
+        done
+        EXTRA_PKGS=("${NEW_EXTRA[@]}")
+
+        # -------------------------------
+        # 1) Install official packages (pacman)
         # -------------------------------
         if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
             echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
@@ -654,97 +686,107 @@ AUR_PKGS=(
         else
             echo "Skipping extra official packages..."
         fi
-    
+
         # -------------------------------
         # 2) Prepare AUR build environment inside chroot
         # -------------------------------
         echo "→ Preparing environment for AUR builds..."
-        arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar 
+        arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar
 
-    
         # Ensure DNS works inside chroot
         cp -L /etc/resolv.conf /mnt/etc/resolv.conf
-    
+
         # Initialize pacman keys
         arch-chroot /mnt pacman-key --init || true
         arch-chroot /mnt pacman-key --populate archlinux || true
-    
+
         # Enable swap in case some builds need more memory
         arch-chroot /mnt swapon -a || true
-    
+
         # Set parallel make flags
         arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
-    
+
         # -------------------------------
-        # 3) AUR packages (Installer) - Fully automated
+        # 3) AUR packages (Installer) - Robust loop with conflict handling
         # -------------------------------
         if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
             echo "Installing AUR packages via yay inside chroot..."
-        
-            AUR_LIST="${AUR_PKGS[*]}"
-        
-            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+
+            # Create wrapper script that the user will run inside chroot as $NEWUSER
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -lc "
                 set -euo pipefail
-        
                 LOGFILE=\"\$HOME/aur-install.log\"
-                mkdir -p \"\$(dirname \"\$LOGFILE\")\"
                 touch \"\$LOGFILE\"
-        
                 echo '==============================' | tee -a \"\$LOGFILE\"
                 echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
                 echo '==============================' | tee -a \"\$LOGFILE\"
-        
+
                 # 1) Install yay if missing
                 if ! command -v yay >/dev/null 2>&1; then
                     echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
-                    cd ~
-                    git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
+                    cd \"\$HOME\"
+                    git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1 || { echo 'git clone yay failed' | tee -a \"\$LOGFILE\"; exit 1; }
                     cd yay
-                    makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
+                    makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1 || { echo 'makepkg (yay) failed' | tee -a \"\$LOGFILE\"; exit 1; }
                     cd ..
                     rm -rf yay
                 fi
-        
-                # 2) Update yay database & system packages
-                yay -Y --gendb >>\"\$LOGFILE\" 2>&1
-                yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
-        
-                # 3) Install each AUR package safely
-                RETRIES=2
-                for pkg in $AUR_LIST; do
-                    echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
-                    attempt=1
-                    success=0
-                    while (( attempt <= RETRIES )); do
-                        if yay -S --needed --noconfirm --mflags '--skipinteg --overwrite=*' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
-                            echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
-                            success=1
-                            break
-                        else
-                            echo \"⚠️  \$pkg failed (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
-                            sleep 3
+
+                # Update databases
+                yay -Syu --noconfirm --devel >>\"\$LOGFILE\" 2>&1 || true
+
+                # Function to attempt installation and handle a common failure: an installed repo package with same name
+                install_aur_pkg() {
+                    local pkgname=\"\$1\"
+                    local attempts=0
+                    local max_attempts=2
+                    while (( attempts < max_attempts )); do
+                        attempts=\$((attempts+1))
+                        echo -e \"\n→ Installing \$pkgname (attempt \$attempts)...\" | tee -a \"\$LOGFILE\"
+                        if yay -S --needed --noconfirm --mflags '--skipinteg' \"\$pkgname\" >>\"\$LOGFILE\" 2>&1; then
+                            echo \"✅ \$pkgname installed successfully (attempt \$attempts)\" | tee -a \"\$LOGFILE\"
+                            return 0
                         fi
-                        ((attempt++))
+
+                        # If we reach here, yay failed. Try to detect if a conflicting package with the same name exists and remove it.
+                        echo \"⚠️  Installation failed for \$pkgname, checking for conflicting repo package...\" | tee -a \"\$LOGFILE\"
+                        if pacman -Qi \"\$pkgname\" >/dev/null 2>&1; then
+                            echo \"→ pacman already has \$pkgname installed. Removing it (pacman -Rns --noconfirm) and retrying...\" | tee -a \"\$LOGFILE\"
+                            sudo pacman -Rns --noconfirm \"\$pkgname\" >>\"\$LOGFILE\" 2>&1 || { echo \"Failed to remove \\\"\$pkgname\\\" via pacman\" | tee -a \"\$LOGFILE\"; }
+                        else
+                            echo \"→ No pacman-installed package named \$pkgname found. Check log for details.\" | tee -a \"\$LOGFILE\"
+                        fi
+
+                        sleep 2
                     done
-                    if (( success == 0 )); then
-                        echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
-                    fi
+
+                    echo \"❌ \$pkgname failed to install after \$max_attempts attempts\" | tee -a \"\$LOGFILE\"
+                    return 1
+                }
+
+                # Iterate AUR list (injected below by outer script)
+                AUR_LIST=( ${AUR_PKGS[*]} )
+                for pkg in \"\${AUR_LIST[@]}\"; do
+                    install_aur_pkg \"\$pkg\"
                 done
-        
-                echo -e '\n==============================' | tee -a \"\$LOGFILE\"
+
+                echo -e '\\n==============================' | tee -a \"\$LOGFILE\"
                 echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
                 echo 'Logs saved to' \"\$LOGFILE\"
             "
-        
-            # Copy AUR log from new user to root for review
+
+            # Copy AUR log from new user to root for review (if present)
             if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
                 cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
                 echo "📋 AUR install log copied to /root/aur-install.log for review."
+            else
+                echo "⚠️ AUR log not found at /mnt/home/$NEWUSER/aur-install.log (check inside chroot)."
             fi
         else
             echo "Skipping AUR packages..."
         fi
     fi
+
     echo
     echo "▶ Extra installation phase finished."
 
