@@ -697,11 +697,63 @@ echo
 echo "▶ Extra installation phase finished."
 
 #===================================================================================================#
-# 10 Hyprland Configs - "Coming Later"
+# 10) GUI Setup: Enable Display/Login Manager if available
+#===================================================================================================#
+
+echo
+echo "Checking for installed graphical login managers..."
+
+# List of common display managers
+DISPLAY_MANAGERS=(
+  gdm
+  sddm
+  lightdm
+  lxdm
+  ly
+)
+
+# Detect which one exists in chroot and enable it
+ENABLED_DM=""
+for dm in "${DISPLAY_MANAGERS[@]}"; do
+  if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
+    echo "→ Found display manager: ${dm}"
+    echo "→ Enabling ${dm}..."
+    arch-chroot /mnt systemctl enable "${dm}.service" || true
+    ENABLED_DM="${dm}"
+    break
+  fi
+done
+
+if [[ -n "$ENABLED_DM" ]]; then
+  echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
+else
+  echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) was found installed."
+  echo "   You can install and enable one manually after reboot, for example:"
+  echo "     pacman -S sddm && systemctl enable sddm"
+fi
+
+echo
+echo "GUI setup step complete."
+
+# Optional: set Hyprland as default session if present
+if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
+  echo "→ Hyprland detected. Ensuring XDG session file exists..."
+  arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
+    cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
+[Desktop Entry]
+Name=Hyprland
+Comment=Dynamic tiling Wayland compositor
+Exec=Hyprland
+Type=Application
+EOF'
+fi
+
+#===================================================================================================#
+# 11 Hyprland - Configs / Theme downloader
 #===================================================================================================#
 
 #===================================================================================================#
-# 11 Cleanup postinstall script & Final Messages & Instructions - Not Finished
+# 13 Cleanup postinstall script & Final Messages & Instructions - Not Finished
 #===================================================================================================#
 echo
 echo "Custom package installation phase complete."
