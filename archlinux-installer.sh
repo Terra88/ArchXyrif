@@ -609,12 +609,12 @@ EXTRA_PKGS=(
 )
 
 AUR_PKGS=(
+  hyprlang-git
   hyprutils-git
   hyprwayland-scanner-git
-  hyprlang-git
   hyprland-protocols-git
+  xdg-desktop-portal-hyprland-git
   kvantum-theme-catppuccin-git
-  #obs-studio-git
   proton-ge-custom
   protonup-qt
   python-inputs
@@ -623,24 +623,22 @@ AUR_PKGS=(
   qt6ct-kde
   wlogout
   wlrobs-hg
-  xdg-desktop-portal-hyprland-git
+  #obs-studio-git
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages
+# 9) Installing extra Pacman and AUR packages (Updated for Hyprland)
 #===================================================================================================#
 
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
-# Convert Y/N to numeric flags
 INSTALL_EXTRA=0
 INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-# Skip everything if both are no
 if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     echo "Skipping extra package installation."
 else
@@ -658,35 +656,46 @@ else
     fi
 
     # -------------------------------
-    # 2)Prepare AUR build environment inside chroot
+    # 2) Prepare AUR build environment inside chroot
     # -------------------------------
     echo "→ Preparing environment for AUR builds..."
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland wayland-protocols pkgconf mercurial libdisplay-info wget unzip tar python
+    arch-chroot /mnt pacman -S --needed --noconfirm \
+        base-devel git meson ninja cmake extra-cmake-modules mercurial \
+        wayland wayland-protocols pkgconf wget unzip tar python \
+        xdg-desktop-portal glib2 qt5-base qt6-base qt5-wayland qt6-wayland \
+        polkit-qt5 pipewire pipewire-jack pipewire-pulse pipewire-alsa libpulse
+
+    # Ensure DNS works inside chroot
     cp -L /etc/resolv.conf /mnt/etc/resolv.conf
+
+    # Initialize pacman keys
     arch-chroot /mnt pacman-key --init || true
     arch-chroot /mnt pacman-key --populate archlinux || true
+
+    # Enable swap in case some builds need more memory
     arch-chroot /mnt swapon -a || true
+
+    # Set parallel make flags
     arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
-    
+
     # -------------------------------
     # 3) AUR packages (Installer)
     # -------------------------------
     if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
         echo "Installing AUR packages via yay (with logging and retries)..."
-    
-        # Join array into a single space-separated string
+
         AUR_LIST="${AUR_PKGS[*]}"
-    
+
         arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
             set -euo pipefail
             LOGFILE=\"\$HOME/aur-install.log\"
             mkdir -p \"\$(dirname \"\$LOGFILE\")\"
             touch \"\$LOGFILE\"
-    
+
             echo '==============================' | tee -a \"\$LOGFILE\"
             echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
             echo '==============================' | tee -a \"\$LOGFILE\"
-    
+
             if ! command -v yay >/dev/null 2>&1; then
                 echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
                 cd ~
@@ -696,10 +705,10 @@ else
                 cd ..
                 rm -rf yay
             fi
-    
+
             yay -Y --gendb >>\"\$LOGFILE\" 2>&1
             yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
-    
+
             RETRIES=2
             for pkg in $AUR_LIST; do
                 echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
@@ -720,24 +729,29 @@ else
                     echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
                 fi
             done
-    
+
             echo -e '\n==============================' | tee -a \"\$LOGFILE\"
             echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
             echo ' Logs saved to' \"\$LOGFILE\"
         "
-    
-        echo "✅ AUR package installation (with logging) completed."
+
+        # Copy AUR install log to host root
+        if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+            cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
+            echo "📋 Copied AUR log to /root/aur-install.log for review."
+        fi
     else
         echo "Skipping AUR packages..."
     fi
-      # Copy AUR install log to host root for inspection
-      if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-      cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-      echo "📋 Copied AUR log to /root/aur-install.log for review."
-      fi
-fi   
+fi
 echo
 echo "▶ Extra installation phase finished."
+
+  # Copy AUR install log to host root for inspection
+  if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+  cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
+  echo "📋 Copied AUR log to /root/aur-install.log for review."
+  fi
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
