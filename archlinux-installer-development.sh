@@ -547,7 +547,7 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages (Hyprland-focused) + Automatic Retry
+# 9) Installing Extra Pacman and AUR Packages (Hyprland-focused) with Robust Retry
 #===================================================================================================#
 
 echo
@@ -564,7 +564,7 @@ if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     exit 0
 fi
 
-echo ">>> Preparing extra package installation inside chroot..."
+echo ">>> Preparing package installation inside chroot..."
 
 # -------------------------------
 # Sanitize AUR package names and filter EXTRA_PKGS
@@ -585,7 +585,7 @@ done
 NEW_EXTRA=()
 for ep in "${EXTRA_PKGS[@]}"; do
     if [[ -n "${AUR_BASE["$(sanitize_pkgname "$ep")"]+x}" ]]; then
-        echo "→ Skipping '${ep}' from EXTRA_PKGS (AUR package provides it)."
+        echo "→ Skipping '${ep}' from EXTRA_PKGS (provided by AUR)."
     else
         NEW_EXTRA+=("$ep")
     fi
@@ -593,19 +593,15 @@ done
 EXTRA_PKGS=("${NEW_EXTRA[@]}")
 
 # -------------------------------
-# 1) Install official packages (Pacman) with robust retries and logging
+# 1) Install Pacman packages (root, inside chroot)
 # -------------------------------
-
 PACMAN_SUCCESS=()
 PACMAN_FAIL=()
 
 if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-
-    # Update databases first
+    echo "Installing official packages: ${EXTRA_PKGS[*]}"
     arch-chroot /mnt pacman -Sy --noconfirm
 
-    # Loop through each package individually
     for pkg in "${EXTRA_PKGS[@]}"; do
         attempts=0
         max_attempts=3
@@ -613,34 +609,28 @@ if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
 
         while (( attempts < max_attempts )); do
             attempts=$((attempts + 1))
-            echo -e "\n→ Installing $pkg (attempt $attempts)..."
-
+            echo "→ Installing $pkg (attempt $attempts)..."
             if arch-chroot /mnt pacman -S --needed --noconfirm "$pkg"; then
-                echo "✅ $pkg installed successfully"
                 PACMAN_SUCCESS+=("$pkg")
                 success=1
                 break
             else
-                echo "⚠️ Pacman package $pkg failed (attempt $attempts)"
-                # Optional: refresh databases in case of transient errors
+                echo "⚠️ Pacman install failed for $pkg (attempt $attempts)"
                 arch-chroot /mnt pacman -Sy --noconfirm || true
                 sleep 1
             fi
         done
 
-        if (( success == 0 )); then
-            echo "❌ $pkg failed after $max_attempts attempts"
-            PACMAN_FAIL+=("$pkg")
-        fi
+        (( success == 0 )) && PACMAN_FAIL+=("$pkg")
     done
 else
-    echo "Skipping extra official packages..."
+    echo "Skipping official packages..."
 fi
 
 # -------------------------------
-# 2) Prepare chroot for AUR builds
+# 2) Prepare chroot for building AUR packages
 # -------------------------------
-arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar
+arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar sudo
 cp -L /etc/resolv.conf /mnt/etc/resolv.conf
 arch-chroot /mnt pacman-key --init || true
 arch-chroot /mnt pacman-key --populate archlinux || true
@@ -648,37 +638,19 @@ arch-chroot /mnt swapon -a || true
 arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
 
 # -------------------------------
-# 3) Install AUR packages automatically (robust, user-safe)
+# 3) Install AUR packages (as $NEWUSER)
 # -------------------------------
-
-AUR_SUCCESS=()
-AUR_FAIL=()
-
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo ">>> Installing AUR packages inside chroot..."
+    echo ">>> Installing AUR packages for user $NEWUSER..."
 
-    # 1) Ensure essential build tools exist
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake \
-        extra-cmake-modules mercurial pkgconf wget unzip tar sudo
-
-    # 2) Ensure new user has passwordless sudo
+    # 3a) Passwordless sudo for $NEWUSER
     arch-chroot /mnt bash -c "echo '$NEWUSER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$NEWUSER-pacman"
     arch-chroot /mnt chmod 440 /etc/sudoers.d/$NEWUSER-pacman
 
-    # 3) Clone yay as root, then change ownership
-    arch-chroot /mnt bash -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && chown -R $NEWUSER:$NEWUSER yay"
-
-    # 4) Build and install yay as the new user
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "cd /tmp/yay && makepkg -si --noconfirm --skippgpcheck"
-
-    # 5) Clean up
-    arch-chroot /mnt rm -rf /tmp/yay
-
-    # 6) Create the AUR installation script for the user
+    # 3b) Create AUR install script in the user's home
     cat > /mnt/home/$NEWUSER/install-aur.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 LOGFILE="$HOME/aur-install.log"
 touch "$LOGFILE"
 
@@ -693,57 +665,44 @@ install_aur_pkg() {
     local success=0
 
     while (( attempts < max_attempts )); do
-        attempts=$((attempts+1))
-        echo -e "\n→ Installing $pkg (attempt $attempts)..." | tee -a "$LOGFILE"
+        attempts=$((attempts + 1))
+        echo "→ Installing $pkg (attempt $attempts)..." | tee -a "$LOGFILE"
 
         if yay -S --needed --noconfirm --mflags "--skipinteg" "$pkg" >>"$LOGFILE" 2>&1; then
-            echo "✅ $pkg installed successfully" | tee -a "$LOGFILE"
+            echo "✅ $pkg installed" | tee -a "$LOGFILE"
             AUR_SUCCESS+=("$pkg")
             success=1
             break
         fi
 
-        echo "⚠️ Installation failed for $pkg (attempt $attempts)" | tee -a "$LOGFILE"
+        echo "⚠️ Failed $pkg (attempt $attempts)" | tee -a "$LOGFILE"
         sleep 2
     done
 
-    if (( success == 0 )); then
-        echo "❌ $pkg failed after $max_attempts attempts" | tee -a "$LOGFILE"
-        AUR_FAIL+=("$pkg")
-    fi
+    (( success == 0 )) && AUR_FAIL+=("$pkg")
 }
 
 for pkg in "${AUR_PKGS[@]}"; do
     install_aur_pkg "$pkg"
 done
 
-# Save arrays to temporary files
 echo "${AUR_SUCCESS[*]}" > "$HOME/aur-success.tmp"
 echo "${AUR_FAIL[*]}" > "$HOME/aur-fail.tmp"
-
-echo -e "\nAUR installation completed. Log saved to $LOGFILE"
+echo "AUR installation completed. Log: $LOGFILE"
 EOF
 
-    # 7) Replace placeholder with actual AUR package list
+    # 3c) Replace placeholder with actual package list
     aur_list_str=$(printf "'%s' " "${AUR_PKGS[@]}")
     arch-chroot /mnt bash -c "sed -i \"s|{{AUR_LIST}}|$aur_list_str|\" /home/$NEWUSER/install-aur.sh"
 
-    # 8) Set ownership and permissions
+    # 3d) Set ownership and permissions
     arch-chroot /mnt chown $NEWUSER:$NEWUSER /home/$NEWUSER/install-aur.sh
     arch-chroot /mnt chmod +x /home/$NEWUSER/install-aur.sh
 
-    # 9) Run the script as the new user
+    # 3e) Run the AUR install script as the new user
     arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "HOME=/home/$NEWUSER bash /home/$NEWUSER/install-aur.sh"
 
-    # 10) Read success/fail arrays from temporary files
-    if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
-        read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
-    fi
-    if [[ -f /mnt/home/$NEWUSER/aur-fail.tmp ]]; then
-        read -r -a AUR_FAIL < /mnt/home/$NEWUSER/aur-fail.tmp
-    fi
-
-    # 11) Copy full AUR log to root for inspection
+    # 3f) Copy AUR log to root for review
     if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
         cp /mnt/home/$NEWUSER/aur-install.log /root/aur-install.log
         echo "📋 AUR log copied to /root/aur-install.log"
@@ -753,30 +712,14 @@ else
 fi
 
 # -------------------------------
-# 4) Unified Installation Summary
+# 4) Summary
 # -------------------------------
 echo
-echo "================ Unified Installation Summary ================"
+echo "================ Installation Summary ================"
 
-# --- Pacman Packages ---
-if [[ ${#PACMAN_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ Pacman packages installed successfully:"
-    for pkg in "${PACMAN_SUCCESS[@]}"; do
-        echo "   • $pkg"
-    done
-else
-    echo "⚠️ No Pacman packages were installed successfully."
-fi
+echo "✅ Pacman succeeded: ${PACMAN_SUCCESS[*]}"
+[[ ${#PACMAN_FAIL[@]} -gt 0 ]] && echo "❌ Pacman failed: ${PACMAN_FAIL[*]}"
 
-if [[ ${#PACMAN_FAIL[@]} -gt 0 ]]; then
-    echo "❌ Pacman packages failed:"
-    for pkg in "${PACMAN_FAIL[@]}"; do
-        echo "   • $pkg"
-    done
-fi
-
-# --- AUR Packages ---
-# Read arrays from temporary files if run in chroot
 if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
     read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
 fi
@@ -784,23 +727,10 @@ if [[ -f /mnt/home/$NEWUSER/aur-fail.tmp ]]; then
     read -r -a AUR_FAIL < /mnt/home/$NEWUSER/aur-fail.tmp
 fi
 
-if [[ ${#AUR_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ AUR packages installed successfully:"
-    for pkg in "${AUR_SUCCESS[@]}"; do
-        echo "   • $pkg"
-    done
-else
-    echo "⚠️ No AUR packages were installed successfully."
-fi
+[[ ${#AUR_SUCCESS[@]} -gt 0 ]] && echo "✅ AUR succeeded: ${AUR_SUCCESS[*]}"
+[[ ${#AUR_FAIL[@]} -gt 0 ]] && echo "❌ AUR failed: ${AUR_FAIL[*]}"
 
-if [[ ${#AUR_FAIL[@]} -gt 0 ]]; then
-    echo "❌ AUR packages failed:"
-    for pkg in "${AUR_FAIL[@]}"; do
-        echo "   • $pkg"
-    done
-fi
-
-echo "==============================================================="
+echo "====================================================="
 
 # Copy full AUR log to root for inspection
 if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
@@ -809,12 +739,6 @@ if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
 fi
 
 echo "▶ Extra installation phase finished."
-
-  # Copy AUR install log to host root for inspection
-  if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-  cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-  echo "📋 Copied AUR log to /root/aur-install.log for review."
-  fi
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
