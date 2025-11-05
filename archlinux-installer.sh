@@ -676,73 +676,71 @@ AUR_PKGS=(
         arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
     
         # -------------------------------
-        # 3) AUR packages (Installer) 
+        # 3) AUR packages (Installer) - Fully automated
         # -------------------------------
-          if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-              echo "Installing AUR packages via yay (robust, user-friendly)..."
-          
-              # Convert array to space-separated list for chroot
-              AUR_LIST="${AUR_PKGS[*]}"
-          
-              arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-          set -euo pipefail
-          export HOME=/home/$NEWUSER
-          mkdir -p \$HOME
-          cd \$HOME
-          
-          LOGFILE=\"\$HOME/aur-install.log\"
-          touch \"\$LOGFILE\"
-          echo '==============================' | tee -a \"\$LOGFILE\"
-          echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
-          echo '==============================' | tee -a \"\$LOGFILE\"
-          
-          # Install yay if missing
-          if ! command -v yay >/dev/null 2>&1; then
-              echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
-              git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
-              cd yay
-              makepkg -cf --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
-              # Install built package
-              pacman -U --noconfirm *.zst >>\"\$LOGFILE\" 2>&1 || true
-              cd ..
-              rm -rf yay
-          fi
-          
-          # Update yay and system packages
-          yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
-          
-          RETRIES=2
-          for pkg in $AUR_LIST; do
-              echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
-              attempt=1
-              success=0
-              while (( attempt <= RETRIES )); do
-                  # Build & install package
-                  if yay -S --needed --noconfirm --mflags '--skipinteg' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
-                      echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
-                      success=1
-                      break
-                  else
-                      echo \"⚠️  \$pkg failed (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
-                      sleep 3
-                  fi
-                  ((attempt++))
-              done
-              if (( success == 0 )); then
-                  echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
-              fi
-          done
-          
-          echo -e '\n==============================' | tee -a \"\$LOGFILE\"
-          echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
-          echo 'Logs saved to' \"\$LOGFILE\"
-          "
-          
-          # Copy AUR log to host root for inspection
-          if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-              cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-              echo "📋 Copied AUR log to /root/aur-install.log for review."
-          fi
+        if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+            echo "Installing AUR packages via yay inside chroot..."
+        
+            AUR_LIST="${AUR_PKGS[*]}"
+        
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+                set -euo pipefail
+        
+                LOGFILE=\"\$HOME/aur-install.log\"
+                mkdir -p \"\$(dirname \"\$LOGFILE\")\"
+                touch \"\$LOGFILE\"
+        
+                echo '==============================' | tee -a \"\$LOGFILE\"
+                echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
+                echo '==============================' | tee -a \"\$LOGFILE\"
+        
+                # 1) Install yay if missing
+                if ! command -v yay >/dev/null 2>&1; then
+                    echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
+                    cd ~
+                    git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
+                    cd yay
+                    makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
+                    cd ..
+                    rm -rf yay
+                fi
+        
+                # 2) Update yay database & system packages
+                yay -Y --gendb >>\"\$LOGFILE\" 2>&1
+                yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
+        
+                # 3) Install each AUR package safely
+                RETRIES=2
+                for pkg in $AUR_LIST; do
+                    echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
+                    attempt=1
+                    success=0
+                    while (( attempt <= RETRIES )); do
+                        if yay -S --needed --noconfirm --mflags '--skipinteg --overwrite=*' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
+                            echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
+                            success=1
+                            break
+                        else
+                            echo \"⚠️  \$pkg failed (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
+                            sleep 3
+                        fi
+                        ((attempt++))
+                    done
+                    if (( success == 0 )); then
+                        echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
+                    fi
+                done
+        
+                echo -e '\n==============================' | tee -a \"\$LOGFILE\"
+                echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
+                echo 'Logs saved to' \"\$LOGFILE\"
+            "
+        
+            # Copy AUR log from new user to root for review
+            if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+                cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
+                echo "📋 AUR install log copied to /root/aur-install.log for review."
+            fi
         else
             echo "Skipping AUR packages..."
         fi
