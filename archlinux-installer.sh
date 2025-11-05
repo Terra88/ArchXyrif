@@ -736,7 +736,7 @@ else
     cp /mnt/var/log/aur-install.log /root/aur-install.log
     echo "📋 Copied AUR log to /root/aur-install.log for review."
     fi
-    
+fi   
 echo
 echo "▶ Extra installation phase finished."
 
