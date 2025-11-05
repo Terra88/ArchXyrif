@@ -527,15 +527,15 @@ EXTRA_PKGS=(
     hypridle hyprland hyprlock hyprpaper hyprshot kitty network-manager-applet
     polkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofi
     nftables waybar archlinux-xdg-menu ark bemenu-wayland breeze brightnessctl
-    btop cliphist cpupower discord discover evtest firefox flatpak gamemode
+    btop cliphist cpupower discover evtest firefox flatpak 
     goverlay gst-libav gst-plugin-pipewire gst-plugins-bad gst-plugins-base
     gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse
-    linuxconsole lutris mangohud nvtop nwg-displays nwg-look otf-font-awesome
+    linuxconsole nvtop nwg-displays nwg-look otf-font-awesome
     pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct
     smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg vlc-plugins-all
-    vulkan-radeon wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
-    xdg-utils xf86-video-amdgpu xf86-video-ati xorg-server xorg-xinit
-    zram-generator base-devel  # Needed for AUR building
+    wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
+    xdg-utils xorg-server xorg-xinit
+    zram-generator base-devel  # mesa vulkan-radeon
 )
 
 # AUR packages
