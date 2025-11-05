@@ -172,8 +172,8 @@ partprobe "$DEV" || true
 # EFI: 1024 MiB
 EFI_SIZE_MIB=1024
 
-# Root: ~120 GiB -> 120*1024 MiB (Example: If you want 100GB root swap 120 with 100, rest will be calculated automatically.)
-ROOT_SIZE_MIB=$((120 * 1024))
+# Root: ~100 GiB -> 100*1024 MiB (Example: If you want 120GB root swap 100 with 120, rest will be calculated automatically.)
+ROOT_SIZE_MIB=$((100 * 1024))
 
 # Detect RAM in MiB
 ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
