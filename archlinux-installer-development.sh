@@ -591,7 +591,7 @@ echo "4) KDE Plasma (X11/Wayland)"
 echo "5) GNOME (X11/Wayland)"
 echo "6) Skip Window Manager / Desktop Environment"
 read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-WM_CHOICE="${WM_CHOICE:-6}"
+WM_CHOICE="${WM_CHOICE:-1}"
 
 WM_PKGS=()      # Official repo packages
 WM_AUR_PKGS=()  # AUR-only packages
