@@ -661,14 +661,7 @@ else
         echo "Installing AUR packages via yay..."
     
         # Ensure essential build environment inside chroot
-        arch-chroot /mnt pacman -Syu --needed --noconfirm \
-            base-devel git meson ninja cmake extra-cmake-modules mercurial \
-            python python-pip pkgconf unzip tar wget \
-            qt5-base qt5-wayland qt6-base qt6-wayland \
-            wayland wayland-protocols polkit-qt5 \
-            pipewire pipewire-jack pipewire-pulse pipewire-alsa libpulse \
-            boost boost-libs cmake extra-cmake-modules glib2 \
-            clang llvm libxcb libxcb-util libxkbcommon libxkbcommon-x11
+        arch-chroot /mnt pacman -Syu --needed --noconfirm base-devel git meson ninja cmake mercurial   
     
         # Copy DNS into chroot
         cp -L /etc/resolv.conf /mnt/etc/resolv.conf
