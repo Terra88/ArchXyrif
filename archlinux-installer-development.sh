@@ -580,7 +580,7 @@ pacman -Sy --noconfirm
 fi
 
 #===================================================================================================#
-# 8B) WINDOW MANAGER SELECTION
+# 8B) WINDOW MANAGER SELECTION (Official packages only)
 #===================================================================================================#
 echo
 echo "WINDOW MANAGER / DESKTOP ENVIRONMENT OPTIONS:"
@@ -593,11 +593,13 @@ echo "6) Skip Window Manager / Desktop Environment"
 read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
 WM_CHOICE="${WM_CHOICE:-6}"
 
-WM_PKGS=()
+WM_PKGS=()      # Official repo packages
+WM_AUR_PKGS=()  # AUR-only packages
 
 case "$WM_CHOICE" in
     1)
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock wlogout waybar)
+        WM_PKGS=(hyprland waybar)                     # Official packages
+        WM_AUR_PKGS=(hyprpaper hyprshot hyprlock wlogout)  # AUR packages
         ;;
     2)
         WM_PKGS=(sway swaybg swaylock waybar wofi)
@@ -613,12 +615,11 @@ case "$WM_CHOICE" in
         ;;
     6|*)
         echo "Skipping window manager installation."
-        WM_PKGS=()
         ;;
 esac
 
 if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing selected window manager packages: ${WM_PKGS[*]}"
+    echo "Installing official WM/DE packages: ${WM_PKGS[*]}"
     arch-chroot /mnt pacman -S --needed --noconfirm "${WM_PKGS[@]}"
 fi
 
@@ -636,7 +637,8 @@ echo "6) None (skip login manager)"
 read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
 DM_CHOICE="${DM_CHOICE:-6}"
 
-DM_PKGS=()
+DM_PKGS=()      # Official packages
+DM_AUR_PKGS=()  # AUR packages (if any)
 DM_SERVICE=""
 
 case "$DM_CHOICE" in
@@ -662,21 +664,26 @@ case "$DM_CHOICE" in
         ;;
     6|*)
         echo "Skipping login/display manager installation."
-        DM_PKGS=()
-        DM_SERVICE=""
         ;;
 esac
 
+# Install official DM packages via Pacman
 if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing selected login manager: ${DM_PKGS[*]}"
+    echo "Installing login/display manager packages: ${DM_PKGS[*]}"
     arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
 
+    # Enable service if applicable
     if [[ -n "$DM_SERVICE" ]]; then
-        echo "Enabling ${DM_SERVICE}..."
+        echo "Enabling $DM_SERVICE..."
         arch-chroot /mnt systemctl enable "$DM_SERVICE"
-        echo "✅ ${DM_SERVICE} enabled; it will start automatically on boot."
+        echo "✅ $DM_SERVICE will start automatically on boot."
     fi
 fi
+
+# Any AUR packages required for DM can be added to DM_AUR_PKGS here
+# Example (if using Ly with additional helper tools from AUR):
+# DM_AUR_PKGS+=(ly-themes-git)
+# These will be installed later in Block 9B along with other AUR packages.
 
 #===================================================================================================#
 # 9A) Extra Pacman/AUR package lists - Will be installed in section 9B
@@ -708,54 +715,51 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
+# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION (using paru)
 #===================================================================================================#
-
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
+read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
-    echo "Skipping extra package installation."
-else
-    # -------------------------------
-    # Install official packages (Pacman)
-    # -------------------------------
-    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-        arch-chroot /mnt pacman -Syu --needed --noconfirm "${EXTRA_PKGS[@]}"
-    fi
+# -------------------------------
+# Install official packages (Pacman)
+# -------------------------------
+if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+    arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+fi
 
-    # -------------------------------
-    # Install AUR packages non-interactively
-    # -------------------------------
-    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing AUR packages via yay (non-interactive)..."
+# -------------------------------
+# Install AUR packages (Paru)
+# -------------------------------
+if [[ $INSTALL_AUR -eq 1 ]]; then
+    # Ensure paru is installed first
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
 
-        # Ensure base-devel and git are installed in chroot
-        arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
-
-        # Create a simple non-root wrapper to install AUR packages
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-mkdir -p /home/$NEWUSER/aur-build
-cd /home/$NEWUSER/aur-build
-for pkg in ${AUR_PKGS[*]}; do
-    if [[ ! -d \$pkg ]]; then
-        git clone https://aur.archlinux.org/\$pkg.git
-    fi
-    cd \$pkg
-    makepkg -si --noconfirm --needed
-    cd ..
-done
-rm -rf /home/$NEWUSER/aur-build
+    arch-chroot /mnt bash -c "
+# Switch to new user for AUR builds
+cd /home/$NEWUSER
+if [[ ! -d paru ]]; then
+    git clone https://aur.archlinux.org/paru.git
+fi
+cd paru
+makepkg -si --noconfirm --needed
+cd ..
+rm -rf paru
 "
 
-        echo "✅ AUR packages installation complete!"
+    # Non-interactive AUR package installation using paru
+    ALL_AUR_PKGS=("${AUR_PKGS[@]}" "${WM_AUR_PKGS[@]}")
+    if [[ ${#ALL_AUR_PKGS[@]} -gt 0 ]]; then
+        echo "Installing AUR packages via paru: ${ALL_AUR_PKGS[*]}"
+        for pkg in "${ALL_AUR_PKGS[@]}"; do
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "paru -S --needed --noconfirm --removemake $pkg" || echo "⚠️ Failed: $pkg"
+        done
     fi
 fi
 
