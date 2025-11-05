@@ -606,7 +606,7 @@ if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
     EXTRA_PKGS+=("${UNIQUE_GPU_PKGS[@]}")
 fi
 #===================================================================================================#
-# 9B) Installing extra Pacman and AUR packages (multilib enabled)
+# 9B) Installing extra Pacman and AUR packages (multilib enabled) - FIXED
 #===================================================================================================#
 
 echo
@@ -626,9 +626,8 @@ fi
 echo ">>> Preparing extra package installation inside chroot..."
 
 # -------------------------------
-# Enable multilib repo in pacman.conf if not already enabled (applies to all packages)
+# Enable multilib repo in pacman.conf if not already enabled
 # -------------------------------
-echo "Ensuring multilib repository is enabled inside chroot..."
 arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
@@ -650,15 +649,30 @@ else
 fi
 
 # -------------------------------
-# Install AUR packages with yay (still supports multilib deps)
+# Install AUR packages with yay
 # -------------------------------
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
     echo ">>> Installing AUR packages via yay inside chroot..."
-    
-    # Install required build tools if missing
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git expect sudo
 
-    # Create expect wrapper for yay automation
+    # Ensure base-devel and git are installed (required for building AUR packages)
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
+
+    # Install yay as NEWUSER
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+cd /home/$NEWUSER
+if [[ ! -d yay ]]; then
+    git clone https://aur.archlinux.org/yay.git
+fi
+cd yay
+makepkg -si --noconfirm --skippgpcheck
+cd ..
+rm -rf yay
+"
+
+    # Symlink yay to /usr/local/bin so scripts can find it
+    arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/yay /usr/local/bin/yay || true
+
+    # Create expect wrapper for automated AUR installs
     arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
 #!/usr/bin/expect -f
 set timeout -1
@@ -679,21 +693,10 @@ EOF
 chmod +x /usr/local/bin/yay-expect
 "
 
-    # Install yay as NEWUSER if not already installed
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
-    if ! command -v yay >/dev/null 2>&1; then
-        git clone https://aur.archlinux.org/yay.git
-        cd yay
-        makepkg -si --noconfirm --skippgpcheck
-        cd ..
-        rm -rf yay
-    fi
-    '
-
     # Install each AUR package
     for pkg in "${AUR_PKGS[@]}"; do
         echo "→ Installing AUR package: $pkg"
-        arch-chroot /mnt runuser -u "$NEWUSER" -- /usr/local/bin/yay-expect "$pkg" || echo "⚠️ Failed to install $pkg"
+        arch-chroot /mnt /usr/local/bin/yay-expect "$pkg" || echo "⚠️ Failed to install $pkg"
     done
 
     echo "✅ AUR packages installation complete!"
