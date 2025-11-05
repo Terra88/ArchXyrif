@@ -655,19 +655,27 @@ AUR_SUCCESS=()
 AUR_FAIL=()
 
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Installing AUR packages via yay inside chroot..."
+    echo ">>> Installing AUR packages inside chroot..."
 
-    # Ensure base-devel and dependencies are installed for builds
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar sudo
+    # 1) Ensure essential build tools and sudo exist
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake \
+        extra-cmake-modules mercurial pkgconf wget unzip tar sudo
 
-    # Passwordless pacman for new user
+    # 2) Install yay first as root
+    arch-chroot /mnt bash -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && \
+        cd yay && makepkg -si --noconfirm --skippgpcheck && cd /tmp && rm -rf yay"
+
+    # 3) Ensure new user has passwordless sudo
     arch-chroot /mnt bash -c "echo '$NEWUSER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$NEWUSER-pacman"
     arch-chroot /mnt chmod 440 /etc/sudoers.d/$NEWUSER-pacman
 
-    #AUR install script
+    # 4) Create the AUR installation script for the user
     cat > /mnt/home/$NEWUSER/install-aur.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+export HOME="/home/$USER"
 
 LOGFILE="$HOME/aur-install.log"
 touch "$LOGFILE"
@@ -703,29 +711,29 @@ install_aur_pkg() {
     fi
 }
 
-# Install all AUR packages
 for pkg in "${AUR_PKGS[@]}"; do
     install_aur_pkg "$pkg"
 done
 
-# Save arrays to temporary file for outer script
+# Save arrays to temporary files
 echo "${AUR_SUCCESS[*]}" > "$HOME/aur-success.tmp"
 echo "${AUR_FAIL[*]}" > "$HOME/aur-fail.tmp"
 
 echo -e "\nAUR installation completed. Log saved to $LOGFILE"
 EOF
 
-    # Replace placeholder with actual AUR list
-    arch-chroot /mnt bash -c "sed -i 's|{{AUR_LIST}}|$(printf "%q " "${AUR_PKGS[@]}")|' /home/$NEWUSER/install-aur.sh"
+    # 5) Replace placeholder with actual AUR package list
+    aur_list_str=$(printf "'%s' " "${AUR_PKGS[@]}")
+    arch-chroot /mnt bash -c "sed -i \"s|{{AUR_LIST}}|$aur_list_str|\" /home/$NEWUSER/install-aur.sh"
 
-    # Make script executable and owned by user
+    # 6) Set ownership and permissions
     arch-chroot /mnt chown $NEWUSER:$NEWUSER /home/$NEWUSER/install-aur.sh
     arch-chroot /mnt chmod +x /home/$NEWUSER/install-aur.sh
 
-    # Run script as new user
-    arch-chroot /mnt runuser -u "$NEWUSER" -- /home/$NEWUSER/install-aur.sh
+    # 7) Run the script as the new user with proper environment
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "HOME=/home/$NEWUSER bash /home/$NEWUSER/install-aur.sh"
 
-    # Read success/fail arrays from temporary files
+    # 8) Read success/fail arrays from temporary files
     if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
         read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
     fi
@@ -733,7 +741,7 @@ EOF
         read -r -a AUR_FAIL < /mnt/home/$NEWUSER/aur-fail.tmp
     fi
 
-    # Copy full AUR log to root
+    # 9) Copy full AUR log to root
     if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
         cp /mnt/home/$NEWUSER/aur-install.log /root/aur-install.log
         echo "📋 AUR log copied to /root/aur-install.log"
@@ -749,18 +757,25 @@ fi
 echo
 echo "================ Unified Installation Summary ================"
 
-# Pacman packages
+# --- Pacman Packages ---
 if [[ ${#PACMAN_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ Pacman packages installed successfully: ${PACMAN_SUCCESS[*]}"
+    echo "✅ Pacman packages installed successfully:"
+    for pkg in "${PACMAN_SUCCESS[@]}"; do
+        echo "   • $pkg"
+    done
 else
     echo "⚠️ No Pacman packages were installed successfully."
 fi
 
 if [[ ${#PACMAN_FAIL[@]} -gt 0 ]]; then
-    echo "❌ Pacman packages failed: ${PACMAN_FAIL[*]}"
+    echo "❌ Pacman packages failed:"
+    for pkg in "${PACMAN_FAIL[@]}"; do
+        echo "   • $pkg"
+    done
 fi
 
-# AUR packages (read from tmp files if run in chroot)
+# --- AUR Packages ---
+# Read arrays from temporary files if run in chroot
 if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
     read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
 fi
@@ -769,21 +784,27 @@ if [[ -f /mnt/home/$NEWUSER/aur-fail.tmp ]]; then
 fi
 
 if [[ ${#AUR_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ AUR packages installed successfully: ${AUR_SUCCESS[*]}"
+    echo "✅ AUR packages installed successfully:"
+    for pkg in "${AUR_SUCCESS[@]}"; do
+        echo "   • $pkg"
+    done
 else
     echo "⚠️ No AUR packages were installed successfully."
 fi
 
 if [[ ${#AUR_FAIL[@]} -gt 0 ]]; then
-    echo "❌ AUR packages failed: ${AUR_FAIL[*]}"
+    echo "❌ AUR packages failed:"
+    for pkg in "${AUR_FAIL[@]}"; do
+        echo "   • $pkg"
+    done
 fi
 
 echo "==============================================================="
 
-# Copy AUR log to root for inspection
+# Copy full AUR log to root for inspection
 if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
     cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-    echo "📋 AUR log copied to /root/aur-install.log"
+    echo "📋 AUR log copied to /root/aur-install.log for review."
 fi
 
 echo "▶ Extra installation phase finished."
