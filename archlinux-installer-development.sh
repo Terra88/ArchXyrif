@@ -518,7 +518,7 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
-# 8) Extra Pacman/AUR package lists
+# 8) Extra Pacman/AUR package lists - Will be installed in section 9B
 #===================================================================================================#
 
 # Official packages (Pacman)
@@ -547,7 +547,72 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages (with safe AUR automation)
+# 9A) GPU DRIVER SELECTION & INSTALLATION (Auto-Detect + Confirm)
+#===================================================================================================#
+
+echo
+echo ">>> Detecting GPU hardware..."
+
+GPU_INFO=$(lspci | grep -E "VGA|3D|Display" | head -n 1)
+echo "Detected GPU: $GPU_INFO"
+
+GPU_CHOICE=""
+
+if echo "$GPU_INFO" | grep -qi "NVIDIA"; then
+    GPU_CHOICE="NVIDIA"
+elif echo "$GPU_INFO" | grep -qi "AMD"; then
+    GPU_CHOICE="AMD"
+elif echo "$GPU_INFO" | grep -qi "Intel"; then
+    GPU_CHOICE="INTEL"
+else
+    echo "⚠️  Could not automatically detect GPU type."
+fi
+
+echo
+echo "GPU auto-detected as: ${GPU_CHOICE:-Unknown}"
+echo "Select GPU driver set to install:"
+echo "  1) NVIDIA (proprietary, dkms, utils)"
+echo "  2) AMD (mesa, vulkan-radeon, lib32, opencl)"
+echo "  3) Intel (mesa, vulkan-intel, lib32)"
+echo "  4) Skip GPU installation"
+read -r -p "Enter choice [1-4, default=${GPU_CHOICE:-3}]: " gpu_choice
+
+# If no input, fallback to detected GPU
+gpu_choice=${gpu_choice:-$(
+    case "$GPU_CHOICE" in
+        NVIDIA) echo 1 ;;
+        AMD) echo 2 ;;
+        INTEL) echo 3 ;;
+        *) echo 4 ;;
+    esac
+)}
+
+case "$gpu_choice" in
+    1)
+        echo "Installing NVIDIA drivers..."
+        arch-chroot /mnt pacman -S --needed --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils opencl-nvidia
+        ;;
+    2)
+        echo "Installing AMD drivers..."
+        arch-chroot /mnt pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon opencl-mesa
+        ;;
+    3)
+        echo "Installing Intel drivers..."
+        arch-chroot /mnt pacman -S --needed --noconfirm mesa lib32-mesa vulkan-intel lib32-vulkan-intel intel-media-driver
+        ;;
+    4)
+        echo "Skipping GPU driver installation."
+        ;;
+    *)
+        echo "Invalid choice. Skipping GPU driver installation."
+        ;;
+esac
+
+echo "✅ GPU driver installation phase complete."
+echo
+
+#===================================================================================================#
+# 9B) Installing extra Pacman and AUR packages (with safe AUR automation)
 #===================================================================================================#
 
 echo
