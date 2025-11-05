@@ -757,23 +757,35 @@ else
 fi
 
 # -------------------------------
-# 4) Installation Summary
+# 4) Unified Installation Summary
 # -------------------------------
 echo
-echo "================ Installation Summary ================"
+echo "================ Unified Installation Summary ================"
+
 if [[ ${#PACMAN_SUCCESS[@]} -gt 0 ]]; then
     echo "✅ Pacman packages installed successfully: ${PACMAN_SUCCESS[*]}"
+else
+    echo "⚠️ No Pacman packages were installed successfully."
 fi
+
 if [[ ${#PACMAN_FAIL[@]} -gt 0 ]]; then
-    echo "⚠️ Pacman packages failed: ${PACMAN_FAIL[*]}"
+    echo "❌ Pacman packages failed: ${PACMAN_FAIL[*]}"
 fi
+
 if [[ ${#AUR_SUCCESS[@]} -gt 0 ]]; then
     echo "✅ AUR packages installed successfully: ${AUR_SUCCESS[*]}"
+else
+    echo "⚠️ No AUR packages were installed successfully."
 fi
+
 if [[ ${#AUR_FAIL[@]} -gt 0 ]]; then
-    echo "⚠️ AUR packages failed: ${AUR_FAIL[*]}"
+    echo "❌ AUR packages failed: ${AUR_FAIL[*]}"
 fi
-echo "====================================================="
+
+echo "==============================================================="
+echo
+echo "📋 AUR install log (if available) copied to /root/aur-install.log for review."
+
 
 echo "▶ Extra installation phase finished."
 
