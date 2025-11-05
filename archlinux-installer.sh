@@ -660,11 +660,14 @@ else
     # -------------------------------
     # 2)Prepare AUR build environment inside chroot
     # -------------------------------
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland-protocols pkgconf
+    echo "→ Preparing environment for AUR builds..."
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland-protocols pkgconf mercurial
     cp -L /etc/resolv.conf /mnt/etc/resolv.conf
+    arch-chroot /mnt pacman-key --init || true
+    arch-chroot /mnt pacman-key --populate archlinux || true
     arch-chroot /mnt swapon -a || true
     arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
-
+    
     # -------------------------------
     # 3) AUR packages (Installer)
     # -------------------------------
@@ -717,17 +720,23 @@ else
                     echo "❌ $pkg failed to install after $RETRIES attempts" | tee -a "$LOGFILE"
                 fi
             done
-    
+            
             echo -e "\n==============================" | tee -a "$LOGFILE"
             echo " AUR installation completed: $(date)" | tee -a "$LOGFILE"
             echo " Logs saved to $LOGFILE"
+            
         '
-    
+        
         echo "✅ AUR package installation (with logging) completed."
     else
         echo "Skipping AUR packages..."
     fi
-
+    # Copy AUR install log to host root for inspection
+    if [[ -f /mnt/var/log/aur-install.log ]]; then
+    cp /mnt/var/log/aur-install.log /root/aur-install.log
+    echo "📋 Copied AUR log to /root/aur-install.log for review."
+    fi
+    
 echo
 echo "▶ Extra installation phase finished."
 
