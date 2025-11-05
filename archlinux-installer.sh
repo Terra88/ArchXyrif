@@ -675,23 +675,25 @@ AUR_PKGS=(
         arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
     
         # -------------------------------
-        # 3) AUR packages (Installer)
+        # 3) AUR packages (Installer) - Robust version
         # -------------------------------
         if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-            echo "Installing AUR packages via yay (with logging and retries)..."
-    
+            echo "Installing AUR packages via yay (with logging, retries, and automatic conflict resolution)..."
+        
             AUR_LIST="${AUR_PKGS[*]}"
-    
+        
             arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
                 set -euo pipefail
+        
                 LOGFILE=\"\$HOME/aur-install.log\"
                 mkdir -p \"\$(dirname \"\$LOGFILE\")\"
                 touch \"\$LOGFILE\"
-    
+        
                 echo '==============================' | tee -a \"\$LOGFILE\"
                 echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
                 echo '==============================' | tee -a \"\$LOGFILE\"
-    
+        
+                # Install yay if not present
                 if ! command -v yay >/dev/null 2>&1; then
                     echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
                     cd ~
@@ -701,17 +703,19 @@ AUR_PKGS=(
                     cd ..
                     rm -rf yay
                 fi
-    
+        
+                # Update yay database and system packages
                 yay -Y --gendb >>\"\$LOGFILE\" 2>&1
                 yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
-    
+        
                 RETRIES=2
                 for pkg in $AUR_LIST; do
                     echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
                     attempt=1
                     success=0
                     while (( attempt <= RETRIES )); do
-                        if yay -S --needed --noconfirm --mflags \"--skippgpcheck\" \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
+                        # Use --overwrite '*' to handle conflicts with pacman packages automatically
+                        if yay -S --needed --noconfirm --mflags '--skippgpcheck --overwrite=*' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
                             echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
                             success=1
                             break
@@ -725,13 +729,13 @@ AUR_PKGS=(
                         echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
                     fi
                 done
-    
+        
                 echo -e '\n==============================' | tee -a \"\$LOGFILE\"
                 echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
-                echo ' Logs saved to' \"\$LOGFILE\"
+                echo 'Logs saved to' \"\$LOGFILE\"
             "
-    
-            # Copy AUR install log to host root
+        
+            # Copy AUR install log to host root for inspection
             if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
                 cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
                 echo "📋 Copied AUR log to /root/aur-install.log for review."
