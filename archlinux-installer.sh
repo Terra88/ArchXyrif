@@ -810,7 +810,7 @@ echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
 e
-cho "  reboot"
+echo "  reboot"
 
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
