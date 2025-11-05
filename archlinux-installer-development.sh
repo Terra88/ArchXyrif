@@ -545,28 +545,19 @@ GPU_CHOICE="${GPU_CHOICE:-4}"
 GPU_PKGS=()
 
 case "$GPU_CHOICE" in
-    1)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-        ;;
-    2)
-        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        ;;
-    3)
-        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
-        ;;
+    1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
+    2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
+    3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
     4)
         GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
                   nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
         echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
         ;;
-    5|*)
-        echo "Skipping GPU drivers."
-        GPU_PKGS=()
-        ;;
+    5|*) echo "Skipping GPU drivers."; GPU_PKGS=() ;;
 esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    # Enable multilib in chroot if not already enabled
+    # Enable multilib if not already enabled
     arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
@@ -575,12 +566,28 @@ fi
 pacman -Sy --noconfirm
 '
 
+    # Retry loop function
+    install_with_retry() {
+        local packages=("$@")
+        local max_retries=3
+        local count=0
+        until arch-chroot /mnt pacman -S --needed --noconfirm "${packages[@]}"; do
+            ((count++))
+            if [[ $count -ge $max_retries ]]; then
+                echo "⚠️ Failed to install packages after $max_retries attempts: ${packages[*]}"
+                return 1
+            fi
+            echo "⚠️ Pacman failed, retrying... ($count/$max_retries)"
+            sleep 5
+        done
+    }
+
     echo "Installing GPU drivers: ${GPU_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
+    install_with_retry "${GPU_PKGS[@]}"
 fi
 
 #===================================================================================================#
-# 8B) WINDOW MANAGER SELECTION (Official packages only)
+# 8B) WINDOW MANAGER SELECTION
 #===================================================================================================#
 echo
 echo "WINDOW MANAGER / DESKTOP ENVIRONMENT OPTIONS:"
@@ -591,36 +598,22 @@ echo "4) KDE Plasma (X11/Wayland)"
 echo "5) GNOME (X11/Wayland)"
 echo "6) Skip Window Manager / Desktop Environment"
 read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-WM_CHOICE="${WM_CHOICE:-1}"
+WM_CHOICE="${WM_CHOICE:-6}"
 
-WM_PKGS=()      # Official repo packages
-WM_AUR_PKGS=()  # AUR-only packages
+WM_PKGS=()
 
 case "$WM_CHOICE" in
-    1)
-        WM_PKGS=(hyprland waybar)                     # Official packages
-        WM_AUR_PKGS=(hyprpaper hyprshot hyprlock wlogout)  # AUR packages
-        ;;
-    2)
-        WM_PKGS=(sway swaybg swaylock waybar wofi)
-        ;;
-    3)
-        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
-        ;;
-    4)
-        WM_PKGS=(plasma-desktop kde-applications sddm)
-        ;;
-    5)
-        WM_PKGS=(gnome gdm)
-        ;;
-    6|*)
-        echo "Skipping window manager installation."
-        ;;
+    1) WM_PKGS=(hyprland hyprpaper hyprshot hyprlock wlogout waybar) ;;
+    2) WM_PKGS=(sway swaybg swaylock waybar wofi) ;;
+    3) WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter) ;;
+    4) WM_PKGS=(plasma-desktop kde-applications sddm) ;;
+    5) WM_PKGS=(gnome gdm) ;;
+    6|*) echo "Skipping window manager installation."; WM_PKGS=() ;;
 esac
 
 if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing official WM/DE packages: ${WM_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${WM_PKGS[@]}"
+    echo "Installing selected window manager packages: ${WM_PKGS[*]}"
+    install_with_retry "${WM_PKGS[@]}"
 fi
 
 #===================================================================================================#
@@ -642,37 +635,18 @@ DM_AUR_PKGS=()  # AUR packages (if any)
 DM_SERVICE=""
 
 case "$DM_CHOICE" in
-    1)
-        DM_PKGS=(gdm)
-        DM_SERVICE="gdm.service"
-        ;;
-    2)
-        DM_PKGS=(sddm)
-        DM_SERVICE="sddm.service"
-        ;;
-    3)
-        DM_PKGS=(lightdm lightdm-gtk-greeter)
-        DM_SERVICE="lightdm.service"
-        ;;
-    4)
-        DM_PKGS=(lxdm)
-        DM_SERVICE="lxdm.service"
-        ;;
-    5)
-        DM_PKGS=(ly)
-        DM_SERVICE="ly.service"
-        ;;
-    6|*)
-        echo "Skipping login/display manager installation."
-        ;;
+    1) DM_PKGS=(gdm); DM_SERVICE="gdm.service" ;;
+    2) DM_PKGS=(sddm); DM_SERVICE="sddm.service" ;;
+    3) DM_PKGS=(lightdm lightdm-gtk-greeter); DM_SERVICE="lightdm.service" ;;
+    4) DM_PKGS=(lxdm); DM_SERVICE="lxdm.service" ;;
+    5) DM_PKGS=(ly); DM_SERVICE="ly.service" ;;
+    6|*) echo "Skipping login/display manager installation." ;;
 esac
 
-# Install official DM packages via Pacman
 if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
     echo "Installing login/display manager packages: ${DM_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
+    install_with_retry "${DM_PKGS[@]}"
 
-    # Enable service if applicable
     if [[ -n "$DM_SERVICE" ]]; then
         echo "Enabling $DM_SERVICE..."
         arch-chroot /mnt systemctl enable "$DM_SERVICE"
@@ -680,10 +654,8 @@ if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
     fi
 fi
 
-# Any AUR packages required for DM can be added to DM_AUR_PKGS here
-# Example (if using Ly with additional helper tools from AUR):
-# DM_AUR_PKGS+=(ly-themes-git)
-# These will be installed later in Block 9B along with other AUR packages.
+# DM_AUR_PKGS can be installed later in Block 9B along with other AUR packages
+
 
 #===================================================================================================#
 # 9A) Extra Pacman/AUR package lists - Will be installed in section 9B
