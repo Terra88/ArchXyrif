@@ -826,7 +826,7 @@ echo "Checking for installed graphical login managers..."
 #===================================================================================================#
 
 #===================================================================================================#
-# 13 Cleanup postinstall script & Final Messages & Instructions - Not Finished
+# 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
 #===================================================================================================#
 echo
 echo "Custom package installation phase complete."
