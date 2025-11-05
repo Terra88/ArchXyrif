@@ -542,7 +542,7 @@ EXTRA_PKGS=(
 AUR_PKGS=(
     hyprlang-git hyprutils-git hyprwayland-scanner-git hyprland-protocols-git
     xdg-desktop-portal-hyprland-git kvantum-theme-catppuccin-git protonup-qt
-    python-inputs python-steam python-vdf qt6ct-kde wlogout wlrobs-hg
+    qt6ct-kde wlogout wlrobs-hg
     #obs-studio-git
 )
 
@@ -711,52 +711,75 @@ echo "▶ Extra installation phase finished.."
 #===================================================================================================#
 
 echo
-echo "Checking for installed graphical login managers..."
+echo ">>> Checking for installed graphical login managers..."
 
-    # List of common display managers
-    DISPLAY_MANAGERS=(
-      gdm
-      sddm
-      lightdm
-      lxdm
-      ly
-    )
-    
-    # Detect which one exists in chroot and enable it
-    ENABLED_DM=""
-    for dm in "${DISPLAY_MANAGERS[@]}"; do
-      if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
-        echo "→ Found display manager: ${dm}"
-        echo "→ Enabling ${dm}..."
-        arch-chroot /mnt systemctl enable "${dm}.service" || true
-        ENABLED_DM="${dm}"
-        break
-      fi
-    done
-    
-    if [[ -n "$ENABLED_DM" ]]; then
-      echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
-    else
-      echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) was found installed."
-      echo "   You can install and enable one manually after reboot, for example:"
-      echo "     pacman -S sddm && systemctl enable sddm"
-    fi
-    
-    echo
-    echo "GUI setup step complete."
-    
-    # Optional: set Hyprland as default session if present
-    if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
-      echo "→ Hyprland detected. Ensuring XDG session file exists..."
-      arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
-        cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
-    [Desktop Entry]
-    Name=Hyprland
-    Comment=Dynamic tiling Wayland compositor
-    Exec=Hyprland
-    Type=Application
-    EOF'
-    fi
+# List of common display managers
+DISPLAY_MANAGERS=(
+  gdm
+  sddm
+  lightdm
+  lxdm
+  ly
+)
+
+ENABLED_DM=""
+
+# Detect which DM exists in chroot and enable it
+for dm in "${DISPLAY_MANAGERS[@]}"; do
+  if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
+    echo "→ Found display manager: ${dm}"
+    echo "→ Enabling ${dm}..."
+    arch-chroot /mnt systemctl enable "${dm}.service" || true
+    ENABLED_DM="${dm}"
+    break
+  fi
+done
+
+if [[ -n "$ENABLED_DM" ]]; then
+  echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
+else
+  echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) found."
+  echo "   You can install and enable one manually after reboot, for example:"
+  echo "     pacman -S sddm && systemctl enable sddm"
+fi
+
+echo
+echo ">>> GUI setup step complete."
+
+# Set up Hyprland session if installed
+if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
+  echo "→ Hyprland detected. Creating XDG session file..."
+  
+  arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
+cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
+[Desktop Entry]
+Name=Hyprland (uwsm)
+Comment=Dynamic tiling Wayland compositor
+Exec=env XDG_SESSION_TYPE=wayland WLR_NO_HARDWARE_CURSORS=1 uwsm start Hyprland
+Type=Application
+EOF'
+
+  echo "→ Hyprland session file created."
+
+  # Special handling for GDM
+  if [[ "$ENABLED_DM" == "gdm" ]]; then
+    echo "→ Configuring GDM to run on X11 (required for Hyprland)..."
+    arch-chroot /mnt sed -i 's/^#WaylandEnable=false/WaylandEnable=false/' /etc/gdm/custom.conf
+    arch-chroot /mnt sed -i 's/^WaylandEnable=true/WaylandEnable=false/' /etc/gdm/custom.conf
+    echo "→ GDM Wayland disabled; it will now run on X11."
+  fi
+
+  # Global environment variables for Hyprland sessions
+  echo "→ Creating system-wide environment file for Hyprland..."
+  arch-chroot /mnt mkdir -p /etc/environment.d
+  arch-chroot /mnt bash -c 'cat > /etc/environment.d/90-hyprland.conf <<EOF
+XDG_SESSION_TYPE=wayland
+WLR_NO_HARDWARE_CURSORS=1
+EOF'
+  echo "→ Global environment file created."
+fi
+
+echo "✅ GUI + Hyprland session configuration complete."
 
 #===================================================================================================#
 # 11 Hyprland - Configs / Theme downloader
