@@ -172,7 +172,7 @@ partprobe "$DEV" || true
 # EFI: 1024 MiB
 EFI_SIZE_MIB=1024
 
-# Root: ~120 GiB -> 120*1024 MiB
+# Root: ~120 GiB -> 120*1024 MiB (Example: If you want 100GB root swap 120 with 100, rest will be calculated automatically.)
 ROOT_SIZE_MIB=$((120 * 1024))
 
 # Detect RAM in MiB
