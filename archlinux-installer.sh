@@ -671,12 +671,12 @@ else
     # -------------------------------
     # 3) AUR packages (Installer)
     # -------------------------------
-    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+   if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
         echo "Installing AUR packages via yay (with logging and retries)..."
     
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
             set -euo pipefail
-            LOGFILE="/var/log/aur-install.log"
+            LOGFILE="$HOME/aur-install.log"
             mkdir -p "$(dirname "$LOGFILE")"
             touch "$LOGFILE"
     
@@ -730,12 +730,12 @@ else
         echo "✅ AUR package installation (with logging) completed."
     else
         echo "Skipping AUR packages..."
-    fi
-    # Copy AUR install log to host root for inspection
-    if [[ -f /mnt/var/log/aur-install.log ]]; then
-    cp /mnt/var/log/aur-install.log /root/aur-install.log
-    echo "📋 Copied AUR log to /root/aur-install.log for review."
-    fi
+   fi
+      # Copy AUR install log to host root for inspection
+      if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+      cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
+      echo "📋 Copied AUR log to /root/aur-install.log for review."
+      fi
 fi   
 echo
 echo "▶ Extra installation phase finished."
