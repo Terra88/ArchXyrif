@@ -437,34 +437,30 @@ cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# This script runs inside the new system (chroot). Variables are injected from the outer script.
-# It will:
-#  - set timezone and hwclock
-#  - generate locales
-#  - set hostname and /etc/hosts
-#  - install and configure GRUB (UEFI)
-#  - generate initramfs
-#  - enable NetworkManager and sshd
-#  - create a user, add to wheel group and enable sudo for wheel
-
-# Replace placeholders injected by outer script
+# Variables injected from outer script
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 
-# 1) Timezone
+# --------------------------
+# 1) Timezone & hardware clock
+# --------------------------
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
 
+# --------------------------
 # 2) Locale
+# --------------------------
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-  echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 
-# 3) Hostname and hosts
+# --------------------------
+# 3) Hostname & /etc/hosts
+# --------------------------
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
@@ -472,32 +468,48 @@ cat > /etc/hosts <<HOSTS
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 
-# 4) Initramfs
-# Use mkinitcpio -P to rebuild all preset kernels
+# --------------------------
+# 4) Ensure /etc/vconsole.conf exists (fix mkinitcpio error)
+# --------------------------
+if [[ ! -f /etc/vconsole.conf ]]; then
+    echo "KEYMAP=fi" > /etc/vconsole.conf
+    echo "FONT=lat9w-16" >> /etc/vconsole.conf
+fi
+
+# --------------------------
+# 5) Initramfs for all kernels
+# --------------------------
 mkinitcpio -P
 
-# 5) Set root password (prompt)
+# --------------------------
+# 6) Root password
+# --------------------------
 echo "Set root password:"
 passwd
 
-# 6) Create user and set password
+# --------------------------
+# 7) Create user, set password, enable sudo
+# --------------------------
 useradd -m -G wheel -s /bin/bash "${NEWUSER}"
 echo "Set password for user ${NEWUSER}:"
 passwd "${NEWUSER}"
 
-# 7) Ensure user has sudo privileges
-# Create sudoers drop-in file (recommended method)
+# Create sudoers drop-in
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 
-# 8) Alternatively, enable wheel group sudo rights (optional)
+# Ensure wheel group sudo rights
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-# sed -i -E 's/^#?\s*%wheel\s+ALL=\(ALL(:ALL)?\)\s+ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
-# 9) Enable basic services
+# --------------------------
+# 8) Enable basic services
+# --------------------------
 systemctl enable NetworkManager
 systemctl enable sshd
 
+# --------------------------
+# 9) Done
+# --------------------------
 echo "Postinstall inside chroot finished."
 EOF
 #===================================================================================================#
