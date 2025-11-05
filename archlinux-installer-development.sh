@@ -547,77 +547,99 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages
+# 9) Installing extra Pacman and AUR packages (with safe AUR automation)
 #===================================================================================================#
 
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
-# Convert Y/N to numeric flags
 INSTALL_EXTRA=0
 INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-# Skip everything if both are no
 if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     echo "Skipping extra package installation."
+    exit 0
+fi
+
+echo ">>> Preparing extra package installation inside chroot..."
+
+# -------------------------------
+# 1) Install official packages (Pacman)
+# -------------------------------
+
+if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm
+    arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
 else
-    echo ">>> Preparing extra package installation inside chroot..."
+    echo "Skipping extra official packages..."
+fi
 
-    # -------------------------------
-    # 1) Pacman packages
-    # -------------------------------
-    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-        arch-chroot /mnt pacman -Sy --noconfirm
-        arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-    else
-        echo "Skipping extra official packages..."
+# -------------------------------
+# 2) Install AUR packages with yay and expect
+# -------------------------------
+
+if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+    echo ">>> Installing AUR packages via yay inside chroot..."
+
+    # Ensure required tools exist
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git expect sudo
+
+    # Create the expect wrapper inside chroot for yay automation
+    arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
+#!/usr/bin/expect -f
+# Expect wrapper for yay to auto-confirm specific prompts only
+set timeout -1
+set pkg [lindex \$argv 0]
+spawn yay -S --needed --removemake --disable-download-timeout --aur \$pkg
+expect {
+    -re {are in conflict.*Remove} {
+        send \"y\r\"
+        exp_continue
+    }
+    -re {Remove make dependencies after install\?} {
+        send \"y\r\"
+        exp_continue
+    }
+    eof
+}
+EOF
+chmod +x /usr/local/bin/yay-expect
+"
+
+    # Install yay (if not installed yet) as NEWUSER
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+    set -euo pipefail
+    if ! command -v yay >/dev/null 2>&1; then
+        echo "Installing yay AUR helper as $USER..."
+        cd ~
+        git clone https://aur.archlinux.org/yay.git
+        cd yay
+        makepkg -si --noconfirm --skippgpcheck
+        cd ..
+        rm -rf yay
     fi
+    '
 
-    # -------------------------------
-    # 2) AUR packages
-    # -------------------------------
-    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing AUR packages via yay inside chroot..."
-
-        # Step 1: Ensure yay is installed as NEWUSER
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+    # Install AUR packages using the expect wrapper
+    for pkg in "${AUR_PKGS[@]}"; do
+        echo "→ Installing AUR package: $pkg"
+        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
         set -euo pipefail
-        export HOME="/home/$USER"
+        /usr/local/bin/yay-expect $pkg || echo '⚠️ Failed to install $pkg, skipping...'
+        "
+    done
 
-        if ! command -v yay >/dev/null 2>&1; then
-            echo "Installing yay AUR helper as $USER..."
-            cd "$HOME"
-            git clone https://aur.archlinux.org/yay.git
-            cd yay
-            makepkg -si --noconfirm --skippgpcheck
-            cd ..
-            rm -rf yay
-        fi
-        '
-
-        # Step 2: Install each AUR package individually
-        for pkg in "${AUR_PKGS[@]}"; do
-            echo "→ Installing AUR package: $pkg"
-            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-            set -euo pipefail
-            # Remove --noconfirm if you want interactive conflict resolution
-            yay -S --needed --removemake --disable-download-timeout --aur '$pkg' || \
-            echo '⚠️ Failed to install $pkg, skipping...'
-            "
-        done
-
-        echo "✅ AUR packages installation complete!"
-    else
-        echo "Skipping AUR packages..."
-    fi
+    echo "✅ AUR packages installation complete!"
+else
+    echo "Skipping AUR packages..."
 fi
 
 echo
-echo "▶ Extra installation phase finished.."
+echo "▶ Extra installation phase finished."
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
