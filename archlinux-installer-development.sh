@@ -545,13 +545,14 @@ AUR_PKGS=(
     python-inputs python-steam python-vdf qt6ct-kde wlogout wlrobs-hg
     #obs-studio-git
 )
+
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages (Safe Hybrid)
+# 9) Installing Extra Pacman and AUR Packages 
 #===================================================================================================#
 
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Prepare AUR packages (requires yay, user interaction)? [y/N]: " install_aur
+read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
@@ -563,82 +564,173 @@ if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     exit 0
 fi
 
-echo ">>> Preparing extra package installation inside chroot..."
+echo ">>> Preparing package installation inside chroot..."
 
 # -------------------------------
-# 1) Pacman packages (root, automated)
+# Sanitize AUR package names and filter EXTRA_PKGS
 # -------------------------------
-if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing Pacman packages: ${EXTRA_PKGS[*]}"
-    arch-chroot /mnt pacman -Sy --noconfirm
-    arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-else
-    echo "Skipping Pacman packages..."
-fi
+sanitize_pkgname() {
+    local p="$1"
+    p="${p%-git}"
+    p="${p%-bin}"
+    p="${p%-r}"
+    echo "$p"
+}
 
-# -------------------------------
-# 2) Prepare Yay (non-root user)
-# -------------------------------
-if [[ $INSTALL_AUR -eq 1 ]]; then
-    echo "Ensuring yay is installed for $NEWUSER..."
+declare -A AUR_BASE
+for ap in "${AUR_PKGS[@]}"; do
+    AUR_BASE["$(sanitize_pkgname "$ap")"]=1
+done
 
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
-    set -euo pipefail
-    if ! command -v yay >/dev/null 2>&1; then
-        echo "Installing yay AUR helper..."
-        cd ~
-        git clone https://aur.archlinux.org/yay.git
-        cd yay
-        makepkg -si
-        cd ..
-        rm -rf yay
+NEW_EXTRA=()
+for ep in "${EXTRA_PKGS[@]}"; do
+    if [[ -n "${AUR_BASE["$(sanitize_pkgname "$ep")"]+x}" ]]; then
+        echo "→ Skipping '${ep}' from EXTRA_PKGS (provided by AUR)."
+    else
+        NEW_EXTRA+=("$ep")
     fi
-    '
+done
+EXTRA_PKGS=("${NEW_EXTRA[@]}")
+
+# -------------------------------
+# 1) Install Pacman packages (root, inside chroot)
+# -------------------------------
+PACMAN_SUCCESS=()
+PACMAN_FAIL=()
+
+if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+    echo "Installing official packages: ${EXTRA_PKGS[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm
+
+    for pkg in "${EXTRA_PKGS[@]}"; do
+        attempts=0
+        max_attempts=3
+        success=0
+
+        while (( attempts < max_attempts )); do
+            attempts=$((attempts + 1))
+            echo "→ Installing $pkg (attempt $attempts)..."
+            if arch-chroot /mnt pacman -S --needed --noconfirm "$pkg"; then
+                PACMAN_SUCCESS+=("$pkg")
+                success=1
+                break
+            else
+                echo "⚠️ Pacman install failed for $pkg (attempt $attempts)"
+                arch-chroot /mnt pacman -Sy --noconfirm || true
+                sleep 1
+            fi
+        done
+
+        (( success == 0 )) && PACMAN_FAIL+=("$pkg")
+    done
 else
-    echo "Skipping Yay setup..."
+    echo "Skipping official packages..."
 fi
 
 # -------------------------------
-# 3) Prepare interactive AUR install script
+# 2) Prepare chroot for building AUR packages
+# -------------------------------
+arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar sudo
+cp -L /etc/resolv.conf /mnt/etc/resolv.conf
+arch-chroot /mnt pacman-key --init || true
+arch-chroot /mnt pacman-key --populate archlinux || true
+arch-chroot /mnt swapon -a || true
+arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
+
+# -------------------------------
+# 3) Install AUR packages (as $NEWUSER)
 # -------------------------------
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Preparing interactive AUR install script for $NEWUSER..."
+    echo ">>> Installing AUR packages for user $NEWUSER..."
 
-    # Create the script
+    # 3a) Passwordless sudo for $NEWUSER
+    arch-chroot /mnt bash -c "echo '$NEWUSER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$NEWUSER-pacman"
+    arch-chroot /mnt chmod 440 /etc/sudoers.d/$NEWUSER-pacman
+
+    # 3b) Create AUR install script in the user's home
     cat > /mnt/home/$NEWUSER/install-aur.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 LOGFILE="$HOME/aur-install.log"
 touch "$LOGFILE"
 
 AUR_PKGS=( {{AUR_LIST}} )
+AUR_SUCCESS=()
+AUR_FAIL=()
 
-echo ">>> Starting interactive AUR installation"
+install_aur_pkg() {
+    local pkg="$1"
+    local attempts=0
+    local max_attempts=3
+    local success=0
+
+    while (( attempts < max_attempts )); do
+        attempts=$((attempts + 1))
+        echo "→ Installing $pkg (attempt $attempts)..." | tee -a "$LOGFILE"
+
+        if yay -S --needed --noconfirm --mflags "--skipinteg" "$pkg" >>"$LOGFILE" 2>&1; then
+            echo "✅ $pkg installed" | tee -a "$LOGFILE"
+            AUR_SUCCESS+=("$pkg")
+            success=1
+            break
+        fi
+
+        echo "⚠️ Failed $pkg (attempt $attempts)" | tee -a "$LOGFILE"
+        sleep 2
+    done
+
+    (( success == 0 )) && AUR_FAIL+=("$pkg")
+}
+
 for pkg in "${AUR_PKGS[@]}"; do
-    echo -e "\n→ Installing $pkg..."
-    echo "Logs are saved to $LOGFILE"
-    # Interactive install, user confirms conflicts
-    yay -S "$pkg" 2>&1 | tee -a "$LOGFILE"
+    install_aur_pkg "$pkg"
 done
 
-echo -e "\n✅ Interactive AUR installation complete!"
+echo "${AUR_SUCCESS[*]}" > "$HOME/aur-success.tmp"
+echo "${AUR_FAIL[*]}" > "$HOME/aur-fail.tmp"
+echo "AUR installation completed. Log: $LOGFILE"
 EOF
 
-    # Replace placeholder with actual packages
+    # 3c) Replace placeholder with actual package list
     aur_list_str=$(printf "'%s' " "${AUR_PKGS[@]}")
     arch-chroot /mnt bash -c "sed -i \"s|{{AUR_LIST}}|$aur_list_str|\" /home/$NEWUSER/install-aur.sh"
 
-    # Set ownership and permissions
+    # 3d) Set ownership and permissions
     arch-chroot /mnt chown $NEWUSER:$NEWUSER /home/$NEWUSER/install-aur.sh
     arch-chroot /mnt chmod +x /home/$NEWUSER/install-aur.sh
 
-    echo "Interactive AUR install script ready at /home/$NEWUSER/install-aur.sh"
-    echo "▶ After first login as $NEWUSER, run: bash ~/install-aur.sh"
+    # 3e) Run the AUR install script as the new user
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "HOME=/home/$NEWUSER bash /home/$NEWUSER/install-aur.sh"
+
+    # 3f) Copy AUR log to root for review
+    if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+        cp /mnt/home/$NEWUSER/aur-install.log /root/aur-install.log
+        echo "📋 AUR log copied to /root/aur-install.log"
+    fi
+else
+    echo "Skipping AUR packages..."
 fi
 
+# -------------------------------
+# 4) Summary
+# -------------------------------
 echo
-echo "▶ Extra installation phase finished."
+echo "================ Installation Summary ================"
+
+echo "✅ Pacman succeeded: ${PACMAN_SUCCESS[*]}"
+[[ ${#PACMAN_FAIL[@]} -gt 0 ]] && echo "❌ Pacman failed: ${PACMAN_FAIL[*]}"
+
+if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
+    read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
+fi
+if [[ -f /mnt/home/$NEWUSER/aur-fail.tmp ]]; then
+    read -r -a AUR_FAIL < /mnt/home/$NEWUSER/aur-fail.tmp
+fi
+
+[[ ${#AUR_SUCCESS[@]} -gt 0 ]] && echo "✅ AUR succeeded: ${AUR_SUCCESS[*]}"
+[[ ${#AUR_FAIL[@]} -gt 0 ]] && echo "❌ AUR failed: ${AUR_FAIL[*]}"
+
+echo "====================================================="
 
 # Copy full AUR log to root for inspection
 if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
