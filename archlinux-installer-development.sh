@@ -547,34 +547,39 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9A) GPU DRIVER SELECTION 
+# 9A) GPU DRIVER SELECTION MODULE (Safe for Hybrid Laptops, default=All compatible)
 #===================================================================================================#
 
 echo
 echo "GPU DRIVER INSTALLATION OPTIONS:"
 echo "1) Intel (integrated)"
-echo "2) NVIDIA (discrete / hybrid)"
+echo "2) NVIDIA (discrete / hybrid, Optimus)"
 echo "3) AMD (desktop GPU)"
-echo "4) All available drivers (Intel + NVIDIA + AMD)"
+echo "4) All compatible drivers (Intel + NVIDIA Optimus only)"
 echo "5) Skip GPU drivers"
-read -r -p "Select your GPU to install drivers for [1-5]: " GPU_CHOICE
+read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
+GPU_CHOICE="${GPU_CHOICE:-4}"  # Default to 4 if empty
 
 GPU_PKGS=()
 
 case "$GPU_CHOICE" in
     1)
+        # Intel only
         GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
         ;;
     2)
+        # NVIDIA only (Optimus)
         GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
         ;;
     3)
+        # AMD only
         GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
         ;;
     4)
+        # Default: Intel + NVIDIA hybrid safe (Optimus)
         GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
-                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime
-                  vulkan-radeon lib32-vulkan-radeon xf86-video-amdgpu)
+                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+        echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
         ;;
     5|*)
         echo "Skipping GPU drivers."
@@ -588,14 +593,13 @@ if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
     echo "Adding selected GPU packages to EXTRA_PKGS: ${UNIQUE_GPU_PKGS[*]}"
     EXTRA_PKGS+=("${UNIQUE_GPU_PKGS[@]}")
 fi
+#===================================================================================================#
+# 9B) Installing extra Pacman and AUR packages (multilib enabled)
+#===================================================================================================#
 
-#===================================================================================================#
-# 9B) EXTRA PKGS INSTALLATION (Pacman + AUR) - Cleaned & Multilib Enabled
-#===================================================================================================#
-# Ask user about installing extras
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires yay) now? [y/N]: " install_aur
+read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
@@ -607,41 +611,42 @@ if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     exit 0
 fi
 
+echo ">>> Preparing extra package installation inside chroot..."
+
 # -------------------------------
-# 1) Enable multilib repo inside chroot (needed for lib32 packages)
+# Enable multilib repo in pacman.conf if not already enabled (applies to all packages)
 # -------------------------------
-echo "Checking and enabling multilib repository inside chroot..."
+echo "Ensuring multilib repository is enabled inside chroot..."
 arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-    echo "[multilib] not found. Enabling..."
-    sed -i "/^#\\[multilib\\]/{s/^#//;N;s/^#//}" /etc/pacman.conf || true
-    pacman -Sy --noconfirm
+    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+    echo "Multilib repository added."
 else
-    echo "Multilib already enabled."
+    echo "Multilib repository already enabled."
 fi
+pacman -Sy --noconfirm
 '
 
 # -------------------------------
-# 2) Install EXTRA_PKGS (official pacman)
+# Install official packages (Pacman)
 # -------------------------------
 if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
     echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-    arch-chroot -/mnt pacman -Sy --noconfirm
     arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
 else
     echo "Skipping extra official packages..."
 fi
 
 # -------------------------------
-# 3) Install AUR packages using yay
+# Install AUR packages with yay (still supports multilib deps)
 # -------------------------------
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
     echo ">>> Installing AUR packages via yay inside chroot..."
-
-    # Ensure required tools exist
+    
+    # Install required build tools if missing
     arch-chroot /mnt pacman -S --needed --noconfirm base-devel git expect sudo
 
-    # Create expect wrapper for yay
+    # Create expect wrapper for yay automation
     arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
 #!/usr/bin/expect -f
 set timeout -1
@@ -662,12 +667,9 @@ EOF
 chmod +x /usr/local/bin/yay-expect
 "
 
-    # Install yay as NEWUSER if not present
+    # Install yay as NEWUSER if not already installed
     arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
-    set -euo pipefail
     if ! command -v yay >/dev/null 2>&1; then
-        echo "Installing yay AUR helper as $USER..."
-        cd ~
         git clone https://aur.archlinux.org/yay.git
         cd yay
         makepkg -si --noconfirm --skippgpcheck
@@ -676,22 +678,16 @@ chmod +x /usr/local/bin/yay-expect
     fi
     '
 
-    # Install AUR packages
+    # Install each AUR package
     for pkg in "${AUR_PKGS[@]}"; do
         echo "→ Installing AUR package: $pkg"
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-        set -euo pipefail
-        /usr/local/bin/yay-expect $pkg || echo '⚠️ Failed to install $pkg, skipping...'
-        "
+        arch-chroot /mnt runuser -u "$NEWUSER" -- /usr/local/bin/yay-expect "$pkg" || echo "⚠️ Failed to install $pkg"
     done
 
     echo "✅ AUR packages installation complete!"
 else
     echo "Skipping AUR packages..."
 fi
-
-echo
-echo "▶ GPU + extra package installation phase finished."
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
