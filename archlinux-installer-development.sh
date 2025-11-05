@@ -558,152 +558,77 @@ AUR_PKGS=(
     #obs-studio-git
 )
 
-#===================================================================================================#
-# 9A) GPU DRIVER SELECTION MODULE (Safe for Hybrid Laptops, default=All compatible)
-#===================================================================================================#
-
-echo
-echo "GPU DRIVER INSTALLATION OPTIONS:"
-echo "1) Intel (integrated)"
-echo "2) NVIDIA (discrete / hybrid, Optimus)"
-echo "3) AMD (desktop GPU)"
-echo "4) All GPU drivers drivers - Default option, if you don't know what to install"
-echo "5) Skip GPU drivers"
-read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
-GPU_CHOICE="${GPU_CHOICE:-4}"  # Default to 4 if empty
-
+# -------------------------------
+# 9A) GPU DRIVER INSTALLATION
+# -------------------------------
 GPU_PKGS=()
+echo
+echo "Select GPU driver to install:"
+echo "1) Intel"
+echo "2) NVIDIA"
+echo "3) AMD"
+echo "4) All compatible (Default)"
+echo "5) Skip"
+read -r -p "Choice [1-5, default=4]: " GPU_CHOICE
+GPU_CHOICE="${GPU_CHOICE:-4}"
 
 case "$GPU_CHOICE" in
-    1)
-        # Intel only
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-        ;;
-    2)
-        # NVIDIA only (Optimus)
-        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        ;;
-    3)
-        # AMD only
-        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
-        ;;
-    4)
-        # Default: Intel + NVIDIA hybrid safe (Optimus)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
-                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
-        ;;
-    5|*)
-        echo "Skipping GPU drivers."
-        GPU_PKGS=()
-        ;;
+    1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel);;
+    2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime);;
+    3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu);;
+    4) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime);;
+    *) GPU_PKGS=();;
 esac
 
-# Remove duplicates before adding to EXTRA_PKGS
-if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    UNIQUE_GPU_PKGS=($(printf "%s\n" "${GPU_PKGS[@]}" | awk '!x[$0]++'))
-    echo "Adding selected GPU packages to EXTRA_PKGS: ${UNIQUE_GPU_PKGS[*]}"
-    EXTRA_PKGS+=("${UNIQUE_GPU_PKGS[@]}")
-fi
-#===================================================================================================#
-# 9B) Installing extra Pacman and AUR packages (multilib enabled) - FIXED
-#===================================================================================================#
+# Deduplicate
+EXTRA_PKGS+=($(printf "%s\n" "${GPU_PKGS[@]}" | awk '!x[$0]++'))
 
-echo
-read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
+# -------------------------------
+# 9B) EXTRA PACMAN & AUR INSTALL
+# -------------------------------
+read -r -p "Install extra pacman packages? [y/N]: " INSTALL_EXTRA_ANSWER
+read -r -p "Install AUR packages? [y/N]: " INSTALL_AUR_ANSWER
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
-[[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
-[[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
+[[ "$INSTALL_EXTRA_ANSWER" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
+[[ "$INSTALL_AUR_ANSWER" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
-    echo "Skipping extra package installation."
-    exit 0
-fi
-
-echo ">>> Preparing extra package installation inside chroot..."
-
-# -------------------------------
-# Enable multilib repo in pacman.conf if not already enabled
-# -------------------------------
+# Enable multilib
 arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-    echo "Multilib repository added."
-else
-    echo "Multilib repository already enabled."
 fi
 pacman -Sy --noconfirm
 '
 
-# -------------------------------
-# Install official packages (Pacman)
-# -------------------------------
+# Install pacman extra packages
 if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
     arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-else
-    echo "Skipping extra official packages..."
 fi
 
-# -------------------------------
-# Install AUR packages with yay
-# -------------------------------
+# Install yay & AUR packages
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo ">>> Installing AUR packages via yay inside chroot..."
-
-    # Ensure base-devel and git are installed (required for building AUR packages)
     arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
 
-    # Install yay as NEWUSER
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-cd /home/$NEWUSER
+    # Install yay in user home
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+cd "$HOME"
 if [[ ! -d yay ]]; then
     git clone https://aur.archlinux.org/yay.git
 fi
 cd yay
-makepkg -si --noconfirm --skippgpcheck
-cd ..
-rm -rf yay
-"
+makepkg -si --noconfirm --removemake --needed
+'
 
-    # Symlink yay to /usr/local/bin so scripts can find it
-    arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/yay /usr/local/bin/yay || true
-
-    # Create expect wrapper for automated AUR installs
-    arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
-#!/usr/bin/expect -f
-set timeout -1
-set pkg [lindex \$argv 0]
-spawn yay -S --needed --removemake --disable-download-timeout --aur \$pkg
-expect {
-    -re {are in conflict.*Remove} {
-        send \"y\r\"
-        exp_continue
-    }
-    -re {Remove make dependencies after install\?} {
-        send \"y\r\"
-        exp_continue
-    }
-    eof
-}
-EOF
-chmod +x /usr/local/bin/yay-expect
-"
-
-    # Install each AUR package
-    for pkg in "${AUR_PKGS[@]}"; do
-        echo "→ Installing AUR package: $pkg"
-        arch-chroot /mnt /usr/local/bin/yay-expect "$pkg" || echo "⚠️ Failed to install $pkg"
-    done
-
-    echo "✅ AUR packages installation complete!"
-else
-    echo "Skipping AUR packages..."
+    # Install AUR packages automatically
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+export PATH=$HOME/.local/bin:$PATH
+for pkg in '"${AUR_PKGS[@]}"'; do
+    yay -S --needed --removemake --noconfirm --overwrite "*" "$pkg" || echo "Failed: $pkg"
+done
+'
 fi
-
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
 #===================================================================================================#
