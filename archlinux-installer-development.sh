@@ -547,70 +547,61 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9A) GPU DRIVER SELECTION & INSTALLATION (Auto-Detect + Confirm)
+# GPU DRIVER SELECTION & INSTALLATION
 #===================================================================================================#
 
 echo
-echo ">>> Detecting GPU hardware..."
+echo "==================== GPU DRIVER INSTALLATION ===================="
 
-GPU_INFO=$(lspci | grep -E "VGA|3D|Display" | head -n 1)
-echo "Detected GPU: $GPU_INFO"
+echo "Select your GPU setup:"
+echo "  1) Intel (integrated)"
+echo "  2) NVIDIA (dedicated)"
+echo "  3) Hybrid Intel+NVIDIA (Optimus / PRIME)"
+echo "  4) AMD"
+echo "  5) Install all available GPU drivers (desktop testing)"
+read -r -p "Enter choice [1-5]: " GPU_CHOICE
 
-GPU_CHOICE=""
+GPU_PKGS=()
 
-if echo "$GPU_INFO" | grep -qi "NVIDIA"; then
-    GPU_CHOICE="NVIDIA"
-elif echo "$GPU_INFO" | grep -qi "AMD"; then
-    GPU_CHOICE="AMD"
-elif echo "$GPU_INFO" | grep -qi "Intel"; then
-    GPU_CHOICE="INTEL"
-else
-    echo "⚠️  Could not automatically detect GPU type."
-fi
-
-echo
-echo "GPU auto-detected as: ${GPU_CHOICE:-Unknown}"
-echo "Select GPU driver set to install:"
-echo "  1) NVIDIA (proprietary, dkms, utils)"
-echo "  2) AMD (mesa, vulkan-radeon, lib32, opencl)"
-echo "  3) Intel (mesa, vulkan-intel, lib32)"
-echo "  4) Skip GPU installation"
-read -r -p "Enter choice [1-4, default=${GPU_CHOICE:-3}]: " gpu_choice
-
-# If no input, fallback to detected GPU
-gpu_choice=${gpu_choice:-$(
-    case "$GPU_CHOICE" in
-        NVIDIA) echo 1 ;;
-        AMD) echo 2 ;;
-        INTEL) echo 3 ;;
-        *) echo 4 ;;
-    esac
-)}
-
-case "$gpu_choice" in
-    1)
-        echo "Installing NVIDIA drivers..."
-        arch-chroot /mnt pacman -S --needed --noconfirm nvidia-dkms nvidia-utils lib32-nvidia-utils opencl-nvidia
-        ;;
-    2)
-        echo "Installing AMD drivers..."
-        arch-chroot /mnt pacman -S --needed --noconfirm mesa lib32-mesa vulkan-radeon lib32-vulkan-radeon opencl-mesa
-        ;;
-    3)
-        echo "Installing Intel drivers..."
-        arch-chroot /mnt pacman -S --needed --noconfirm mesa lib32-mesa vulkan-intel lib32-vulkan-intel intel-media-driver
-        ;;
-    4)
-        echo "Skipping GPU driver installation."
-        ;;
-    *)
-        echo "Invalid choice. Skipping GPU driver installation."
-        ;;
+case "$GPU_CHOICE" in
+  1)
+    echo "→ Installing Intel GPU drivers..."
+    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
+    ;;
+  2)
+    echo "→ Installing NVIDIA GPU drivers..."
+    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
+    ;;
+  3)
+    echo "→ Installing Intel + NVIDIA (Hybrid / PRIME) drivers..."
+    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
+    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
+    ;;
+  4)
+    echo "→ Installing AMD GPU drivers..."
+    GPU_PKGS+=(mesa mesa-vulkan-drivers vulkan-radeon lib32-mesa lib32-vulkan-radeon)
+    ;;
+  5)
+    echo "→ Installing ALL GPU drivers..."
+    GPU_PKGS+=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
+    GPU_PKGS+=(nvidia nvidia-utils nvidia-settings lib32-nvidia-utils)
+    GPU_PKGS+=(mesa mesa-vulkan-drivers vulkan-radeon lib32-mesa lib32-vulkan-radeon)
+    ;;
+  *)
+    echo "No valid choice selected. Skipping GPU driver installation."
+    GPU_PKGS=()
+    ;;
 esac
 
-echo "✅ GPU driver installation phase complete."
-echo
+if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
+    echo "→ Installing selected GPU packages inside chroot: ${GPU_PKGS[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm
+    arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
+else
+    echo "→ No GPU packages selected for installation."
+fi
 
+echo "================== GPU DRIVER INSTALLATION COMPLETE =================="
 #===================================================================================================#
 # 9B) Installing extra Pacman and AUR packages (with safe AUR automation)
 #===================================================================================================#
