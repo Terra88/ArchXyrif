@@ -530,7 +530,7 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
-# 7) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
+# 7B) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
 #===================================================================================================#
 echo
 echo "-------------------------------------------"
@@ -585,12 +585,13 @@ else
 fi
 
 #===================================================================================================#
-# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
+# 7C) UNIVERSAL INSTALLATION HELPERS (RETRY + CONFLICT PREVENTION)
 #===================================================================================================#
-#===================================================================================================#
-# Helper Function: install_with_retry
-# Retries Pacman installs up to 3 times with mirror refresh & keyring update
-#===================================================================================================#
+
+#---------------------------------------------------------------------------------------------------#
+# install_with_retry
+# Retries Pacman installs up to 3 times with mirror/keyring refresh and delay between attempts.
+#---------------------------------------------------------------------------------------------------#
 install_with_retry() {
     local CMD=("$@")
     local MAX_RETRIES=3
@@ -616,9 +617,11 @@ install_with_retry() {
     return 1
 }
 
-#===================================================================================================#
-# UNIVERSAL CONFLICT PREVENTION FUNCTION
-#===================================================================================================#
+#---------------------------------------------------------------------------------------------------#
+# safe_pacman_install
+# Checks for potential conflicts before installing, removes them if necessary,
+# and then installs packages with retry protection.
+#---------------------------------------------------------------------------------------------------#
 safe_pacman_install() {
     local CHROOT_CMD="$1"
     shift
@@ -628,20 +631,28 @@ safe_pacman_install() {
     echo "🔍 Checking for potential conflicts before installing: ${PKGS[*]}"
 
     for PKG in "${PKGS[@]}"; do
-        CONFLICTS=$(arch-chroot /mnt pacman -Si "$PKG" 2>/dev/null | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
+        echo "→ Inspecting $PKG ..."
+        local INFO
+        if ! INFO=$($CHROOT_CMD pacman -Si "$PKG" 2>/dev/null); then
+            echo "⚠️ Could not retrieve info for $PKG (might be from AUR or mirror issue). Skipping conflict check."
+            continue
+        fi
+
+        local CONFLICTS
+        CONFLICTS=$(echo "$INFO" | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
         if [[ -n "$CONFLICTS" ]]; then
-            echo "⚠️  $PKG conflicts with: $CONFLICTS"
+            echo "⚠️ $PKG conflicts with: $CONFLICTS"
             for CONFLICT in $CONFLICTS; do
-                if arch-chroot /mnt pacman -Qq "$CONFLICT" &>/dev/null; then
+                if $CHROOT_CMD pacman -Qq "$CONFLICT" &>/dev/null; then
                     echo "→ Removing conflicting package: $CONFLICT"
-                    arch-chroot /mnt pacman -Rdd --noconfirm "$CONFLICT" || true
+                    $CHROOT_CMD pacman -Rdd --noconfirm "$CONFLICT" || true
                 fi
             done
         fi
     done
 
     echo "📦 Installing packages: ${PKGS[*]}"
-    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${PKGS[@]}"
+    install_with_retry $CHROOT_CMD pacman -S --needed --noconfirm "${PKGS[@]}"
 }
 #===================================================================================================#
 # 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
