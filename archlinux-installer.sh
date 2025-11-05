@@ -172,7 +172,7 @@ partprobe "$DEV" || true
 # EFI: 1024 MiB
 EFI_SIZE_MIB=1024
 
-# Root: ~120 GiB -> 120*1024 MiB (Example: If you want 100GB root swap 120 with 100, rest will be calculated automatically.)
+# Root: ~120 GiB -> 120*1024 MiB
 ROOT_SIZE_MIB=$((120 * 1024))
 
 # Detect RAM in MiB
@@ -309,7 +309,6 @@ swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 PKGS=(
   base
   base-devel
-  bash
   go
   git
   grub
@@ -518,356 +517,204 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
-# 8) Extra Pacman/AUR package lists
+# 8) Extra Pacman/Aur package lists.
 #===================================================================================================#
+# Define the lists below — edit as you like
 
-# Official packages (Pacman)
 EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst gdm grim htop
-    hypridle hyprland hyprlock hyprpaper hyprshot kitty network-manager-applet
-    polkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofi
-    nftables waybar archlinux-xdg-menu ark bemenu-wayland breeze brightnessctl
-    btop cliphist cpupower discover evtest firefox flatpak 
-    goverlay gst-libav gst-plugin-pipewire gst-plugins-bad gst-plugins-base
-    gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse
-    linuxconsole nvtop nwg-displays nwg-look otf-font-awesome
-    pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct
-    smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg vlc-plugins-all
-    wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
-    xdg-utils xorg-server xorg-xinit
-    zram-generator base-devel  # mesa vulkan-radeon
+    blueman
+    bluez
+    bluez-utils
+    dolphin
+    dolphin-plugins
+    dunst
+    gdm
+    grim
+    htop
+    hypridle
+    hyprland
+    hyprlock
+    hyprpaper
+    hyprshot
+    kitty
+    network-manager-applet
+    polkit-kde-agent
+    qt5-wayland
+    qt6-wayland
+    unzip
+    uwsm
+    rofi
+    slurp
+    wget
+    wofi
+    nftables
+    waybar
+    archlinux-xdg-menu
+    ark
+    bemenu-wayland
+    breeze
+    brightnessctl
+    btop
+    cliphist
+    cpupower
+    discord
+    discover
+    evtest
+    firefox
+    flatpak
+    gamemode
+    goverlay
+    gst-libav
+    gst-plugin-pipewire
+    gst-plugins-bad
+    gst-plugins-base
+    gst-plugins-good
+    gst-plugins-ugly
+    iwd
+    kate
+    konsole
+    kvantum
+    libpulse
+    linuxconsole
+    lutris
+    mangohud
+    nvtop
+    nwg-displays
+    nwg-look
+    otf-font-awesome
+    pavucontrol
+    pipewire
+    pipewire-alsa
+    pipewire-jack
+    pipewire-pulse
+    qt5ct
+    smartmontools
+    sway
+    thermald
+    ttf-hack
+    vlc-plugin-ffmpeg
+    vlc-plugins-all
+    vulkan-radeon
+    wireless_tools
+    wireplumber
+    wl-clipboard
+    xdg-desktop-portal-wlr
+    xdg-utils
+    xf86-video-amdgpu
+    xf86-video-ati
+    xorg-server
+    xorg-xinit
+    zram-generator
+    base-devel  # needed for AUR building
 )
 
-# AUR packages
 AUR_PKGS=(
-    hyprlang-git hyprutils-git hyprwayland-scanner-git hyprland-protocols-git
-    xdg-desktop-portal-hyprland-git kvantum-theme-catppuccin-git protonup-qt
-    python-inputs python-steam python-vdf qt6ct-kde wlogout wlrobs-hg
-    #obs-studio-git
+hyprland-protocols-git
+hyprlang-git
+hyprutils-git
+hyprwayland-scanner-git
+kvantum-theme-catppuccin-git
+obs-studio-git
+proton-ge-custom
+protonup-qt
+python-inputs
+python-steam
+python-vdf
+qt6ct-kde
+wlogout
+wlrobs-hg
+xdg-desktop-portal-hyprland-git
 )
 
 #===================================================================================================#
-# 9) Installing extra Pacman and AUR packages (Hyprland-focused) + Automatic Retry
+# 9) Installing extra Pacman and AUR packages
 #===================================================================================================#
 
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
 
+# Convert Y/N to numeric flags
 INSTALL_EXTRA=0
 INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
+# Skip everything if both are no
 if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     echo "Skipping extra package installation."
-    exit 0
-fi
+else
+    echo ">>> Preparing extra package installation inside chroot..."
 
-echo ">>> Preparing extra package installation inside chroot..."
-
-# -------------------------------
-# Sanitize AUR package names and filter EXTRA_PKGS
-# -------------------------------
-sanitize_pkgname() {
-    local p="$1"
-    p="${p%-git}"
-    p="${p%-bin}"
-    p="${p%-r}"
-    echo "$p"
-}
-
-declare -A AUR_BASE
-for ap in "${AUR_PKGS[@]}"; do
-    AUR_BASE["$(sanitize_pkgname "$ap")"]=1
-done
-
-NEW_EXTRA=()
-for ep in "${EXTRA_PKGS[@]}"; do
-    if [[ -n "${AUR_BASE["$(sanitize_pkgname "$ep")"]+x}" ]]; then
-        echo "→ Skipping '${ep}' from EXTRA_PKGS (AUR package provides it)."
+    # -------------------------------
+    # 1) Pacman packages
+    # -------------------------------
+    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+        arch-chroot /mnt pacman -Sy --noconfirm
+        arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
     else
-        NEW_EXTRA+=("$ep")
+        echo "Skipping extra official packages..."
     fi
-done
-EXTRA_PKGS=("${NEW_EXTRA[@]}")
 
-# -------------------------------
-# 1) Install official packages (Pacman) with robust retries and logging
-# -------------------------------
+    # -------------------------------
+    # 2) AUR packages
+    # -------------------------------
+    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+        echo "Installing AUR packages via yay..."
 
-PACMAN_SUCCESS=()
-PACMAN_FAIL=()
+        # Step 1: Ensure yay is installed as NEWUSER
+        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+        set -euo pipefail
+        if ! command -v yay >/dev/null 2>&1; then
+            echo "Installing yay AUR helper as $USER..."
+            cd ~
+            git clone https://aur.archlinux.org/yay.git
+            cd yay
+            makepkg -si --noconfirm --skippgpcheck
+            cd ..
+            rm -rf yay
+        fi
+        '
 
-if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-
-    # Update databases first
-    arch-chroot /mnt pacman -Sy --noconfirm
-
-    # Loop through each package individually
-    for pkg in "${EXTRA_PKGS[@]}"; do
-        attempts=0
-        max_attempts=3
-        success=0
-
-        while (( attempts < max_attempts )); do
-            attempts=$((attempts + 1))
-            echo -e "\n→ Installing $pkg (attempt $attempts)..."
-
-            if arch-chroot /mnt pacman -S --needed --noconfirm "$pkg"; then
-                echo "✅ $pkg installed successfully"
-                PACMAN_SUCCESS+=("$pkg")
-                success=1
-                break
-            else
-                echo "⚠️ Pacman package $pkg failed (attempt $attempts)"
-                # Optional: refresh databases in case of transient errors
-                arch-chroot /mnt pacman -Sy --noconfirm || true
-                sleep 1
-            fi
+        # Step 2: Install each AUR package individually
+        for pkg in "${AUR_PKGS[@]}"; do
+            echo "→ Installing AUR package: $pkg"
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+            set -euo pipefail
+            yay -S --needed --noconfirm --removemake --disable-download-timeout --aur $pkg || \
+            echo '⚠️ Failed to install $pkg, skipping...'
+            "
         done
 
-        if (( success == 0 )); then
-            echo "❌ $pkg failed after $max_attempts attempts"
-            PACMAN_FAIL+=("$pkg")
-        fi
-    done
-else
-    echo "Skipping extra official packages..."
-fi
-
-# -------------------------------
-# 2) Prepare chroot for AUR builds
-# -------------------------------
-arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar
-cp -L /etc/resolv.conf /mnt/etc/resolv.conf
-arch-chroot /mnt pacman-key --init || true
-arch-chroot /mnt pacman-key --populate archlinux || true
-arch-chroot /mnt swapon -a || true
-arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
-
-# -------------------------------
-# 3) Install AUR packages automatically (robust)
-# -------------------------------
-
-AUR_SUCCESS=()
-AUR_FAIL=()
-
-if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Installing AUR packages via yay inside chroot..."
-
-    # Ensure base-devel and dependencies are installed for builds
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar
-
-    # Ensure user has passwordless pacman inside chroot
-    arch-chroot /mnt pacman -S --needed --noconfirm sudo
-    arch-chroot /mnt bash -c "echo '$NEWUSER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$NEWUSER-pacman"
-    arch-chroot /mnt chmod 440 /etc/sudoers.d/$NEWUSER-pacman
-
-    # Create a helper AUR install script for the user
-    cat > /mnt/home/$NEWUSER/install-aur.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-LOGFILE="$HOME/aur-install.log"
-touch "$LOGFILE"
-echo "==============================" | tee -a "$LOGFILE"
-echo "AUR installation started: $(date)" | tee -a "$LOGFILE"
-echo "==============================" | tee -a "$LOGFILE"
-
-# Install yay if missing
-if ! command -v yay >/dev/null 2>&1; then
-    echo "Installing yay AUR helper..." | tee -a "$LOGFILE"
-    cd "$HOME"
-    git clone https://aur.archlinux.org/yay.git >>"$LOGFILE" 2>&1
-    cd yay
-    makepkg -si --noconfirm --skippgpcheck >>"$LOGFILE" 2>&1
-    cd ..
-    rm -rf yay
-fi
-
-# Update system and AUR databases
-yay -Syu --noconfirm --devel >>"$LOGFILE" 2>&1 || true
-
-# Helper function to install one package with retries and conflict handling
-install_aur_pkg() {
-    local pkg="$1"
-    local attempts=0
-    local max_attempts=3
-    local success=0
-
-    while (( attempts < max_attempts )); do
-        attempts=$((attempts+1))
-        echo -e "\n→ Installing $pkg (attempt $attempts)..." | tee -a "$LOGFILE"
-
-        if yay -S --needed --noconfirm --mflags "--skipinteg" "$pkg" >>"$LOGFILE" 2>&1; then
-            echo "✅ $pkg installed successfully" | tee -a "$LOGFILE"
-            success=1
-            break
-        fi
-
-        echo "⚠️ Installation failed for $pkg (attempt $attempts)" | tee -a "$LOGFILE"
-
-        # Handle known conflicts
-        if grep -qiE "conflicting dependencies|conflicts with" "$LOGFILE"; then
-            echo "→ Detected conflicting Hyprland packages, removing them..." | tee -a "$LOGFILE"
-            for c in $(pacman -Qq | grep -E "hypr(lang|utils|land)" || true); do
-                echo "→ Removing $c" | tee -a "$LOGFILE"
-                pacman -Rdd --noconfirm "$c" >>"$LOGFILE" 2>&1 || true
-            done
-        elif grep -qiE "exists in filesystem" "$LOGFILE"; then
-            echo "→ File conflict detected for $pkg, cleaning cache and retrying..." | tee -a "$LOGFILE"
-            rm -rf "$HOME/.cache/yay/$pkg" || true
-        fi
-
-        sleep 2
-    done
-
-    if (( success == 0 )); then
-        echo "❌ $pkg failed after $max_attempts attempts" | tee -a "$LOGFILE"
+        echo "✅ AUR packages installation complete!"
+    else
+        echo "Skipping AUR packages..."
     fi
-}
-
-# Loop through AUR packages
-AUR_LIST=(${AUR_PKGS[@]})
-for pkg in "${AUR_LIST[@]}"; do
-    install_aur_pkg "$pkg"
-done
-
-echo -e "\n==============================" | tee -a "$LOGFILE"
-echo "AUR installation completed: $(date)" | tee -a "$LOGFILE"
-EOF
-
-    # Make it executable
-    arch-chroot /mnt chown $NEWUSER:$NEWUSER /home/$NEWUSER/install-aur.sh
-    arch-chroot /mnt chmod +x /home/$NEWUSER/install-aur.sh
-
-    # Run it as the new user
-    arch-chroot /mnt runuser -u "$NEWUSER" -- /home/$NEWUSER/install-aur.sh
-
-    # Copy log to root for review
-    if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-        cp /mnt/home/$NEWUSER/aur-install.log /root/aur-install.log
-        echo "📋 AUR log copied to /root/aur-install.log"
-    fi
-
-else
-    echo "Skipping AUR packages..."
 fi
 
-# -------------------------------
-# 4) Unified Installation Summary
-# -------------------------------
 echo
-echo "================ Unified Installation Summary ================"
-
-if [[ ${#PACMAN_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ Pacman packages installed successfully: ${PACMAN_SUCCESS[*]}"
-else
-    echo "⚠️ No Pacman packages were installed successfully."
-fi
-
-if [[ ${#PACMAN_FAIL[@]} -gt 0 ]]; then
-    echo "❌ Pacman packages failed: ${PACMAN_FAIL[*]}"
-fi
-
-if [[ ${#AUR_SUCCESS[@]} -gt 0 ]]; then
-    echo "✅ AUR packages installed successfully: ${AUR_SUCCESS[*]}"
-else
-    echo "⚠️ No AUR packages were installed successfully."
-fi
-
-if [[ ${#AUR_FAIL[@]} -gt 0 ]]; then
-    echo "❌ AUR packages failed: ${AUR_FAIL[*]}"
-fi
-
-echo "==============================================================="
-echo
-echo "📋 AUR install log (if available) copied to /root/aur-install.log for review."
-
-
 echo "▶ Extra installation phase finished."
 
-  # Copy AUR install log to host root for inspection
-  if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-  cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-  echo "📋 Copied AUR log to /root/aur-install.log for review."
-  fi
-
 #===================================================================================================#
-# 10) GUI Setup: Enable Display/Login Manager if available
-#===================================================================================================#
-
-echo
-echo "Checking for installed graphical login managers..."
-
-    # List of common display managers
-    DISPLAY_MANAGERS=(
-      gdm
-      sddm
-      lightdm
-      lxdm
-      ly
-    )
-    
-    # Detect which one exists in chroot and enable it
-    ENABLED_DM=""
-    for dm in "${DISPLAY_MANAGERS[@]}"; do
-      if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
-        echo "→ Found display manager: ${dm}"
-        echo "→ Enabling ${dm}..."
-        arch-chroot /mnt systemctl enable "${dm}.service" || true
-        ENABLED_DM="${dm}"
-        break
-      fi
-    done
-    
-    if [[ -n "$ENABLED_DM" ]]; then
-      echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
-    else
-      echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) was found installed."
-      echo "   You can install and enable one manually after reboot, for example:"
-      echo "     pacman -S sddm && systemctl enable sddm"
-    fi
-    
-    echo
-    echo "GUI setup step complete."
-    
-    # Optional: set Hyprland as default session if present
-    if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
-      echo "→ Hyprland detected. Ensuring XDG session file exists..."
-      arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
-        cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
-    [Desktop Entry]
-    Name=Hyprland
-    Comment=Dynamic tiling Wayland compositor
-    Exec=Hyprland
-    Type=Application
-    EOF'
-    fi
-
-#===================================================================================================#
-# 11 Hyprland - Configs / Theme downloader
+# 10 Hyprland Configs - "Coming Later"
 #===================================================================================================#
 
 #===================================================================================================#
-# 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
+# 11 Cleanup postinstall script & Final Messages & Instructions - Not Finished
 #===================================================================================================#
 echo
 echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
 echo "  - EXTRA_PKGS[] for pacman packages"
 echo "  - AUR_PKGS[] for AUR software"
-echo "  - If you got install errors on yay packages, you are either missing right pre installed package dependencies or have conflicts in packages"
-echo "  - you can type: grep -i "failed" /root/aur-install.log  to see errors and edit the code for your fitting or:"
-echo "  - You can Re-run the yay installer once you log into your system, in case of any failure"
-echo " -------------------------------------------------------------------------------------------------------------------"
+echo
 echo "Full base + extras installation is complete."
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
-echo "  reboot"
+e
+cho "  reboot"
 
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
