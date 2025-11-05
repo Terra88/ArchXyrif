@@ -538,15 +538,9 @@ echo "📡 Arch Linux Mirror Selection & Optimization"
 echo "-------------------------------------------"
 echo "Choose your country or region for faster package downloads."
 
-# Pre-arm keyring to avoid 'arming condition needs update'
-arch-chroot /mnt pacman-key --init
-arch-chroot /mnt pacman-key --populate archlinux
-arch-chroot /mnt pacman -Sy --noconfirm archlinux-keyring
+# Ensure reflector is installed in chroot
+arch-chroot /mnt pacman -Sy --needed --noconfirm reflector
 
-# Ensure reflector exists in chroot
-arch-chroot /mnt pacman -S --needed --noconfirm reflector || true
-
-# Show country options
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -576,17 +570,16 @@ case "$MIRROR_CHOICE" in
 esac
 
 if [[ -n "$SELECTED_COUNTRY" ]]; then
-    echo "Optimizing mirrors for: $SELECTED_COUNTRY (host system)"
-    reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate --save /mnt/etc/pacman.d/mirrorlist || \
-        echo "⚠️ Mirror optimization failed, using default mirrors."
+    echo "Optimizing mirrors for: $SELECTED_COUNTRY"
+    arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
     echo "✅ Mirrors updated."
 fi
 
 #===================================================================================================#
-# Helper Function: install_with_retry
+# Helper Functions
 #===================================================================================================#
 install_with_retry() {
-    local CHROOT_CMD="$1"
+    local CHROOT_CMD=("${!1}")
     shift
     local CMD=("$@")
     local MAX_RETRIES=3
@@ -596,17 +589,18 @@ install_with_retry() {
     for ((i=1; i<=MAX_RETRIES; i++)); do
         echo
         echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
-        if "$CHROOT_CMD" "${CMD[@]}"; then
+        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
             echo "✅ Installation succeeded on attempt $i"
             return 0
         else
             echo "⚠️ Installation failed on attempt $i"
             if (( i < MAX_RETRIES )); then
                 echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
-                $CHROOT_CMD pacman-key --init
-                $CHROOT_CMD pacman-key --populate archlinux
-                $CHROOT_CMD pacman -Sy --noconfirm archlinux-keyring
-                [[ -n "$MIRROR_COUNTRY" ]] && reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate --save /mnt/etc/pacman.d/mirrorlist || true
+                "${CHROOT_CMD[@]}" pacman-key --init
+                "${CHROOT_CMD[@]}" pacman-key --populate archlinux
+                "${CHROOT_CMD[@]}" pacman -Sy --noconfirm archlinux-keyring
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || true
                 sleep "$RETRY_DELAY"
             fi
         fi
@@ -616,11 +610,8 @@ install_with_retry() {
     return 1
 }
 
-#===================================================================================================#
-# Universal safe Pacman install (prevents conflicts)
-#===================================================================================================#
 safe_pacman_install() {
-    local CHROOT_CMD="$1"
+    local CHROOT_CMD=("${!1}")
     shift
     local PKGS=("$@")
 
@@ -628,30 +619,32 @@ safe_pacman_install() {
     echo "🔍 Checking for potential conflicts: ${PKGS[*]}"
     for PKG in "${PKGS[@]}"; do
         local INFO
-        if ! INFO=$($CHROOT_CMD pacman -Si "$PKG" 2>/dev/null); then
-            echo "⚠️  Could not retrieve info for $PKG (skip conflict check)"
+        if ! INFO=$("${CHROOT_CMD[@]}" pacman -Si "$PKG" 2>/dev/null); then
+            echo "⚠️ Could not retrieve info for $PKG (skip conflict check)"
             continue
         fi
-
         local CONFLICTS
         CONFLICTS=$(echo "$INFO" | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
         if [[ -n "$CONFLICTS" ]]; then
-            echo "⚠️  $PKG conflicts with: $CONFLICTS"
+            echo "⚠️ $PKG conflicts with: $CONFLICTS"
             for C in $CONFLICTS; do
-                if $CHROOT_CMD pacman -Qq "$C" &>/dev/null; then
+                if "${CHROOT_CMD[@]}" pacman -Qq "$C" &>/dev/null; then
                     echo "→ Removing conflicting package: $C"
-                    $CHROOT_CMD pacman -Rdd --noconfirm "$C" || true
+                    "${CHROOT_CMD[@]}" pacman -Rdd --noconfirm "$C" || true
                 fi
             done
         fi
     done
 
     echo "📦 Installing packages: ${PKGS[*]}"
-    install_with_retry "$CHROOT_CMD" pacman -S --needed --noconfirm "${PKGS[@]}"
+    install_with_retry CHROOT_CMD[@] "${CHROOT_CMD[@]}" "${PKGS[@]}"
 }
 
+# Define chroot command array
+CHROOT_CMD=(arch-chroot /mnt)
+
 #===================================================================================================#
-# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
+# 8A) GPU DRIVER INSTALLATION & MULTILIB
 #===================================================================================================#
 echo
 echo "GPU DRIVER OPTIONS:"
@@ -679,17 +672,17 @@ esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
     echo "Ensuring multilib is enabled..."
-    arch-chroot /mnt bash -c '
+    "${CHROOT_CMD[@]}" bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
 fi
 pacman -Sy --noconfirm
 '
-    safe_pacman_install arch-chroot /mnt "${GPU_PKGS[@]}"
+    safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
 fi
 
 #===================================================================================================#
-# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT
+# 8B) WM / DE SELECTION
 #===================================================================================================#
 echo
 echo "WM/DE OPTIONS:"
@@ -714,8 +707,7 @@ case "$WM_CHOICE" in
     6|*) echo "Skipping window manager." ;;
 esac
 
-[[ ${#WM_PKGS[@]} -gt 0 ]] && safe_pacman_install arch-chroot /mnt "${WM_PKGS[@]}"
-AUR_PKGS+=("${WM_AUR_PKGS[@]}")
+[[ ${#WM_PKGS[@]} -gt 0 ]] && safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
 
 #===================================================================================================#
 # 8C) LOGIN / DISPLAY MANAGER
@@ -744,35 +736,32 @@ case "$DM_CHOICE" in
     6|*) echo "Skipping login manager." ;;
 esac
 
-[[ ${#DM_PKGS[@]} -gt 0 ]] && safe_pacman_install arch-chroot /mnt "${DM_PKGS[@]}"
-[[ -n "$DM_SERVICE" ]] && arch-chroot /mnt systemctl enable "$DM_SERVICE" && echo "✅ $DM_SERVICE enabled."
-AUR_PKGS+=("${DM_AUR_PKGS[@]}")
+[[ ${#DM_PKGS[@]} -gt 0 ]] && safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+[[ -n "$DM_SERVICE" ]] && "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE" && echo "✅ $DM_SERVICE enabled."
 
 #===================================================================================================#
-# 9A) EXTRA PACMAN & AUR PACKAGE INSTALLATION
+# 9A) EXTRA PACMAN PACKAGES
 #===================================================================================================#
-read -r -p "Install extra system packages? [y/N]: " install_extra
-read -r -p "Install AUR packages using paru? [y/N]: " install_aur
+EXTRA_PKGS=(base-devel linux-headers networkmanager network-manager-applet \
+bluez bluez-utils pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
+pavucontrol gvfs gvfs-mtp gvfs-gphoto2 gvfs-afc gvfs-smb dosfstools exfatprogs \
+ntfs-3g zip unzip unrar wget curl git nano vim htop btop neofetch rsync openssh reflector grub efibootmgr)
+
+safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
+
+#===================================================================================================#
+# 9B) EXTRA AUR PACKAGE INSTALLATION
+#===================================================================================================#
+read -r -p "Install extra AUR packages using paru? [y/N]: " install_aur
 read -r -p "Enter any extra AUR packages separated by spaces (or leave empty): " EXTRA_AUR
 
-# Append any user-specified extra AUR packages
-if [[ -n "$EXTRA_AUR" ]]; then
-    AUR_PKGS+=($EXTRA_AUR)
-fi
-
-if [[ "$install_extra" =~ ^[Yy]$ ]]; then
-    EXTRA_PKGS=(base-devel linux-headers networkmanager network-manager-applet \
-    bluez bluez-utils pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
-    pavucontrol gvfs gvfs-mtp gvfs-gphoto2 gvfs-afc gvfs-smb dosfstools exfatprogs \
-    ntfs-3g zip unzip unrar wget curl git nano vim htop btop neofetch rsync openssh reflector grub efibootmgr)
-
-    safe_pacman_install arch-chroot /mnt "${EXTRA_PKGS[@]}"
-fi
+AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")  # Combine AUR packages from selections
+[[ -n "$EXTRA_AUR" ]] && AUR_PKGS+=($EXTRA_AUR)    # Add user-specified extra packages
 
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    # Ensure paru exists
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git || true
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+    # Ensure paru is installed
+    safe_pacman_install CHROOT_CMD[@] base-devel git
+    "${CHROOT_CMD[@]}" runuser -u "$NEWUSER" -- bash -c '
         if ! command -v paru &>/dev/null; then
             cd ~
             git clone https://aur.archlinux.org/paru.git
@@ -781,10 +770,10 @@ if [[ "$install_aur" =~ ^[Yy]$ ]]; then
         fi
     '
 
-    # Install all AUR packages collected from WM/DM and user input
+    # Install all AUR packages
     for pkg in "${AUR_PKGS[@]}"; do
         echo "→ Installing AUR package: $pkg"
-        arch-chroot /mnt runuser -u "$NEWUSER" -- paru -S --noconfirm --skipreview --removemake "$pkg" || echo "⚠️ Failed: $pkg"
+        "${CHROOT_CMD[@]}" runuser -u "$NEWUSER" -- paru -S --noconfirm --skipreview --removemake "$pkg" || echo "⚠️ Failed: $pkg"
     done
 fi
 
