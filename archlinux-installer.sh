@@ -661,7 +661,7 @@ else
     # 2)Prepare AUR build environment inside chroot
     # -------------------------------
     echo "→ Preparing environment for AUR builds..."
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland wayland-protocols pkgconf mercurial libdisplay-info
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland wayland-protocols pkgconf mercurial libdisplay-info wget unzip tar python
     cp -L /etc/resolv.conf /mnt/etc/resolv.conf
     arch-chroot /mnt pacman-key --init || true
     arch-chroot /mnt pacman-key --populate archlinux || true
