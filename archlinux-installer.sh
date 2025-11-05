@@ -811,7 +811,6 @@ echo "Full base + extras installation is complete."
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
-e
 echo "  reboot"
 
 #Cleanup postinstall script
