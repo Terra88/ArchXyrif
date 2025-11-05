@@ -547,7 +547,7 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9A) GPU DRIVER SELECTION MODULE (adds selected packages to EXTRA_PKGS)
+# 9A) GPU DRIVER SELECTION 
 #===================================================================================================#
 
 echo
@@ -563,40 +563,18 @@ GPU_PKGS=()
 
 case "$GPU_CHOICE" in
     1)
-        # Intel integrated graphics
-        GPU_PKGS=(
-            mesa
-            vulkan-intel
-            lib32-mesa
-            lib32-vulkan-intel
-        )
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
         ;;
     2)
-        # NVIDIA discrete / hybrid
-        GPU_PKGS=(
-            nvidia
-            nvidia-utils
-            lib32-nvidia-utils
-            nvidia-prime
-        )
+        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
         ;;
     3)
-        # AMD GPU
-        GPU_PKGS=(
-            mesa
-            vulkan-radeon
-            lib32-mesa
-            lib32-vulkan-radeon
-            xf86-video-amdgpu
-        )
+        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
         ;;
     4)
-        # All drivers
-        GPU_PKGS=(
-            mesa vulkan-intel lib32-mesa lib32-vulkan-intel
-            nvidia nvidia-utils lib32-nvidia-utils nvidia-prime
-            mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu
-        )
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
+                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime
+                  vulkan-radeon lib32-vulkan-radeon xf86-video-amdgpu)
         ;;
     5|*)
         echo "Skipping GPU drivers."
@@ -604,18 +582,20 @@ case "$GPU_CHOICE" in
         ;;
 esac
 
-# Append selected GPU packages to EXTRA_PKGS
+# Remove duplicates before adding to EXTRA_PKGS
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    echo "Adding selected GPU packages to EXTRA_PKGS: ${GPU_PKGS[*]}"
-    EXTRA_PKGS+=("${GPU_PKGS[@]}")
+    UNIQUE_GPU_PKGS=($(printf "%s\n" "${GPU_PKGS[@]}" | awk '!x[$0]++'))
+    echo "Adding selected GPU packages to EXTRA_PKGS: ${UNIQUE_GPU_PKGS[*]}"
+    EXTRA_PKGS+=("${UNIQUE_GPU_PKGS[@]}")
 fi
-#===================================================================================================#
-# 9B) Installing extra Pacman and AUR packages (with safe AUR automation)
-#===================================================================================================#
 
+#===================================================================================================#
+# 9B) EXTRA PKGS INSTALLATION (Pacman + AUR) - Cleaned & Multilib Enabled
+#===================================================================================================#
+# Ask user about installing extras
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
+read -r -p "Install AUR packages (requires yay) now? [y/N]: " install_aur
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
@@ -627,34 +607,43 @@ if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
     exit 0
 fi
 
-echo ">>> Preparing extra package installation inside chroot..."
+# -------------------------------
+# 1) Enable multilib repo inside chroot (needed for lib32 packages)
+# -------------------------------
+echo "Checking and enabling multilib repository inside chroot..."
+arch-chroot /mnt bash -c '
+if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+    echo "[multilib] not found. Enabling..."
+    sed -i "/^#\\[multilib\\]/{s/^#//;N;s/^#//}" /etc/pacman.conf || true
+    pacman -Sy --noconfirm
+else
+    echo "Multilib already enabled."
+fi
+'
 
 # -------------------------------
-# 1) Install official packages (Pacman)
+# 2) Install EXTRA_PKGS (official pacman)
 # -------------------------------
-
 if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
     echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-    arch-chroot /mnt pacman -Sy --noconfirm
+    arch-chroot -/mnt pacman -Sy --noconfirm
     arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
 else
     echo "Skipping extra official packages..."
 fi
 
 # -------------------------------
-# 2) Install AUR packages with yay and expect
+# 3) Install AUR packages using yay
 # -------------------------------
-
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
     echo ">>> Installing AUR packages via yay inside chroot..."
 
     # Ensure required tools exist
     arch-chroot /mnt pacman -S --needed --noconfirm base-devel git expect sudo
 
-    # Create the expect wrapper inside chroot for yay automation
+    # Create expect wrapper for yay
     arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
 #!/usr/bin/expect -f
-# Expect wrapper for yay to auto-confirm specific prompts only
 set timeout -1
 set pkg [lindex \$argv 0]
 spawn yay -S --needed --removemake --disable-download-timeout --aur \$pkg
@@ -673,7 +662,7 @@ EOF
 chmod +x /usr/local/bin/yay-expect
 "
 
-    # Install yay (if not installed yet) as NEWUSER
+    # Install yay as NEWUSER if not present
     arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
     set -euo pipefail
     if ! command -v yay >/dev/null 2>&1; then
@@ -687,7 +676,7 @@ chmod +x /usr/local/bin/yay-expect
     fi
     '
 
-    # Install AUR packages using the expect wrapper
+    # Install AUR packages
     for pkg in "${AUR_PKGS[@]}"; do
         echo "→ Installing AUR package: $pkg"
         arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
@@ -702,7 +691,7 @@ else
 fi
 
 echo
-echo "▶ Extra installation phase finished.."
+echo "▶ GPU + extra package installation phase finished."
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
