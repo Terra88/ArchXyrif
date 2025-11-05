@@ -534,7 +534,7 @@ EXTRA_PKGS=(
     pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct
     smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg vlc-plugins-all
     wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
-    xdg-utils xorg-server xorg-xinit
+    xdg-utils xorg-server xorg-xinit xorg-xwayland libinput
     zram-generator base-devel  # mesa vulkan-radeon
 )
 
