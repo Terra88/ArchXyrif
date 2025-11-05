@@ -532,6 +532,39 @@ arch-chroot /mnt /root/postinstall.sh
 #===================================================================================================#
 # 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
 #===================================================================================================#
+#===================================================================================================#
+# Helper Function: install_with_retry
+# Retries Pacman installs up to 3 times with mirror refresh & keyring update
+#===================================================================================================#
+install_with_retry() {
+    local CMD=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
+        if "${CMD[@]}"; then
+            echo "✅ Installation succeeded on attempt $i"
+            return 0
+        else
+            echo "⚠️ Installation failed on attempt $i"
+            if (( i < MAX_RETRIES )); then
+                echo "🔄 Refreshing keys and mirrors, then retrying in ${RETRY_DELAY}s..."
+                arch-chroot /mnt pacman -Sy archlinux-keyring --noconfirm || true
+                arch-chroot /mnt reflector --country "United States" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || true
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+
+    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
+    return 1
+}
+
+#===================================================================================================#
+# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
+#===================================================================================================#
+
 echo
 echo "GPU DRIVER INSTALLATION OPTIONS:"
 echo "1) Intel (integrated)"
