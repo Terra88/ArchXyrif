@@ -629,132 +629,119 @@ AUR_PKGS=(
 # 9) Installing extra Pacman and AUR packages (Updated for Hyprland)
 #===================================================================================================#
 
-echo
-read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
-
-INSTALL_EXTRA=0
-INSTALL_AUR=0
-[[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
-[[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
-
-if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
-    echo "Skipping extra package installation."
-else
-    echo ">>> Preparing extra package installation inside chroot..."
-
-    # -------------------------------
-    # 1) Pacman packages
-    # -------------------------------
-    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-        arch-chroot /mnt pacman -Sy --noconfirm
-        arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+    echo
+    read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
+    read -r -p "Install AUR packages (requires yay)? [y/N]: " install_aur
+    
+    INSTALL_EXTRA=0
+    INSTALL_AUR=0
+    [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
+    [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
+    
+    if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
+        echo "Skipping extra package installation."
     else
-        echo "Skipping extra official packages..."
-    fi
+        echo ">>> Preparing extra package installation inside chroot..."
+    
+        # -------------------------------
+        # 1) Pacman packages
+        # -------------------------------
+        if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+            echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+            arch-chroot /mnt pacman -Sy --noconfirm
+            arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+        else
+            echo "Skipping extra official packages..."
+        fi
+    
+        # -------------------------------
+        # 2) Prepare AUR build environment inside chroot
+        # -------------------------------
+        echo "→ Preparing environment for AUR builds..."
+        arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake extra-cmake-modules mercurial pkgconf wget unzip tar 
 
-    # -------------------------------
-    # 2) AUR packages (robust Hyprland installer)
-    # -------------------------------
-    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing AUR packages via yay..."
     
-        # Ensure essential build environment inside chroot
-        arch-chroot /mnt pacman -Syu --needed --noconfirm base-devel git meson ninja cmake mercurial   
-    
-        # Copy DNS into chroot
+        # Ensure DNS works inside chroot
         cp -L /etc/resolv.conf /mnt/etc/resolv.conf
     
-        # Enable swap if not already
+        # Initialize pacman keys
+        arch-chroot /mnt pacman-key --init || true
+        arch-chroot /mnt pacman-key --populate archlinux || true
+    
+        # Enable swap in case some builds need more memory
         arch-chroot /mnt swapon -a || true
     
-        # Set parallel makeflags
+        # Set parallel make flags
         arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
     
-        # Run yay installer as the new user
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-            set -euo pipefail
-            LOGFILE=\"\$HOME/aur-install.log\"
-            touch \"\$LOGFILE\"
+        # -------------------------------
+        # 3) AUR packages (Installer)
+        # -------------------------------
+        if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+            echo "Installing AUR packages via yay (with logging and retries)..."
     
-            echo '==============================' | tee -a \"\$LOGFILE\"
-            echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
-            echo '==============================' | tee -a \"\$LOGFILE\"
+            AUR_LIST="${AUR_PKGS[*]}"
     
-            # Install yay if missing
-            if ! command -v yay >/dev/null 2>&1; then
-                echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
-                cd ~
-                git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
-                cd yay
-                makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
-                cd ~
-                rm -rf yay
-            fi
+            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+                set -euo pipefail
+                LOGFILE=\"\$HOME/aur-install.log\"
+                mkdir -p \"\$(dirname \"\$LOGFILE\")\"
+                touch \"\$LOGFILE\"
     
-            # Refresh AUR database
-            yay -Y --gendb >>\"\$LOGFILE\" 2>&1
-            yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
+                echo '==============================' | tee -a \"\$LOGFILE\"
+                echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
+                echo '==============================' | tee -a \"\$LOGFILE\"
     
-            # -----------------------------
-            # Install Hyprland AUR packages in proper order
-            # -----------------------------
-            # Phase 1: Protocols
-            for pkg in hyprland-protocols-git; do
-                echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
-                if yay -S --needed --devel --noconfirm --mflags '--skipinteg' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
-                    echo \"✅ \$pkg installed successfully\" | tee -a \"\$LOGFILE\"
-                else
-                    echo \"❌ \$pkg failed\" | tee -a \"\$LOGFILE\"
+                if ! command -v yay >/dev/null 2>&1; then
+                    echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
+                    cd ~
+                    git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
+                    cd yay
+                    makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
+                    cd ..
+                    rm -rf yay
                 fi
-            done
     
-            # Phase 2: Remaining Hyprland packages
-            HYPR_PKGS=(hyprlang-git hyprutils-git hyprwayland-scanner-git xdg-desktop-portal-hyprland-git)
-            for pkg in \"\${HYPR_PKGS[@]}\"; do
-                echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
-                RETRIES=3
-                success=0
-                for ((i=1;i<=RETRIES;i++)); do
-                    if yay -S --needed --devel --noconfirm --mflags '--skipinteg' \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
-                        echo \"✅ \$pkg installed successfully (attempt \$i)\" | tee -a \"\$LOGFILE\"
-                        success=1
-                        break
-                    else
-                        echo \"⚠️ \$pkg failed (attempt \$i), retrying...\" | tee -a \"\$LOGFILE\"
-                        sleep 3
+                yay -Y --gendb >>\"\$LOGFILE\" 2>&1
+                yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
+    
+                RETRIES=2
+                for pkg in $AUR_LIST; do
+                    echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
+                    attempt=1
+                    success=0
+                    while (( attempt <= RETRIES )); do
+                        if yay -S --needed --noconfirm --mflags \"--skippgpcheck\" \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
+                            echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
+                            success=1
+                            break
+                        else
+                            echo \"⚠️  \$pkg failed (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
+                            sleep 3
+                        fi
+                        ((attempt++))
+                    done
+                    if (( success == 0 )); then
+                        echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
                     fi
                 done
-                if (( success == 0 )); then
-                    echo \"❌ \$pkg failed after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
-                fi
-            done
     
-            # Install remaining non-Hyprland AUR packages
-            OTHER_AUR_PKGS=(kvantum-theme-catppuccin-git protonup-qt python-inputs python-steam python-vdf qt6ct-kde wlogout wlrobs-hg)
-            for pkg in \"\${OTHER_AUR_PKGS[@]}\"; do
-                echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
-                yay -S --needed --devel --noconfirm --mflags '--skipinteg' \"\$pkg\" >>\"\$LOGFILE\" 2>&1 || echo \"⚠️ \$pkg failed\" | tee -a \"\$LOGFILE\"
-            done
+                echo -e '\n==============================' | tee -a \"\$LOGFILE\"
+                echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
+                echo ' Logs saved to' \"\$LOGFILE\"
+            "
     
-            echo -e '\n==============================' | tee -a \"\$LOGFILE\"
-            echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
-            echo 'Logs saved to' \"\$LOGFILE\"
-        "
-    
-        # Copy log to host for review
-        if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
-            cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
-            echo "📋 AUR log copied to /root/aur-install.log for review."
+            # Copy AUR install log to host root
+            if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
+                cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
+                echo "📋 Copied AUR log to /root/aur-install.log for review."
+            fi
+        else
+            echo "Skipping AUR packages..."
         fi
-        
-      else
-          echo "Skipping AUR packages..."
-      fi
-fi
-echo
-echo "▶ Extra installation phase finished."
+    fi
+    echo
+    echo "▶ Extra installation phase finished."
 
   # Copy AUR install log to host root for inspection
   if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
