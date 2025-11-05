@@ -609,21 +609,21 @@ EXTRA_PKGS=(
 )
 
 AUR_PKGS=(
-hyprland-protocols-git
-hyprlang-git
-hyprutils-git
-hyprwayland-scanner-git
-kvantum-theme-catppuccin-git
-obs-studio-git
-proton-ge-custom
-protonup-qt
-python-inputs
-python-steam
-python-vdf
-qt6ct-kde
-wlogout
-wlrobs-hg
-xdg-desktop-portal-hyprland-git
+  hyprutils-git
+  hyprwayland-scanner-git
+  hyprlang-git
+  hyprland-protocols-git
+  kvantum-theme-catppuccin-git
+  #obs-studio-git
+  proton-ge-custom
+  protonup-qt
+  python-inputs
+  python-steam
+  python-vdf
+  qt6ct-kde
+  wlogout
+  wlrobs-hg
+  xdg-desktop-portal-hyprland-git
 )
 
 #===================================================================================================#
@@ -661,7 +661,7 @@ else
     # 2)Prepare AUR build environment inside chroot
     # -------------------------------
     echo "→ Preparing environment for AUR builds..."
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland-protocols pkgconf mercurial
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake wayland wayland-protocols pkgconf mercurial libdisplay-info
     cp -L /etc/resolv.conf /mnt/etc/resolv.conf
     arch-chroot /mnt pacman-key --init || true
     arch-chroot /mnt pacman-key --populate archlinux || true
@@ -803,7 +803,10 @@ echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
 echo "  - EXTRA_PKGS[] for pacman packages"
 echo "  - AUR_PKGS[] for AUR software"
-echo
+echo "  - If you got install errors on yay packages, you are either missing right pre installed package dependencies"
+echo "  - You can Re-run the yay installer once you log into your system with the following command:"
+echo "  - grep '❌' /root/aur-install.log | awk '{print $2}' | xargs yay -S --needed --noconfirm --mflags "--skippgpcheck" "
+echo " -------------------------------------------------------------------------------------------------------------------"
 echo "Full base + extras installation is complete."
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
