@@ -567,7 +567,7 @@ echo "GPU DRIVER INSTALLATION OPTIONS:"
 echo "1) Intel (integrated)"
 echo "2) NVIDIA (discrete / hybrid, Optimus)"
 echo "3) AMD (desktop GPU)"
-echo "4) All compatible drivers (Intel + NVIDIA Optimus only)"
+echo "4) All GPU drivers drivers - Default option, if you don't know what to install"
 echo "5) Skip GPU drivers"
 read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
 GPU_CHOICE="${GPU_CHOICE:-4}"  # Default to 4 if empty
