@@ -513,7 +513,7 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 #===================================================================================================#
-# 7) Inject variables into /mnt/root/postinstall.sh
+# 7A) Inject variables into /mnt/root/postinstall.sh
 #===================================================================================================#
 # Replace placeholders with actual values (safe substitution)
 
@@ -528,6 +528,61 @@ chmod +x /mnt/root/postinstall.sh
 # chroot and run postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
+
+#===================================================================================================#
+# 7) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
+#===================================================================================================#
+echo
+echo "-------------------------------------------"
+echo "📡 Arch Linux Mirror Selection & Optimization"
+echo "-------------------------------------------"
+echo "This step allows you to choose your country or region"
+echo "for faster and more reliable package downloads."
+echo
+
+# Ensure reflector is installed
+arch-chroot /mnt pacman -Sy --needed --noconfirm reflector
+
+# Show country options
+echo "Available mirror regions:"
+echo "1) United States"
+echo "2) Canada"
+echo "3) Germany"
+echo "4) Finland"
+echo "5) United Kingdom"
+echo "6) Japan"
+echo "7) Australia"
+echo "8) Custom country code (2-letter ISO, e.g., FR for France)"
+echo "9) Skip (use default mirrors)"
+read -r -p "Select your region [1-9, default=1]: " MIRROR_CHOICE
+MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
+
+# Map selection to country name
+case "$MIRROR_CHOICE" in
+    1) COUNTRY="United States" ;;
+    2) COUNTRY="Canada" ;;
+    3) COUNTRY="Germany" ;;
+    4) COUNTRY="Finland" ;;
+    5) COUNTRY="United Kingdom" ;;
+    6) COUNTRY="Japan" ;;
+    7) COUNTRY="Australia" ;;
+    8)
+        read -r -p "Enter your 2-letter country code (e.g., FR, SE, IN): " CUSTOM_CODE
+        COUNTRY="$CUSTOM_CODE"
+        ;;
+    9|*)
+        echo "Skipping mirror optimization; using default mirrors."
+        COUNTRY=""
+        ;;
+esac
+
+if [[ -n "$COUNTRY" ]]; then
+    echo "Optimizing mirrors for: $COUNTRY"
+    arch-chroot /mnt reflector --country "$COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+    echo "✅ Mirrors updated successfully for $COUNTRY"
+else
+    echo "⚠️  Using default mirrorlist (not optimized)."
+fi
 
 #===================================================================================================#
 # 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
@@ -562,242 +617,214 @@ install_with_retry() {
 }
 
 #===================================================================================================#
+# UNIVERSAL CONFLICT PREVENTION FUNCTION
+#===================================================================================================#
+safe_pacman_install() {
+    local CHROOT_CMD="$1"
+    shift
+    local PKGS=("$@")
+
+    echo
+    echo "🔍 Checking for potential conflicts before installing: ${PKGS[*]}"
+
+    for PKG in "${PKGS[@]}"; do
+        CONFLICTS=$(arch-chroot /mnt pacman -Si "$PKG" 2>/dev/null | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
+        if [[ -n "$CONFLICTS" ]]; then
+            echo "⚠️  $PKG conflicts with: $CONFLICTS"
+            for CONFLICT in $CONFLICTS; do
+                if arch-chroot /mnt pacman -Qq "$CONFLICT" &>/dev/null; then
+                    echo "→ Removing conflicting package: $CONFLICT"
+                    arch-chroot /mnt pacman -Rdd --noconfirm "$CONFLICT" || true
+                fi
+            done
+        fi
+    done
+
+    echo "📦 Installing packages: ${PKGS[*]}"
+    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${PKGS[@]}"
+}
+#===================================================================================================#
 # 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
 #===================================================================================================#
-
 echo
 echo "GPU DRIVER INSTALLATION OPTIONS:"
-echo "1) Intel (integrated)"
-echo "2) NVIDIA (discrete / hybrid, Optimus)"
-echo "3) AMD (desktop GPU)"
-echo "4) All compatible GPU drivers (default)"
-echo "5) Skip GPU drivers"
-read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
+echo "1) Intel"
+echo "2) NVIDIA"
+echo "3) AMD"
+echo "4) All compatible drivers (default)"
+echo "5) Skip GPU installation"
+read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
 GPU_CHOICE="${GPU_CHOICE:-4}"
 
-GPU_PKGS=()  # Official packages (Pacman)
-GPU_AUR_PKGS=()  # Future AUR packages if needed
+GPU_PKGS=()
 
 case "$GPU_CHOICE" in
-    1)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-        ;;
-    2)
-        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        ;;
-    3)
-        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
-        ;;
+    1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
+    2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
+    3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
     4)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
-                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+        echo "→ AMD skipped to prevent hybrid conflicts."
         ;;
-    5|*)
-        echo "Skipping GPU drivers."
-        ;;
+    5|*) echo "Skipping GPU drivers."; GPU_PKGS=() ;;
 esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    echo "Ensuring multilib repository is enabled..."
+    echo "Ensuring multilib is enabled..."
     arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-    echo "Multilib repository added."
 fi
 pacman -Sy --noconfirm
 '
-
-    echo "Installing GPU drivers: ${GPU_PKGS[*]}"
-    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
+    safe_pacman_install arch-chroot /mnt "${GPU_PKGS[@]}"
 fi
 
 #===================================================================================================#
 # 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION
 #===================================================================================================#
 echo
-echo "WINDOW MANAGER / DESKTOP ENVIRONMENT OPTIONS:"
+echo "WM/DE OPTIONS:"
 echo "1) Hyprland (Wayland)"
 echo "2) Sway (Wayland)"
 echo "3) XFCE (X11)"
-echo "4) KDE Plasma (X11/Wayland)"
-echo "5) GNOME (X11/Wayland)"
-echo "6) Skip Window Manager / Desktop Environment"
-read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
+echo "4) KDE Plasma"
+echo "5) GNOME"
+echo "6) Skip"
+read -r -p "Select WM/DE [1-6, default=6]: " WM_CHOICE
 WM_CHOICE="${WM_CHOICE:-6}"
 
-WM_PKGS=()      # Official packages (Pacman)
-WM_AUR_PKGS=()  # AUR-only packages
+WM_PKGS=()
+WM_AUR_PKGS=()
 
 case "$WM_CHOICE" in
-    1) 
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
-        WM_AUR_PKGS=(wlogout)
-        ;;
-    2) 
-        WM_PKGS=(sway swaybg swaylock waybar wofi)
-        ;;
-    3) 
-        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
-        ;;
-    4) 
-        WM_PKGS=(plasma-desktop kde-applications sddm)
-        ;;
-    5) 
-        WM_PKGS=(gnome gdm)
-        ;;
-    6|*) 
-        echo "Skipping window manager installation."
-        ;;
+    1) WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar); WM_AUR_PKGS=(wlogout) ;;
+    2) WM_PKGS=(sway swaybg swaylock waybar wofi) ;;
+    3) WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter) ;;
+    4) WM_PKGS=(plasma-desktop kde-applications sddm) ;;
+    5) WM_PKGS=(gnome gdm) ;;
+    6|*) echo "Skipping window manager."; ;;
 esac
 
-if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing WM packages: ${WM_PKGS[*]}"
-    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${WM_PKGS[@]}"
-fi
+[[ ${#WM_PKGS[@]} -gt 0 ]] && safe_pacman_install arch-chroot /mnt "${WM_PKGS[@]}"
 
 #===================================================================================================#
 # 8C) LOGIN / DISPLAY MANAGER SELECTION
 #===================================================================================================#
 echo
 echo "LOGIN / DISPLAY MANAGER OPTIONS:"
-echo "1) GDM (GNOME Display Manager)"
-echo "2) SDDM (KDE / Plasma Display Manager)"
+echo "1) GDM"
+echo "2) SDDM"
 echo "3) LightDM"
 echo "4) LXDM"
-echo "5) Ly (TTY-based login)"
-echo "6) None (skip login manager)"
-read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
+echo "5) Ly"
+echo "6) None"
+read -r -p "Select login manager [1-6, default=6]: " DM_CHOICE
 DM_CHOICE="${DM_CHOICE:-6}"
 
-DM_PKGS=()      # Official packages (Pacman)
-DM_AUR_PKGS=()  # AUR-only packages
+DM_PKGS=()
+DM_AUR_PKGS=()
 DM_SERVICE=""
 
 case "$DM_CHOICE" in
-    1) 
-        DM_PKGS=(gdm)
-        DM_SERVICE="gdm.service"
-        ;;
-    2) 
-        DM_PKGS=(sddm)
-        DM_SERVICE="sddm.service"
-        ;;
-    3) 
-        DM_PKGS=(lightdm lightdm-gtk-greeter)
-        DM_SERVICE="lightdm.service"
-        ;;
-    4) 
-        DM_PKGS=(lxdm)
-        DM_SERVICE="lxdm.service"
-        ;;
-    5) 
-        DM_PKGS=(ly)
-        DM_AUR_PKGS=(ly-themes-git)  # example AUR helper for Ly
-        DM_SERVICE="ly.service"
-        ;;
-    6|*) 
-        echo "Skipping login/display manager installation."
-        ;;
+    1) DM_PKGS=(gdm); DM_SERVICE="gdm.service" ;;
+    2) DM_PKGS=(sddm); DM_SERVICE="sddm.service" ;;
+    3) DM_PKGS=(lightdm lightdm-gtk-greeter); DM_SERVICE="lightdm.service" ;;
+    4) DM_PKGS=(lxdm); DM_SERVICE="lxdm.service" ;;
+    5) DM_PKGS=(ly); DM_AUR_PKGS=(ly-themes-git); DM_SERVICE="ly.service" ;;
+    6|*) echo "Skipping login manager."; ;;
 esac
 
-if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing DM packages: ${DM_PKGS[*]}"
-    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
-
-    if [[ -n "$DM_SERVICE" ]]; then
-        echo "Enabling $DM_SERVICE..."
-        arch-chroot /mnt systemctl enable "$DM_SERVICE"
-        echo "✅ $DM_SERVICE enabled and will start automatically."
-    fi
-fi
-
-
+[[ ${#DM_PKGS[@]} -gt 0 ]] && safe_pacman_install arch-chroot /mnt "${DM_PKGS[@]}"
+[[ -n "$DM_SERVICE" ]] && arch-chroot /mnt systemctl enable "$DM_SERVICE" && echo "✅ $DM_SERVICE enabled."
 
 #===================================================================================================#
-# 9A) Extra Pacman/AUR package lists - Will be installed in section 9B
+# 9A) EXTRA PACMAN PACKAGES (OFFICIAL REPOS)
 #===================================================================================================#
-
-# Official packages (Pacman)
-EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst gdm grim htop
-    hypridle hyprland hyprlock hyprpaper hyprshot kitty network-manager-applet
-    polkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofi
-    nftables waybar archlinux-xdg-menu ark bemenu-wayland breeze brightnessctl
-    btop cliphist cpupower discover evtest firefox flatpak 
-    goverlay gst-libav gst-plugin-pipewire gst-plugins-bad gst-plugins-base
-    gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse
-    linuxconsole nvtop nwg-displays nwg-look otf-font-awesome
-    pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct
-    smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg vlc-plugins-all
-    wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
-    xdg-utils xorg-server xorg-xinit xorg-xwayland libinput
-    zram-generator base-devel  # mesa vulkan-radeon
-)
-
-# AUR packages
-AUR_PKGS=(
-    hyprlang-git hyprutils-git hyprwayland-scanner-git hyprland-protocols-git
-    xdg-desktop-portal-hyprland-git kvantum-theme-catppuccin-git protonup-qt
-    qt6ct-kde wlogout wlrobs-hg
-    #obs-studio-git
-)
-
-#===================================================================================================#
-# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
-#===================================================================================================#
-
-# Merge all AUR packages from WM and DM selections into main AUR array
-ALL_AUR_PKGS=("${AUR_PKGS[@]}" "${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
-
 echo
-read -r -p "Install extra official packages (Pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (Paru) now? [y/N]: " install_aur
+echo "Installing extra official packages from Pacman repositories..."
 
-INSTALL_EXTRA=0
-INSTALL_AUR=0
-[[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
-[[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
+# Ensure reflector exists in chroot before using it later
+arch-chroot /mnt pacman -S --needed --noconfirm reflector
 
-# -------------------------------
-# Install extra official packages (Pacman)
-# -------------------------------
-if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+# Prevent audio conflicts (PipeWire vs JACK2)
+arch-chroot /mnt pacman -Rdd --noconfirm jack2 jack2-dbus || true
+
+# Define your extra base system and desktop utilities here
+EXTRA_PKGS=(
+    base-devel
+    linux-headers
+    networkmanager
+    network-manager-applet
+    bluez
+    bluez-utils
+    pipewire
+    pipewire-alsa
+    pipewire-pulse
+    pipewire-jack
+    wireplumber
+    alsa-utils
+    pavucontrol
+    gvfs
+    gvfs-mtp
+    gvfs-gphoto2
+    gvfs-afc
+    gvfs-smb
+    dosfstools
+    exfatprogs
+    ntfs-3g
+    zip
+    unzip
+    unrar
+    wget
+    curl
+    git
+    nano
+    vim
+    htop
+    btop
+    neofetch
+    rsync
+    openssh
+    reflector
+    grub
+    efibootmgr
+)
+
+echo "Installing official packages: ${EXTRA_PKGS[*]}"
+install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+
+echo "✅ Extra official packages installed successfully!"
+
+#===================================================================================================#
+# 9B) EXTRA PACMAN & AUR PACKAGE INSTALLATION
+#===================================================================================================#
+echo
+echo "Install extra system packages? [y/N]: "
+read -r install_extra
+echo "Install AUR packages (using paru)? [y/N]: "
+read -r install_aur
+
+if [[ "$install_extra" =~ ^[Yy]$ ]]; then
+    safe_pacman_install arch-chroot /mnt "${EXTRA_PKGS[@]}"
 fi
 
-# -------------------------------
-# Install AUR packages (Paru) non-interactively
-# -------------------------------
-if [[ $INSTALL_AUR -eq 1 && ${#ALL_AUR_PKGS[@]} -gt 0 ]]; then
-    echo "Installing AUR packages via Paru (non-interactive)..."
-
-    # Ensure base-devel and git are installed
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
-
-    # Install paru as non-root user
-    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-cd /home/$NEWUSER
-if [[ ! -d paru ]]; then
-    git clone https://aur.archlinux.org/paru.git
-fi
-cd paru
-makepkg -si --noconfirm --needed
-cd ..
-rm -rf paru
-"
-
-    # Symlink paru for global access
-    arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/paru /usr/local/bin/paru || true
-
-    # Install all AUR packages
-    for pkg in "${ALL_AUR_PKGS[@]}"; do
+if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+    arch-chroot /mnt bash -c "
+        pacman -S --needed --noconfirm base-devel git
+        runuser -u $NEWUSER -- bash -c '
+            if ! command -v paru &>/dev/null; then
+                cd ~
+                git clone https://aur.archlinux.org/paru.git
+                cd paru && makepkg -si --noconfirm
+                cd .. && rm -rf paru
+            fi
+        '
+    "
+    for pkg in "${AUR_PKGS[@]}"; do
         echo "→ Installing AUR package: $pkg"
-        arch-chroot /mnt paru -S --needed --noconfirm "$pkg" || echo "⚠️ Failed: $pkg"
+        arch-chroot /mnt runuser -u "$NEWUSER" -- paru -S --noconfirm --skipreview --removemake "$pkg" || echo "⚠️ Failed: $pkg"
     done
-
-    echo "✅ AUR packages installation complete!"
 fi
 #===================================================================================================#
 # 11 Hyprland - Configs / Theme downloader
