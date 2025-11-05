@@ -721,6 +721,7 @@ echo
                 echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
                 echo '==============================' | tee -a \"\$LOGFILE\"
 
+                
                 # 1) Install yay if missing
                 if ! command -v yay >/dev/null 2>&1; then
                     echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
@@ -737,37 +738,46 @@ echo
 
                 # Function to attempt installation and handle a common failure: an installed repo package with same name
                 install_aur_pkg() {
-                    local pkgname=\"\$1\"
+                    local pkgname="$1"
                     local attempts=0
                     local max_attempts=2
+                    local success=0
                     while (( attempts < max_attempts )); do
-                        attempts=\$((attempts+1))
-                        echo -e \"\n→ Installing \$pkgname (attempt \$attempts)...\" | tee -a \"\$LOGFILE\"
-                        if yay -S --needed --noconfirm --mflags '--skipinteg' \"\$pkgname\" >>\"\$LOGFILE\" 2>&1; then
-                            echo \"✅ \$pkgname installed successfully (attempt \$attempts)\" | tee -a \"\$LOGFILE\"
-                            return 0
+                        attempts=$((attempts+1))
+                        echo -e "\n→ Installing $pkgname (attempt $attempts)..." | tee -a "$LOGFILE"
+                
+                        if yay -S --needed --noconfirm --mflags '--skipinteg' "$pkgname" >>"$LOGFILE" 2>&1; then
+                            echo "✅ $pkgname installed successfully (attempt $attempts)" | tee -a "$LOGFILE"
+                            success=1
+                            break
                         fi
-
-                        # If we reach here, yay failed. Try to detect if a conflicting package with the same name exists and remove it.
-                        echo \"⚠️  Installation failed for \$pkgname, checking for conflicting repo package...\" | tee -a \"\$LOGFILE\"
-                        if pacman -Qi \"\$pkgname\" >/dev/null 2>&1; then
-                            echo \"→ pacman already has \$pkgname installed. Removing it (pacman -Rns --noconfirm) and retrying...\" | tee -a \"\$LOGFILE\"
-                            sudo pacman -Rns --noconfirm \"\$pkgname\" >>\"\$LOGFILE\" 2>&1 || { echo \"Failed to remove \\\"\$pkgname\\\" via pacman\" | tee -a \"\$LOGFILE\"; }
-                        else
-                            echo \"→ No pacman-installed package named \$pkgname found. Check log for details.\" | tee -a \"\$LOGFILE\"
+                
+                        echo "⚠️  Installation failed for $pkgname (attempt $attempts)." | tee -a "$LOGFILE"
+                        # Check for specific conflict errors
+                        if grep -qiE 'conflicting dependencies|conflicts with' "$LOGFILE"; then
+                            echo "→ Detected conflicting dependencies. Trying to remove the conflicting package..." | tee -a "$LOGFILE"
+                            # List all explicit packages with 'hypr' in the name as possible offenders
+                            CONFLICTS=$(pacman -Qq | grep -E 'hypr(lang|utils|land)' || true)
+                            for c in $CONFLICTS; do
+                                echo "→ Removing potential conflict: $c" | tee -a "$LOGFILE"
+                                sudo pacman -Rdd --noconfirm "$c" >>"$LOGFILE" 2>&1 || true
+                            done
+                        elif grep -qiE 'exists in filesystem' "$LOGFILE"; then
+                            echo "→ File conflict detected. Removing package and retrying..." | tee -a "$LOGFILE"
+                            sudo pacman -Rdd --noconfirm "$pkgname" >>"$LOGFILE" 2>&1 || true
                         fi
-
                         sleep 2
                     done
-
-                    echo \"❌ \$pkgname failed to install after \$max_attempts attempts\" | tee -a \"\$LOGFILE\"
-                    return 1
+                
+                    if [[ $success -eq 0 ]]; then
+                        echo "❌ $pkgname failed to install after $max_attempts attempts." | tee -a "$LOGFILE"
+                    fi
                 }
 
                 # Iterate AUR list (injected below by outer script)
                 AUR_LIST=( ${AUR_PKGS[*]} )
-                for pkg in \"\${AUR_LIST[@]}\"; do
-                    install_aur_pkg \"\$pkg\"
+                for pkg in "${AUR_LIST[@]}"; do
+                install_aur_pkg "$pkg" || true   # never abort the loop
                 done
 
                 echo -e '\\n==============================' | tee -a \"\$LOGFILE\"
