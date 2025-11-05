@@ -671,66 +671,65 @@ else
     # -------------------------------
     # 3) AUR packages (Installer)
     # -------------------------------
-   if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
         echo "Installing AUR packages via yay (with logging and retries)..."
     
-            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c '
+        # Join array into a single space-separated string
+        AUR_LIST="${AUR_PKGS[*]}"
+    
+        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
             set -euo pipefail
-            LOGFILE="$HOME/aur-install.log"
-            mkdir -p "$(dirname "$LOGFILE")"
-            touch "$LOGFILE"
+            LOGFILE=\"\$HOME/aur-install.log\"
+            mkdir -p \"\$(dirname \"\$LOGFILE\")\"
+            touch \"\$LOGFILE\"
     
-            echo "==============================" | tee -a "$LOGFILE"
-            echo " AUR installation started: $(date)" | tee -a "$LOGFILE"
-            echo "==============================" | tee -a "$LOGFILE"
+            echo '==============================' | tee -a \"\$LOGFILE\"
+            echo ' AUR installation started: ' \$(date) | tee -a \"\$LOGFILE\"
+            echo '==============================' | tee -a \"\$LOGFILE\"
     
-            # Ensure yay exists
             if ! command -v yay >/dev/null 2>&1; then
-                echo "Installing yay AUR helper..." | tee -a "$LOGFILE"
+                echo 'Installing yay AUR helper...' | tee -a \"\$LOGFILE\"
                 cd ~
-                git clone https://aur.archlinux.org/yay.git >>"$LOGFILE" 2>&1
+                git clone https://aur.archlinux.org/yay.git >>\"\$LOGFILE\" 2>&1
                 cd yay
-                makepkg -si --noconfirm --skippgpcheck >>"$LOGFILE" 2>&1
+                makepkg -si --noconfirm --skippgpcheck >>\"\$LOGFILE\" 2>&1
                 cd ..
                 rm -rf yay
             fi
     
-            # Refresh AUR DB
-            yay -Y --gendb >>"$LOGFILE" 2>&1
-            yay -Syu --devel --noconfirm >>"$LOGFILE" 2>&1
+            yay -Y --gendb >>\"\$LOGFILE\" 2>&1
+            yay -Syu --devel --noconfirm >>\"\$LOGFILE\" 2>&1
     
-            # Package install loop with retries
             RETRIES=2
-            for pkg in '"${AUR_PKGS[@]}"'; do
-                echo -e "\n→ Installing $pkg ..." | tee -a "$LOGFILE"
+            for pkg in $AUR_LIST; do
+                echo -e \"\n→ Installing \$pkg ...\" | tee -a \"\$LOGFILE\"
                 attempt=1
                 success=0
                 while (( attempt <= RETRIES )); do
-                    if yay -S --needed --noconfirm --mflags "--skippgpcheck" "$pkg" >>"$LOGFILE" 2>&1; then
-                        echo "✅ $pkg installed successfully (attempt $attempt)" | tee -a "$LOGFILE"
+                    if yay -S --needed --noconfirm --mflags \"--skippgpcheck\" \"\$pkg\" >>\"\$LOGFILE\" 2>&1; then
+                        echo \"✅ \$pkg installed successfully (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
                         success=1
                         break
                     else
-                        echo "⚠️  $pkg failed (attempt $attempt)" | tee -a "$LOGFILE"
+                        echo \"⚠️  \$pkg failed (attempt \$attempt)\" | tee -a \"\$LOGFILE\"
                         sleep 3
                     fi
                     ((attempt++))
                 done
                 if (( success == 0 )); then
-                    echo "❌ $pkg failed to install after $RETRIES attempts" | tee -a "$LOGFILE"
+                    echo \"❌ \$pkg failed to install after \$RETRIES attempts\" | tee -a \"\$LOGFILE\"
                 fi
             done
-            
-            echo -e "\n==============================" | tee -a "$LOGFILE"
-            echo " AUR installation completed: $(date)" | tee -a "$LOGFILE"
-            echo " Logs saved to $LOGFILE"
-            
-        '
-        
+    
+            echo -e '\n==============================' | tee -a \"\$LOGFILE\"
+            echo ' AUR installation completed: ' \$(date) | tee -a \"\$LOGFILE\"
+            echo ' Logs saved to' \"\$LOGFILE\"
+        "
+    
         echo "✅ AUR package installation (with logging) completed."
     else
         echo "Skipping AUR packages..."
-   fi
+    fi
       # Copy AUR install log to host root for inspection
       if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
       cp "/mnt/home/$NEWUSER/aur-install.log" /root/aur-install.log
