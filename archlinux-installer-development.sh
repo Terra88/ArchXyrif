@@ -648,7 +648,7 @@ arch-chroot /mnt swapon -a || true
 arch-chroot /mnt bash -c 'echo "MAKEFLAGS=\"-j$(nproc)\"" >> /etc/makepkg.conf'
 
 # -------------------------------
-# 3) Install AUR packages automatically (robust)
+# 3) Install AUR packages automatically (robust, user-safe)
 # -------------------------------
 
 AUR_SUCCESS=()
@@ -657,25 +657,27 @@ AUR_FAIL=()
 if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
     echo ">>> Installing AUR packages inside chroot..."
 
-    # 1) Ensure essential build tools and sudo exist
+    # 1) Ensure essential build tools exist
     arch-chroot /mnt pacman -S --needed --noconfirm base-devel git meson ninja cmake \
         extra-cmake-modules mercurial pkgconf wget unzip tar sudo
 
-    # 2) Install yay first as root
-    arch-chroot /mnt bash -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && \
-        cd yay && makepkg -si --noconfirm --skippgpcheck && cd /tmp && rm -rf yay"
-
-    # 3) Ensure new user has passwordless sudo
+    # 2) Ensure new user has passwordless sudo
     arch-chroot /mnt bash -c "echo '$NEWUSER ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/$NEWUSER-pacman"
     arch-chroot /mnt chmod 440 /etc/sudoers.d/$NEWUSER-pacman
 
-    # 4) Create the AUR installation script for the user
+    # 3) Clone yay as root, then change ownership
+    arch-chroot /mnt bash -c "cd /tmp && git clone https://aur.archlinux.org/yay.git && chown -R $NEWUSER:$NEWUSER yay"
+
+    # 4) Build and install yay as the new user
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "cd /tmp/yay && makepkg -si --noconfirm --skippgpcheck"
+
+    # 5) Clean up
+    arch-chroot /mnt rm -rf /tmp/yay
+
+    # 6) Create the AUR installation script for the user
     cat > /mnt/home/$NEWUSER/install-aur.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
-export HOME="/home/$USER"
 
 LOGFILE="$HOME/aur-install.log"
 touch "$LOGFILE"
@@ -722,18 +724,18 @@ echo "${AUR_FAIL[*]}" > "$HOME/aur-fail.tmp"
 echo -e "\nAUR installation completed. Log saved to $LOGFILE"
 EOF
 
-    # 5) Replace placeholder with actual AUR package list
+    # 7) Replace placeholder with actual AUR package list
     aur_list_str=$(printf "'%s' " "${AUR_PKGS[@]}")
     arch-chroot /mnt bash -c "sed -i \"s|{{AUR_LIST}}|$aur_list_str|\" /home/$NEWUSER/install-aur.sh"
 
-    # 6) Set ownership and permissions
+    # 8) Set ownership and permissions
     arch-chroot /mnt chown $NEWUSER:$NEWUSER /home/$NEWUSER/install-aur.sh
     arch-chroot /mnt chmod +x /home/$NEWUSER/install-aur.sh
 
-    # 7) Run the script as the new user with proper environment
+    # 9) Run the script as the new user
     arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "HOME=/home/$NEWUSER bash /home/$NEWUSER/install-aur.sh"
 
-    # 8) Read success/fail arrays from temporary files
+    # 10) Read success/fail arrays from temporary files
     if [[ -f /mnt/home/$NEWUSER/aur-success.tmp ]]; then
         read -r -a AUR_SUCCESS < /mnt/home/$NEWUSER/aur-success.tmp
     fi
@@ -741,12 +743,11 @@ EOF
         read -r -a AUR_FAIL < /mnt/home/$NEWUSER/aur-fail.tmp
     fi
 
-    # 9) Copy full AUR log to root
+    # 11) Copy full AUR log to root for inspection
     if [[ -f /mnt/home/$NEWUSER/aur-install.log ]]; then
         cp /mnt/home/$NEWUSER/aur-install.log /root/aur-install.log
         echo "📋 AUR log copied to /root/aur-install.log"
     fi
-
 else
     echo "Skipping AUR packages..."
 fi
