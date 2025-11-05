@@ -530,6 +530,155 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
+# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP (Always installs selected GPU drivers)
+#===================================================================================================#
+echo
+echo "GPU DRIVER INSTALLATION OPTIONS:"
+echo "1) Intel (integrated)"
+echo "2) NVIDIA (discrete / hybrid, Optimus)"
+echo "3) AMD (desktop GPU)"
+echo "4) All compatible GPU drivers (default)"
+echo "5) Skip GPU drivers"
+read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
+GPU_CHOICE="${GPU_CHOICE:-4}"
+
+GPU_PKGS=()
+
+case "$GPU_CHOICE" in
+    1)
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
+        ;;
+    2)
+        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+        ;;
+    3)
+        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
+        ;;
+    4)
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
+                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+        echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
+        ;;
+    5|*)
+        echo "Skipping GPU drivers."
+        GPU_PKGS=()
+        ;;
+esac
+
+if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
+    # Enable multilib in chroot if not already enabled
+    arch-chroot /mnt bash -c '
+if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+    echo "Multilib repository added."
+fi
+pacman -Sy --noconfirm
+'
+
+    echo "Installing GPU drivers: ${GPU_PKGS[*]}"
+    arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
+fi
+
+#===================================================================================================#
+# 8B) WINDOW MANAGER SELECTION
+#===================================================================================================#
+echo
+echo "WINDOW MANAGER / DESKTOP ENVIRONMENT OPTIONS:"
+echo "1) Hyprland (Wayland)"
+echo "2) Sway (Wayland)"
+echo "3) XFCE (X11)"
+echo "4) KDE Plasma (X11/Wayland)"
+echo "5) GNOME (X11/Wayland)"
+echo "6) Skip Window Manager / Desktop Environment"
+read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
+WM_CHOICE="${WM_CHOICE:-6}"
+
+WM_PKGS=()
+
+case "$WM_CHOICE" in
+    1)
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock wlogout waybar)
+        ;;
+    2)
+        WM_PKGS=(sway swaybg swaylock waybar wofi)
+        ;;
+    3)
+        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+        ;;
+    4)
+        WM_PKGS=(plasma-desktop kde-applications sddm)
+        ;;
+    5)
+        WM_PKGS=(gnome gdm)
+        ;;
+    6|*)
+        echo "Skipping window manager installation."
+        WM_PKGS=()
+        ;;
+esac
+
+if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+    echo "Installing selected window manager packages: ${WM_PKGS[*]}"
+    arch-chroot /mnt pacman -S --needed --noconfirm "${WM_PKGS[@]}"
+fi
+
+#===================================================================================================#
+# 8C) LOGIN / DISPLAY MANAGER SELECTION
+#===================================================================================================#
+echo
+echo "LOGIN / DISPLAY MANAGER OPTIONS:"
+echo "1) GDM (GNOME Display Manager)"
+echo "2) SDDM (KDE / Plasma Display Manager)"
+echo "3) LightDM"
+echo "4) LXDM"
+echo "5) Ly (TTY-based login)"
+echo "6) None (skip login manager)"
+read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
+DM_CHOICE="${DM_CHOICE:-6}"
+
+DM_PKGS=()
+DM_SERVICE=""
+
+case "$DM_CHOICE" in
+    1)
+        DM_PKGS=(gdm)
+        DM_SERVICE="gdm.service"
+        ;;
+    2)
+        DM_PKGS=(sddm)
+        DM_SERVICE="sddm.service"
+        ;;
+    3)
+        DM_PKGS=(lightdm lightdm-gtk-greeter)
+        DM_SERVICE="lightdm.service"
+        ;;
+    4)
+        DM_PKGS=(lxdm)
+        DM_SERVICE="lxdm.service"
+        ;;
+    5)
+        DM_PKGS=(ly)
+        DM_SERVICE="ly.service"
+        ;;
+    6|*)
+        echo "Skipping login/display manager installation."
+        DM_PKGS=()
+        DM_SERVICE=""
+        ;;
+esac
+
+if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+    echo "Installing selected login manager: ${DM_PKGS[*]}"
+    arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
+
+    if [[ -n "$DM_SERVICE" ]]; then
+        echo "Enabling ${DM_SERVICE}..."
+        arch-chroot /mnt systemctl enable "$DM_SERVICE"
+        echo "✅ ${DM_SERVICE} enabled; it will start automatically on boot."
+    fi
+fi
+
+#===================================================================================================#
 # 8) Extra Pacman/AUR package lists - Will be installed in section 9B
 #===================================================================================================#
 
@@ -611,7 +760,64 @@ pacman -Sy --noconfirm
 fi
 
 #===================================================================================================#
-# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
+# 9B) LOGIN / DISPLAY MANAGER SELECTION
+#===================================================================================================#
+
+echo
+echo "LOGIN / DISPLAY MANAGER OPTIONS:"
+echo "1) GDM (GNOME Display Manager)"
+echo "2) SDDM (KDE / Plasma Display Manager)"
+echo "3) LightDM"
+echo "4) LXDM"
+echo "5) Ly (lightweight TTY-based)"
+echo "6) None (No login manager)"
+read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
+DM_CHOICE="${DM_CHOICE:-6}"
+
+DM_PKGS=()
+DM_SERVICE=""
+
+case "$DM_CHOICE" in
+    1)
+        DM_PKGS=(gdm)
+        DM_SERVICE="gdm.service"
+        ;;
+    2)
+        DM_PKGS=(sddm)
+        DM_SERVICE="sddm.service"
+        ;;
+    3)
+        DM_PKGS=(lightdm lightdm-gtk-greeter)
+        DM_SERVICE="lightdm.service"
+        ;;
+    4)
+        DM_PKGS=(lxdm)
+        DM_SERVICE="lxdm.service"
+        ;;
+    5)
+        DM_PKGS=(ly)
+        DM_SERVICE="ly.service"
+        ;;
+    6|*)
+        echo "No login/display manager will be installed."
+        DM_PKGS=()
+        DM_SERVICE=""
+        ;;
+esac
+
+if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+    echo "Installing selected login manager: ${DM_PKGS[*]}"
+    arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
+
+    if [[ -n "$DM_SERVICE" ]]; then
+        echo "Enabling ${DM_SERVICE}..."
+        arch-chroot /mnt systemctl enable "$DM_SERVICE"
+        echo "✅ ${DM_SERVICE} enabled; it will start automatically on boot."
+    fi
+fi
+
+#===================================================================================================#
+# 9C) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
 #===================================================================================================#
 
 echo
@@ -688,80 +894,6 @@ chmod +x /usr/local/bin/yay-expect
         echo "✅ AUR packages installation complete!"
     fi
 fi
-#===================================================================================================#
-# 10) GUI Setup: Enable Display/Login Manager if available
-#===================================================================================================#
-
-echo
-echo ">>> Checking for installed graphical login managers..."
-
-# List of common display managers
-DISPLAY_MANAGERS=(
-  gdm
-  sddm
-  lightdm
-  lxdm
-  ly
-)
-
-ENABLED_DM=""
-
-# Detect which DM exists in chroot and enable it
-for dm in "${DISPLAY_MANAGERS[@]}"; do
-  if arch-chroot /mnt bash -c "command -v ${dm}" >/dev/null 2>&1; then
-    echo "→ Found display manager: ${dm}"
-    echo "→ Enabling ${dm}..."
-    arch-chroot /mnt systemctl enable "${dm}.service" || true
-    ENABLED_DM="${dm}"
-    break
-  fi
-done
-
-if [[ -n "$ENABLED_DM" ]]; then
-  echo "✅ Display manager '${ENABLED_DM}' enabled. It will start automatically on boot."
-else
-  echo "⚠️ No known display manager (GDM/SDDM/LightDM/etc.) found."
-  echo "   You can install and enable one manually after reboot, for example:"
-  echo "     pacman -S sddm && systemctl enable sddm"
-fi
-
-echo
-echo ">>> GUI setup step complete."
-
-# Set up Hyprland session if installed
-if arch-chroot /mnt bash -c "command -v hyprland" >/dev/null 2>&1; then
-  echo "→ Hyprland detected. Creating XDG session file..."
-  
-  arch-chroot /mnt bash -c 'mkdir -p /usr/share/wayland-sessions && \
-cat > /usr/share/wayland-sessions/hyprland.desktop <<EOF
-[Desktop Entry]
-Name=Hyprland (uwsm)
-Comment=Dynamic tiling Wayland compositor
-Exec=env XDG_SESSION_TYPE=wayland WLR_NO_HARDWARE_CURSORS=1 uwsm start Hyprland
-Type=Application
-EOF'
-
-  echo "→ Hyprland session file created."
-
-  # Special handling for GDM
-  if [[ "$ENABLED_DM" == "gdm" ]]; then
-    echo "→ Configuring GDM to run on X11 (required for Hyprland)..."
-    arch-chroot /mnt sed -i 's/^#WaylandEnable=false/WaylandEnable=false/' /etc/gdm/custom.conf
-    arch-chroot /mnt sed -i 's/^WaylandEnable=true/WaylandEnable=false/' /etc/gdm/custom.conf
-    echo "→ GDM Wayland disabled; it will now run on X11."
-  fi
-
-  # Global environment variables for Hyprland sessions
-  echo "→ Creating system-wide environment file for Hyprland..."
-  arch-chroot /mnt mkdir -p /etc/environment.d
-  arch-chroot /mnt bash -c 'cat > /etc/environment.d/90-hyprland.conf <<EOF
-XDG_SESSION_TYPE=wayland
-WLR_NO_HARDWARE_CURSORS=1
-EOF'
-  echo "→ Global environment file created."
-fi
-
-echo "✅ GUI + Hyprland session configuration complete."
 
 #===================================================================================================#
 # 11 Hyprland - Configs / Theme downloader
