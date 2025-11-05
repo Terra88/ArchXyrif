@@ -679,7 +679,7 @@ if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
 fi
 
 #===================================================================================================#
-# 8) Extra Pacman/AUR package lists - Will be installed in section 9B
+# 9A) Extra Pacman/AUR package lists - Will be installed in section 9B
 #===================================================================================================#
 
 # Official packages (Pacman)
@@ -708,116 +708,7 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9A) GPU DRIVER SELECTION & MULTILIB SETUP (Always installs selected GPU drivers)
-#===================================================================================================#
-
-echo
-echo "GPU DRIVER INSTALLATION OPTIONS:"
-echo "1) Intel (integrated)"
-echo "2) NVIDIA (discrete / hybrid, Optimus)"
-echo "3) AMD (desktop GPU)"
-echo "4) All compatible GPU drivers (Default)"
-echo "5) Skip GPU drivers"
-read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
-GPU_CHOICE="${GPU_CHOICE:-4}"  # Default to 4 if empty
-
-GPU_PKGS=()
-
-case "$GPU_CHOICE" in
-    1)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-        ;;
-    2)
-        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        ;;
-    3)
-        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
-        ;;
-    4)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
-                  nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
-        ;;
-    5|*)
-        echo "Skipping GPU drivers."
-        GPU_PKGS=()
-        ;;
-esac
-
-if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    # Enable multilib in chroot if not already enabled
-    arch-chroot /mnt bash -c '
-if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-    echo "Multilib repository added."
-fi
-pacman -Sy --noconfirm
-'
-
-    # Install GPU packages
-    echo "Installing GPU drivers: ${GPU_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
-fi
-
-#===================================================================================================#
-# 9B) LOGIN / DISPLAY MANAGER SELECTION
-#===================================================================================================#
-
-echo
-echo "LOGIN / DISPLAY MANAGER OPTIONS:"
-echo "1) GDM (GNOME Display Manager)"
-echo "2) SDDM (KDE / Plasma Display Manager)"
-echo "3) LightDM"
-echo "4) LXDM"
-echo "5) Ly (lightweight TTY-based)"
-echo "6) None (No login manager)"
-read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
-DM_CHOICE="${DM_CHOICE:-6}"
-
-DM_PKGS=()
-DM_SERVICE=""
-
-case "$DM_CHOICE" in
-    1)
-        DM_PKGS=(gdm)
-        DM_SERVICE="gdm.service"
-        ;;
-    2)
-        DM_PKGS=(sddm)
-        DM_SERVICE="sddm.service"
-        ;;
-    3)
-        DM_PKGS=(lightdm lightdm-gtk-greeter)
-        DM_SERVICE="lightdm.service"
-        ;;
-    4)
-        DM_PKGS=(lxdm)
-        DM_SERVICE="lxdm.service"
-        ;;
-    5)
-        DM_PKGS=(ly)
-        DM_SERVICE="ly.service"
-        ;;
-    6|*)
-        echo "No login/display manager will be installed."
-        DM_PKGS=()
-        DM_SERVICE=""
-        ;;
-esac
-
-if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing selected login manager: ${DM_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
-
-    if [[ -n "$DM_SERVICE" ]]; then
-        echo "Enabling ${DM_SERVICE}..."
-        arch-chroot /mnt systemctl enable "$DM_SERVICE"
-        echo "✅ ${DM_SERVICE} enabled; it will start automatically on boot."
-    fi
-fi
-
-#===================================================================================================#
-# 9C) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
+# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
 #===================================================================================================#
 
 echo
@@ -837,59 +728,32 @@ else
     # -------------------------------
     if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
         echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-        arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+        arch-chroot /mnt pacman -Syu --needed --noconfirm "${EXTRA_PKGS[@]}"
     fi
 
     # -------------------------------
-    # Install AUR packages (yay) non-interactively
+    # Install AUR packages non-interactively
     # -------------------------------
     if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
         echo "Installing AUR packages via yay (non-interactive)..."
 
-        # Ensure base-devel and git are installed
+        # Ensure base-devel and git are installed in chroot
         arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
 
-        # Install yay as non-root user
+        # Create a simple non-root wrapper to install AUR packages
         arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
-cd /home/$NEWUSER
-if [[ ! -d yay ]]; then
-    git clone https://aur.archlinux.org/yay.git
-fi
-cd yay
-makepkg -si --noconfirm --needed
-cd ..
-rm -rf yay
+mkdir -p /home/$NEWUSER/aur-build
+cd /home/$NEWUSER/aur-build
+for pkg in ${AUR_PKGS[*]}; do
+    if [[ ! -d \$pkg ]]; then
+        git clone https://aur.archlinux.org/\$pkg.git
+    fi
+    cd \$pkg
+    makepkg -si --noconfirm --needed
+    cd ..
+done
+rm -rf /home/$NEWUSER/aur-build
 "
-
-        # Symlink yay to /usr/local/bin for easy access
-        arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/yay /usr/local/bin/yay || true
-
-        # Non-interactive wrapper for AUR package installs
-        arch-chroot /mnt bash -c "cat > /usr/local/bin/yay-expect <<'EOF'
-#!/usr/bin/expect -f
-set timeout -1
-set pkg [lindex \$argv 0]
-spawn yay -S --needed --noconfirm --removemake --aur \$pkg
-expect {
-    -re {are in conflict.*Remove} {
-        send \"y\r\"
-        exp_continue
-    }
-    -re {Remove make dependencies after install\?} {
-        send \"y\r\"
-        exp_continue
-    }
-    eof
-}
-EOF
-chmod +x /usr/local/bin/yay-expect
-"
-
-        # Install AUR packages using wrapper
-        for pkg in "${AUR_PKGS[@]}"; do
-            echo "→ Installing AUR package: $pkg"
-            arch-chroot /mnt /usr/local/bin/yay-expect "$pkg" || echo "⚠️ Failed: $pkg"
-        done
 
         echo "✅ AUR packages installation complete!"
     fi
