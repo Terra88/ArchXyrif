@@ -530,7 +530,7 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
-# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP (Always installs selected GPU drivers)
+# 8A) GPU DRIVER INSTALLATION & MULTILIB SETUP
 #===================================================================================================#
 echo
 echo "GPU DRIVER INSTALLATION OPTIONS:"
@@ -542,22 +542,31 @@ echo "5) Skip GPU drivers"
 read -r -p "Select your GPU to install drivers for [1-5, default=4]: " GPU_CHOICE
 GPU_CHOICE="${GPU_CHOICE:-4}"
 
-GPU_PKGS=()
+GPU_PKGS=()  # Official packages (Pacman)
+GPU_AUR_PKGS=()  # Future AUR packages if needed
 
 case "$GPU_CHOICE" in
-    1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
-    2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
-    3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
+    1)
+        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
+        ;;
+    2)
+        GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+        ;;
+    3)
+        GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
+        ;;
     4)
         GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel
                   nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
         echo "→ AMD packages skipped to prevent conflicts with hybrid Intel/NVIDIA"
         ;;
-    5|*) echo "Skipping GPU drivers."; GPU_PKGS=() ;;
+    5|*)
+        echo "Skipping GPU drivers."
+        ;;
 esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    # Enable multilib if not already enabled
+    echo "Ensuring multilib repository is enabled..."
     arch-chroot /mnt bash -c '
 if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
     echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
@@ -566,28 +575,12 @@ fi
 pacman -Sy --noconfirm
 '
 
-    # Retry loop function
-    install_with_retry() {
-        local packages=("$@")
-        local max_retries=3
-        local count=0
-        until arch-chroot /mnt pacman -S --needed --noconfirm "${packages[@]}"; do
-            ((count++))
-            if [[ $count -ge $max_retries ]]; then
-                echo "⚠️ Failed to install packages after $max_retries attempts: ${packages[*]}"
-                return 1
-            fi
-            echo "⚠️ Pacman failed, retrying... ($count/$max_retries)"
-            sleep 5
-        done
-    }
-
     echo "Installing GPU drivers: ${GPU_PKGS[*]}"
-    install_with_retry "${GPU_PKGS[@]}"
+    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${GPU_PKGS[@]}"
 fi
 
 #===================================================================================================#
-# 8B) WINDOW MANAGER SELECTION
+# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION
 #===================================================================================================#
 echo
 echo "WINDOW MANAGER / DESKTOP ENVIRONMENT OPTIONS:"
@@ -600,20 +593,34 @@ echo "6) Skip Window Manager / Desktop Environment"
 read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
 WM_CHOICE="${WM_CHOICE:-6}"
 
-WM_PKGS=()
+WM_PKGS=()      # Official packages (Pacman)
+WM_AUR_PKGS=()  # AUR-only packages
 
 case "$WM_CHOICE" in
-    1) WM_PKGS=(hyprland hyprpaper hyprshot hyprlock wlogout waybar) ;;
-    2) WM_PKGS=(sway swaybg swaylock waybar wofi) ;;
-    3) WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter) ;;
-    4) WM_PKGS=(plasma-desktop kde-applications sddm) ;;
-    5) WM_PKGS=(gnome gdm) ;;
-    6|*) echo "Skipping window manager installation."; WM_PKGS=() ;;
+    1) 
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
+        WM_AUR_PKGS=(wlogout)
+        ;;
+    2) 
+        WM_PKGS=(sway swaybg swaylock waybar wofi)
+        ;;
+    3) 
+        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+        ;;
+    4) 
+        WM_PKGS=(plasma-desktop kde-applications sddm)
+        ;;
+    5) 
+        WM_PKGS=(gnome gdm)
+        ;;
+    6|*) 
+        echo "Skipping window manager installation."
+        ;;
 esac
 
 if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing selected window manager packages: ${WM_PKGS[*]}"
-    install_with_retry "${WM_PKGS[@]}"
+    echo "Installing WM packages: ${WM_PKGS[*]}"
+    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${WM_PKGS[@]}"
 fi
 
 #===================================================================================================#
@@ -630,31 +637,48 @@ echo "6) None (skip login manager)"
 read -r -p "Select your preferred login/display manager [1-6, default=6]: " DM_CHOICE
 DM_CHOICE="${DM_CHOICE:-6}"
 
-DM_PKGS=()      # Official packages
-DM_AUR_PKGS=()  # AUR packages (if any)
+DM_PKGS=()      # Official packages (Pacman)
+DM_AUR_PKGS=()  # AUR-only packages
 DM_SERVICE=""
 
 case "$DM_CHOICE" in
-    1) DM_PKGS=(gdm); DM_SERVICE="gdm.service" ;;
-    2) DM_PKGS=(sddm); DM_SERVICE="sddm.service" ;;
-    3) DM_PKGS=(lightdm lightdm-gtk-greeter); DM_SERVICE="lightdm.service" ;;
-    4) DM_PKGS=(lxdm); DM_SERVICE="lxdm.service" ;;
-    5) DM_PKGS=(ly); DM_SERVICE="ly.service" ;;
-    6|*) echo "Skipping login/display manager installation." ;;
+    1) 
+        DM_PKGS=(gdm)
+        DM_SERVICE="gdm.service"
+        ;;
+    2) 
+        DM_PKGS=(sddm)
+        DM_SERVICE="sddm.service"
+        ;;
+    3) 
+        DM_PKGS=(lightdm lightdm-gtk-greeter)
+        DM_SERVICE="lightdm.service"
+        ;;
+    4) 
+        DM_PKGS=(lxdm)
+        DM_SERVICE="lxdm.service"
+        ;;
+    5) 
+        DM_PKGS=(ly)
+        DM_AUR_PKGS=(ly-themes-git)  # example AUR helper for Ly
+        DM_SERVICE="ly.service"
+        ;;
+    6|*) 
+        echo "Skipping login/display manager installation."
+        ;;
 esac
 
 if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-    echo "Installing login/display manager packages: ${DM_PKGS[*]}"
-    install_with_retry "${DM_PKGS[@]}"
+    echo "Installing DM packages: ${DM_PKGS[*]}"
+    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${DM_PKGS[@]}"
 
     if [[ -n "$DM_SERVICE" ]]; then
         echo "Enabling $DM_SERVICE..."
         arch-chroot /mnt systemctl enable "$DM_SERVICE"
-        echo "✅ $DM_SERVICE will start automatically on boot."
+        echo "✅ $DM_SERVICE enabled and will start automatically."
     fi
 fi
 
-# DM_AUR_PKGS can be installed later in Block 9B along with other AUR packages
 
 
 #===================================================================================================#
@@ -687,58 +711,40 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION (using Paru for AUR)
+# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION
 #===================================================================================================#
 
+# Merge all AUR packages from WM and DM selections into main AUR array
+ALL_AUR_PKGS=("${AUR_PKGS[@]}" "${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
+
 echo
-read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
-read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
+read -r -p "Install extra official packages (Pacman) now? [y/N]: " install_extra
+read -r -p "Install AUR packages (Paru) now? [y/N]: " install_aur
 
 INSTALL_EXTRA=0
 INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
-    echo "Skipping extra package installation."
-else
-    # -------------------------------
-    # Retry function for package installation
-    # -------------------------------
-    install_with_retry() {
-        local cmd=("$@")
-        local max_retries=3
-        local count=0
-        until "${cmd[@]}"; do
-            ((count++))
-            if [[ $count -ge $max_retries ]]; then
-                echo "⚠️ Failed to run command after $max_retries attempts: ${cmd[*]}"
-                return 1
-            fi
-            echo "⚠️ Command failed, retrying... ($count/$max_retries)"
-            sleep 5
-        done
-    }
+# -------------------------------
+# Install extra official packages (Pacman)
+# -------------------------------
+if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+    install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+fi
 
-    # -------------------------------
-    # Install official packages (Pacman)
-    # -------------------------------
-    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-        install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-    fi
+# -------------------------------
+# Install AUR packages (Paru) non-interactively
+# -------------------------------
+if [[ $INSTALL_AUR -eq 1 && ${#ALL_AUR_PKGS[@]} -gt 0 ]]; then
+    echo "Installing AUR packages via Paru (non-interactive)..."
 
-    # -------------------------------
-    # Install Paru (for AUR) if needed
-    # -------------------------------
-    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing Paru (AUR helper) first..."
+    # Ensure base-devel and git are installed
+    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
 
-        # Ensure base-devel and git are installed
-        install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
-
-        # Clone and build Paru as non-root user
-        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
+    # Install paru as non-root user
+    arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
 cd /home/$NEWUSER
 if [[ ! -d paru ]]; then
     git clone https://aur.archlinux.org/paru.git
@@ -749,21 +755,17 @@ cd ..
 rm -rf paru
 "
 
-        # Symlink paru for global access
-        arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/paru /usr/local/bin/paru || true
+    # Symlink paru for global access
+    arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/paru /usr/local/bin/paru || true
 
-        # -------------------------------
-        # Install AUR packages
-        # -------------------------------
-        for pkg in "${AUR_PKGS[@]}"; do
-            echo "→ Installing AUR package: $pkg"
-            install_with_retry arch-chroot /mnt /usr/local/bin/paru -S --needed --noconfirm "$pkg"
-        done
+    # Install all AUR packages
+    for pkg in "${ALL_AUR_PKGS[@]}"; do
+        echo "→ Installing AUR package: $pkg"
+        arch-chroot /mnt paru -S --needed --noconfirm "$pkg" || echo "⚠️ Failed: $pkg"
+    done
 
-        echo "✅ All AUR packages installed successfully!"
-    fi
+    echo "✅ AUR packages installation complete!"
 fi
-
 #===================================================================================================#
 # 11 Hyprland - Configs / Theme downloader
 #===================================================================================================#
