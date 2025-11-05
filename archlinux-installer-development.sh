@@ -547,7 +547,7 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9) Installing Extra Pacman and AUR Packages (Hyprland-focused) with Robust Retry
+# 9) Installing Extra Pacman and AUR Packages 
 #===================================================================================================#
 
 echo
