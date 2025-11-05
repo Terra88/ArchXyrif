@@ -639,7 +639,7 @@ else
 fi
 
 echo
-echo "▶ Extra installation phase finished."
+echo "▶ Extra installation phase finished.."
 
 #===================================================================================================#
 # 10) GUI Setup: Enable Display/Login Manager if available
