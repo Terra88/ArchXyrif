@@ -687,8 +687,9 @@ AUR_PKGS=(
 )
 
 #===================================================================================================#
-# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION (using paru)
+# 9B) OPTIONAL EXTRA PACMAN & AUR PACKAGE INSTALLATION (using Paru for AUR)
 #===================================================================================================#
+
 echo
 read -r -p "Install extra official packages (pacman) now? [y/N]: " install_extra
 read -r -p "Install AUR packages (requires paru)? [y/N]: " install_aur
@@ -698,23 +699,46 @@ INSTALL_AUR=0
 [[ "$install_extra" =~ ^[Yy]$ ]] && INSTALL_EXTRA=1
 [[ "$install_aur" =~ ^[Yy]$ ]] && INSTALL_AUR=1
 
-# -------------------------------
-# Install official packages (Pacman)
-# -------------------------------
-if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
-    arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
-fi
+if [[ $INSTALL_EXTRA -eq 0 && $INSTALL_AUR -eq 0 ]]; then
+    echo "Skipping extra package installation."
+else
+    # -------------------------------
+    # Retry function for package installation
+    # -------------------------------
+    install_with_retry() {
+        local cmd=("$@")
+        local max_retries=3
+        local count=0
+        until "${cmd[@]}"; do
+            ((count++))
+            if [[ $count -ge $max_retries ]]; then
+                echo "⚠️ Failed to run command after $max_retries attempts: ${cmd[*]}"
+                return 1
+            fi
+            echo "⚠️ Command failed, retrying... ($count/$max_retries)"
+            sleep 5
+        done
+    }
 
-# -------------------------------
-# Install AUR packages (Paru)
-# -------------------------------
-if [[ $INSTALL_AUR -eq 1 ]]; then
-    # Ensure paru is installed first
-    arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
+    # -------------------------------
+    # Install official packages (Pacman)
+    # -------------------------------
+    if [[ $INSTALL_EXTRA -eq 1 && ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        echo "Installing extra official packages: ${EXTRA_PKGS[*]}"
+        install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm "${EXTRA_PKGS[@]}"
+    fi
 
-    arch-chroot /mnt bash -c "
-# Switch to new user for AUR builds
+    # -------------------------------
+    # Install Paru (for AUR) if needed
+    # -------------------------------
+    if [[ $INSTALL_AUR -eq 1 && ${#AUR_PKGS[@]} -gt 0 ]]; then
+        echo "Installing Paru (AUR helper) first..."
+
+        # Ensure base-devel and git are installed
+        install_with_retry arch-chroot /mnt pacman -S --needed --noconfirm base-devel git
+
+        # Clone and build Paru as non-root user
+        arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "
 cd /home/$NEWUSER
 if [[ ! -d paru ]]; then
     git clone https://aur.archlinux.org/paru.git
@@ -725,13 +749,18 @@ cd ..
 rm -rf paru
 "
 
-    # Non-interactive AUR package installation using paru
-    ALL_AUR_PKGS=("${AUR_PKGS[@]}" "${WM_AUR_PKGS[@]}")
-    if [[ ${#ALL_AUR_PKGS[@]} -gt 0 ]]; then
-        echo "Installing AUR packages via paru: ${ALL_AUR_PKGS[*]}"
-        for pkg in "${ALL_AUR_PKGS[@]}"; do
-            arch-chroot /mnt runuser -u "$NEWUSER" -- bash -c "paru -S --needed --noconfirm --removemake $pkg" || echo "⚠️ Failed: $pkg"
+        # Symlink paru for global access
+        arch-chroot /mnt ln -sf /home/$NEWUSER/.local/bin/paru /usr/local/bin/paru || true
+
+        # -------------------------------
+        # Install AUR packages
+        # -------------------------------
+        for pkg in "${AUR_PKGS[@]}"; do
+            echo "→ Installing AUR package: $pkg"
+            install_with_retry arch-chroot /mnt /usr/local/bin/paru -S --needed --noconfirm "$pkg"
         done
+
+        echo "✅ All AUR packages installed successfully!"
     fi
 fi
 
