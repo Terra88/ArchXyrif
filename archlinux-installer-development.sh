@@ -840,42 +840,82 @@ if [[ -n "$DM_SERVICE" ]]; then
     "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
     echo "✅ Display manager service enabled: $DM_SERVICE"
 fi
-#===================================================================================================#
-# 9A) EXTRA PACMAN PACKAGES
-#===================================================================================================#
-EXTRA_PKGS=(base-devel linux-headers networkmanager network-manager-applet \
-bluez bluez-utils pipewire pipewire-alsa pipewire-pulse wireplumber alsa-utils \
-pavucontrol gvfs gvfs-mtp gvfs-gphoto2 gvfs-afc gvfs-smb dosfstools exfatprogs \
-ntfs-3g zip unzip unrar wget curl git nano vim htop btop neofetch rsync openssh reflector grub efibootmgr)
-
-safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
 
 #===================================================================================================#
-# 9B) EXTRA AUR PACKAGE INSTALLATION
+# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)
 #===================================================================================================#
-read -r -p "Install extra AUR packages using paru? [y/N]: " install_aur
-read -r -p "Enter any extra AUR packages separated by spaces (or leave empty): " EXTRA_AUR
+echo
+echo "-------------------------------------------"
+echo "📦 EXTRA SYSTEM PACKAGE INSTALLATION"
+echo "-------------------------------------------"
 
-AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")  # Combine AUR packages from selections
-[[ -n "$EXTRA_AUR" ]] && AUR_PKGS+=($EXTRA_AUR)    # Add user-specified extra packages
+# Clean list: neofetch removed (deprecated)
+EXTRA_PKGS=(
+    blueman bluez bluez-utils dolphin dolphin-plugins dunst gdm grim htophypridle hyprland hyprlock hyprpaper hyprshot kitty 
+    network-manager-appletpolkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofinftables waybar archlinux-xdg-menu
+    ark bemenu-wayland breeze brightnessctlbtop cliphist cpupower discover evtest firefox flatpakgoverlay gst-libav gst-plugin-pipewire
+    gst-plugins-bad gst-plugins-basegst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulselinuxconsole nvtop nwg-displays nwg-look
+    otf-font-awesomepavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ctsmartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
+    vlc-plugins-allwireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlrxdg-utils xorg-server xorg-xinitzram-generator base-devel
+)
 
+# Filter out non-existent packages before installing
+VALID_PKGS=()
+for pkg in "${EXTRA_PKGS[@]}"; do
+    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+        VALID_PKGS+=("$pkg")
+    else
+        echo "⚠️  Skipping invalid or missing package: $pkg"
+    fi
+done
+
+if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
+    safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
+else
+    echo "⚠️  No valid packages to install."
+fi
+
+
+#===================================================================================================#
+# 9B) OPTIONAL AUR PACKAGE INSTALLATION
+#===================================================================================================#
+echo
+echo "-------------------------------------------"
+echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
+echo "-------------------------------------------"
+
+read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    # Ensure paru is installed
-    safe_pacman_install CHROOT_CMD[@] base-devel git
-    "${CHROOT_CMD[@]}" runuser -u "$NEWUSER" -- bash -c '
-        if ! command -v paru &>/dev/null; then
-            cd ~
-            git clone https://aur.archlinux.org/paru.git
-            cd paru && makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-    '
+    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
 
-    # Install all AUR packages
-    for pkg in "${AUR_PKGS[@]}"; do
-        echo "→ Installing AUR package: $pkg"
-        "${CHROOT_CMD[@]}" runuser -u "$NEWUSER" -- paru -S --noconfirm --skipreview --removemake "$pkg" || echo "⚠️ Failed: $pkg"
-    done
+    # Merge with previously defined WM_AUR_PKGS, DM_AUR_PKGS, etc.
+    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
+    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+        AUR_PKGS+=($EXTRA_AUR_INPUT)
+    fi
+
+    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
+        echo "⚠️  No AUR packages specified — skipping."
+    else
+        echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
+
+        "${CHROOT_CMD[@]}" bash -c "
+            pacman -S --needed --noconfirm base-devel git
+            if ! command -v paru &>/dev/null; then
+                cd /home/$NEWUSER
+                sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+                cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+                cd .. && rm -rf paru
+            fi
+
+            for pkg in ${AUR_PKGS[*]}; do
+                echo '→ Installing AUR package: ' \$pkg
+                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake \$pkg || echo '⚠️ Failed to install:' \$pkg
+            done
+        "
+    fi
+else
+    echo "Skipping AUR installation."
 fi
 
 #===================================================================================================#
