@@ -878,7 +878,7 @@ fi
 
 
 #===================================================================================================#
-# 9B) OPTIONAL AUR PACKAGE INSTALLATION
+# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)
 #===================================================================================================#
 echo
 echo "-------------------------------------------"
@@ -889,7 +889,6 @@ read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
 
-    # Merge with previously defined WM_AUR_PKGS, DM_AUR_PKGS, etc.
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
         AUR_PKGS+=($EXTRA_AUR_INPUT)
@@ -901,7 +900,9 @@ if [[ "$install_aur" =~ ^[Yy]$ ]]; then
         echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
 
         "${CHROOT_CMD[@]}" bash -c "
-            pacman -S --needed --noconfirm base-devel git
+            pacman -S --needed --noconfirm base-devel git || true
+
+            # Ensure paru exists
             if ! command -v paru &>/dev/null; then
                 cd /home/$NEWUSER
                 sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
@@ -909,9 +910,25 @@ if [[ "$install_aur" =~ ^[Yy]$ ]]; then
                 cd .. && rm -rf paru
             fi
 
+            echo '⚙️  Checking for conflicts before installing AUR packages...'
+
             for pkg in ${AUR_PKGS[*]}; do
-                echo '→ Installing AUR package: ' \$pkg
-                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake \$pkg || echo '⚠️ Failed to install:' \$pkg
+                echo '→ Processing:' \$pkg
+                # Detect conflicting packages
+                CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+                if [[ -n \"\$CONFLICTS\" ]]; then
+                    echo '⚠️  Detected conflicts for' \$pkg ': '\$CONFLICTS
+                    for C in \$CONFLICTS; do
+                        if pacman -Qq \$C &>/dev/null; then
+                            echo '→ Removing conflicting package:' \$C
+                            pacman -Rdd --noconfirm \$C || true
+                        fi
+                    done
+                fi
+
+                # Install package with overwrite and auto conflict resolution
+                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
+                || echo '⚠️ Failed to install:' \$pkg
             done
         "
     fi
