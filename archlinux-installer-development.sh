@@ -580,7 +580,7 @@ fi
 
 
 #===================================================================================================#
-# Helper Functions
+# 7C) Helper Functions - For Pacman 
 #===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
