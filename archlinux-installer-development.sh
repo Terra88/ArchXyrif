@@ -194,7 +194,7 @@ fi
 echo
 echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
 echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~120 GiB)."
+echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~100 GiB)."
 echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
 echo
 
