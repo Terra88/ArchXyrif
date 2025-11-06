@@ -889,62 +889,52 @@ fi
 
 
 #===================================================================================================#
-# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)
+# 9B) EXTRA AUR PACKAGE INSTALLATION (WM/DM + Predefined + Optional)
 #===================================================================================================#
 echo
 echo "-------------------------------------------"
-echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
+echo "🌐 EXTRA / OPTIONAL AUR PACKAGE INSTALLATION"
 echo "-------------------------------------------"
 
-read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
-if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+# Predefined EXTRA_AUR list — you can edit/paste here before running the script
+EXTRA_AUR=(
+    hyprland-git wlogout ly-themes-git nerd-fonts-complete
+)
 
-    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
-    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-        AUR_PKGS+=($EXTRA_AUR_INPUT)
-    fi
+# Combine WM/DM AUR packages + EXTRA_AUR
+AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR[@]}")
 
-    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping."
-    else
-        echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
+# Optional interactive input
+read -r -p "Add any additional AUR packages (space-separated) or leave empty: " EXTRA_AUR_INPUT
+if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+    AUR_PKGS+=($EXTRA_AUR_INPUT)
+fi
 
-        "${CHROOT_CMD[@]}" bash -c "
-            pacman -S --needed --noconfirm base-devel git || true
-
-            # Ensure paru exists
-            if ! command -v paru &>/dev/null; then
-                cd /home/$NEWUSER
-                sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-                cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-                cd .. && rm -rf paru
-            fi
-
-            echo '⚙️  Checking for conflicts before installing AUR packages...'
-
-            for pkg in ${AUR_PKGS[*]}; do
-                echo '→ Processing:' \$pkg
-                # Detect conflicting packages
-                CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-                if [[ -n \"\$CONFLICTS\" ]]; then
-                    echo '⚠️  Detected conflicts for' \$pkg ': '\$CONFLICTS
-                    for C in \$CONFLICTS; do
-                        if pacman -Qq \$C &>/dev/null; then
-                            echo '→ Removing conflicting package:' \$C
-                            pacman -Rdd --noconfirm \$C || true
-                        fi
-                    done
-                fi
-
-                # Install package with overwrite and auto conflict resolution
-                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-                || echo '⚠️ Failed to install:' \$pkg
-            done
-        "
-    fi
+if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
+    echo "⚠️  No AUR packages specified — skipping."
 else
-    echo "Skipping AUR installation."
+    echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
+
+    "${CHROOT_CMD[@]}" bash -c "
+        pacman -S --needed --noconfirm base-devel git || true
+
+        # Ensure paru exists
+        if ! command -v paru &>/dev/null; then
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
+        fi
+
+        echo '⚙️  Installing AUR packages with automatic conflict resolution...'
+
+        for pkg in ${AUR_PKGS[*]}; do
+            echo '→ Installing:' \$pkg
+            # Install with overwrite, skip review, remove make dependencies
+            sudo -u $NEWUSER paru -S --needed --noconfirm --skipreview --removemake --overwrite='*' \$pkg \
+            || echo '⚠️ Failed to install:' \$pkg
+        done
+    "
 fi
 
 #===================================================================================================#
