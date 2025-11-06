@@ -17,6 +17,33 @@ https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
 <br>
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
 <br><br>
+1.0 - Version Feature Recall
+
+-1. Gives lsblk disk layout to interact with, which disk to choose, format and re-partition.
+
+-2. Clears any encryptions set on the disk, if the chosen disk had encryption on it.
+
+-3. Formats the disk to Boot, Root, Home, Swap (FAT32 boot&efi, ext4 for Root and Home) - More features coming later.
+
+-4. Calculates swap automatically and rezises (Swap) partition based ur ram amount.
+
+-5. Boot is set to be 1024MiB to fit more than 1 kernel, and Root is set to be around 100GB and rest 100% of the disk goes to Home. "can be changed in the code to your liking"
+
+-6. Can turn on or off swap from the code, by putting comment mark # before swapon line.
+
+-7. mounts disks automatically and sets the layout to fstab before running mkinitcpio.
+
+-8. Basic pacstrap packages are base base-devel bash go git grub linux linux-zen linux-headers linux-firmware vim
+
+sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
+
+-9. Installs GRUB Bootloader UEFI - Supports Secure Boot - Works atleast on my secure boot laptop. -"might require tinkering, but should work out of the box"
+
+-10. Asks for Timezone, Lang_Local, Hostname, username, root password, user password and sets user as sudoer to conf.
+
+-11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need to be modified manually to the file.
+
+Ver1.0: Had issues with installing AUR PKG's
 ### **So Changes in Version 1.3**
 <br><br>
 -1. First of all i decided to name the installer file to archxyrif-installer.sh instead of archlinux-installer.sh
@@ -51,33 +78,4 @@ Presenting you Version 1.3 - right after 1.0, due to adding a lot more features 
 -9B) Changed AUR Helper/Package installer to Paru instead of YAY, due to it simplifying the install process of packages, compared to YAY in 1.0.
 <br><br>
 -AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
-
-1.0 - Version Feature Recall<br>
-
--1. Gives lsblk disk layout to interact with, which disk to choose, format and re-partition.<br>
-
--2. Clears any encryptions set on the disk, if the chosen disk had encryption on it.<br>
-
--3. Formats the disk to Boot, Root, Home, Swap (FAT32 boot&efi, ext4 for Root and Home) - More features coming later.<br>
-
--4. Calculates swap automatically and rezises (Swap) partition based ur ram amount.<br>
-
--5. Boot is set to be 1024MiB to fit more than 1 kernel, and Root is set to be around 100GB and rest 100% of the disk goes to Home. "can be changed in the code to your liking"<br>
-
--6. Can turn on or off swap from the code, by putting comment mark # before swapon line.<br>
-
--7. mounts disks automatically and sets the layout to fstab before running mkinitcpio.<br>
-
--8. Basic pacstrap packages are base base-devel bash go git grub linux linux-zen linux-headers linux-firmware vim<br>
-
-sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs<br>
-
--9. Installs GRUB Bootloader UEFI - Supports Secure Boot - Works atleast on my secure boot laptop. -"might require tinkering, but should work out of the box"<br>
-
--10. Asks for Timezone, Lang_Local, Hostname, username, root password, user password and sets user as sudoer to conf.<br>
-
--11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need
-to be modified manually to the file.<br>
-
-Ver1.0: Had issues with installing AUR PKG's
 
