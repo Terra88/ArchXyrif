@@ -15,40 +15,69 @@ Versio 1.0 - Automated arch linux install script - archlinux-installer.sh
 https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
 
 <br>
-First Working Release of the script. 1.0 - Finally YAY!!!!
-<br><br>
-Features:<br>
--Shows list of disks to select from Type: /dev/sda or /dev/nvme0 for example.
-<br><br>
--checks and should remove encryptions from disk that you are installing on automatically.
-<br><br>
--Formats & Partitions the disk to Boot, Root, Home, Swap (Fat32 boot&Efi and ext4 for Root & Home).
-<br><br>
--Calculates swap from ram, Boot is 1024MiB so you can fit more kernels in it, root is 120GB and rest 100% left goes to /home depending on ur hdd/ssd/nvme size. "can be changed & tinkered".
-<br><br>
--Can turn on or off swap from the code, by putting comment mark # before swapon
--automatically mounts disks.
-<br><br>
--Gives $DEV/$P1 etc values to the drives and Mounts them and saves to fstab.
-<br><br>
--Basic pacstrap packages are base base-devel go git grub linux linux-zen linux-headers linux-firmware vim sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
-<br><br>
--installs Grub bootloader UEFI, should work on secure boot machines, might have to add efi from bios "trusted bootloader files", but for me atleast works on my "secure boot laptop" out of the box, without tinkering.
-<br><br>
--Prompts for Timezone, Lang_Local, Hostname, username, root password, user password. Sets user as sudoer.
-<br><br>
--From Section 8) Installs extra pacman packages & Aur packages. Multilib is enabled(in the section 9 chroot installer runner) and AUR will prompt for sudo rights asking password time to time, if packages are used. Can be left empty if not needed.
-<br><br>
--Possible errors: Some Aur Packages just don't want to install, so might have to install their regular pacman counterparts or continue installing error ones once logged in.
-<br><br>
--Things coming in the future:
-<br><br>
--Will be adding my .config files from my other hyprland project which will install themes and configs from my hyprland setup that i'm working on. and maybe other .config files too if modded correctly.
-<br><br>
--Will be creating a section to the code that asks which gpu drivers to install, so you might have to tinker with these, if you plan to run this script.
-<br><br>
--Doesnt set up gui for window manager or loginmanager yet, so those are coming in the near future.
-<br><br>
--For now this particular version boots to login prompt and after that you can type hyprland and press enter to get to hyprland window manager. No configs added yet.
-<br><br>
--And more, just happy it finally works and have the first working version of it.
+Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
+<br>
+### **So Changes in Version 1.3**
+<br>
+-1. First of all i decided to name the installer file to archxyrif-installer.sh instead of archlinux-installer.sh
+<br>
+-2. Added Block 7:
+<br>
+-3. 7A) Interactive mirror selection & optimization for pacman, you can choose closest pacman mirror from a menu and it will automatically change your mirrorlist, to conf and download packages through there.
+<br>
+-Current mirrorlist options available: United States, Canada, Germany, Finland, United Kingdom, Japan, Australia, Custom country code (2-letter ISO, e.g., FR)
+<br>
+-4. Added Block 7B) Pacman Helper: Sets pacman a helper through out the installer, to retry 3 times downloading a package if an error occurs, or if connection to the server fails or is bad.
+<br>
+-5. 7B) Safe pacman install: checks if there are conflicts with packages being installed throughout the install process and overwrites files, let's say, if you want to install a git file manually at 9B) additional aur package, the aur pkg will overwrite the packman package without error.
+<br>
+-6. Block 8:
+<br>
+-7. 8A) Asks the user if the user wants to install gpu drivers or not, default is "all drivers - if you don't know what you should install. There is also an option for no driver at all. Intel, Nvidia, AMD, All, None.
+<br>
+-8, 8B) Asks the user if the user wants to install a window manager to your system and gives options to choose from.
+<br>
+-Current Window Managers Available: Hyprland, Sway, XFCE, KDE Plasma, Skip WM/DE Installation
+<br>
+-9. 8C Asks the user if the user wants to install a Login / Display manager and gives options to choose from.
+<br>
+-Current Login / Display managers Available: GDM, SDDM, LightDM, LXDM, Ly, Skip Display Manager
+<br>
+-Block 9:<br>
+-9A) Changed and simplified the Pacman Extra packet handler, but now it calls the Helper before the GPU,WM/DM, to handle all pacman packets with same rules through out the installation.
+<br>
+-Extra Pacman PKG "EXTRA_PKGS" list needs to still be edited manually, if you want to install any extra.
+<br>
+-9B) Changed AUR Helper/Package installer to Paru instead of YAY, due to it simplifying the install process of packages, compared to YAY in 1.0.
+<br>
+-AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br>
+
+1.0 - Version Feature Recall<br>
+
+-1. Gives lsblk disk layout to interact with, which disk to choose, format and re-partition.<br>
+
+-2. Clears any encryptions set on the disk, if the chosen disk had encryption on it.<br>
+
+-3. Formats the disk to Boot, Root, Home, Swap (FAT32 boot&efi, ext4 for Root and Home) - More features coming later.<br>
+
+-4. Calculates swap automatically and rezises (Swap) partition based ur ram amount.<br>
+
+-5. Boot is set to be 1024MiB to fit more than 1 kernel, and Root is set to be around 100GB and rest 100% of the disk goes to Home. "can be changed in the code to your liking"<br>
+
+-6. Can turn on or off swap from the code, by putting comment mark # before swapon line.<br>
+
+-7. mounts disks automatically and sets the layout to fstab before running mkinitcpio.<br>
+
+-8. Basic pacstrap packages are base base-devel bash go git grub linux linux-zen linux-headers linux-firmware vim<br>
+
+sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs<br>
+
+-9. Installs GRUB Bootloader UEFI - Supports Secure Boot - Works atleast on my secure boot laptop. -"might require tinkering, but should work out of the box"<br>
+
+-10. Asks for Timezone, Lang_Local, Hostname, username, root password, user password and sets user as sudoer to conf.<br>
+
+-11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need
+to be modified manually to the file.<br>
+
+Ver1.0: Had issues with installing AUR PKG's
+
