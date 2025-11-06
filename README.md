@@ -8,8 +8,8 @@ loadkeys fi or en etc.
 <br>
 git clone https://github.com/Terra88/ArchXyrif <br>
 cd ArchXyrif <br>
-chmod +x archlinux-installer.sh <br>
-./archlinux-installer.sh <br> <br>
+chmod +x archxyrif-installer.sh <br>
+./archxyrif-installer.sh <br> <br>
 
 Versio 1.0 - Automated arch linux install script - archlinux-installer.sh
 https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
