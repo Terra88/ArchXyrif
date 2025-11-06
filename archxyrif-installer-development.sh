@@ -961,29 +961,29 @@ if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
         echo "→ Running Hyprland theme setup inside chroot..."
 
-        arch-chroot /mnt /bin/bash -c "
+ arch-chroot /mnt /bin/bash -c "
 NEWUSER=\"$NEWUSER\"
 CONFIG_DIR=\"/home/\$NEWUSER/.config\"
+THEME_ZIP=\"config.zip\"
 
-# Ensure .config exists and has correct permissions
-mkdir -p \"\$CONFIG_DIR\"
-chmod 700 \"\$CONFIG_DIR\"
-chown \$NEWUSER:\$NEWUSER \"\$CONFIG_DIR\"
-
+# Ensure home exists
 cd /home/\$NEWUSER
-
-# Clone repository
-git clone https://github.com/Terra88/hyprland-setup.git
-cd hyprland-setup
 
 # Backup existing .config if it contains files
 if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
     mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-    mkdir -p \"\$CONFIG_DIR\"
 fi
 
-# Extract config and wallpapers
-[[ -f config.zip ]] && unzip -o config.zip -d \"\$CONFIG_DIR\"
+# Extract theme config
+if [[ -f \$THEME_ZIP ]]; then
+    unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
+    # Assuming the zip contains a folder named 'config', rename it to .config
+    if [[ -d /home/\$NEWUSER/config ]]; then
+        mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
+    fi
+fi
+
+# Extract wallpapers
 [[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/\$NEWUSER
 
 # Copy wallpaper script and make executable
