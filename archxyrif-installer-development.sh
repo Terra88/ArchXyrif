@@ -676,13 +676,14 @@ safe_pacman_install() {
 #===================================================================================================#
 # 7C) Helper Functions - For AUR (Paru)
 #===================================================================================================#
-safe_aur_install_and_hypr_theme() {
+safe_aur_install() {
     local CHROOT_CMD=("${!1}")
     shift
     local AUR_PKGS=("$@")
 
+    # skip if no packages
     if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping AUR installation."
+        echo "⚠️  No AUR packages specified — skipping safe_aur_install."
         return 0
     fi
 
@@ -690,83 +691,39 @@ safe_aur_install_and_hypr_theme() {
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
     "${CHROOT_CMD[@]}" bash -c "
-        set -e
-
-        # Ensure base-devel and git are installed
         pacman -S --needed --noconfirm base-devel git || true
 
-        # Setup user home
-        USER_HOME=/home/$NEWUSER
-        mkdir -p \$USER_HOME
-        chown $NEWUSER:$NEWUSER \$USER_HOME
-
-        # Install paru if missing
+        # ensure paru exists
         if ! command -v paru &>/dev/null; then
-            cd \$USER_HOME
+            cd /home/$NEWUSER
             sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru
-            sudo -u $NEWUSER makepkg -si --noconfirm
-            cd ..
-            rm -rf paru
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
         fi
 
-        # Install all AUR packages as user
         for pkg in ${AUR_PKGS[*]}; do
             echo
-            echo '→ Installing AUR package:' \$pkg
-            sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-            || echo '⚠️ Failed: \$pkg'
-        done
+            echo '→ Checking AUR package:' \$pkg
 
-        # ==============================
-        # Optional Hyprland theme setup
-        # ==============================
-        if [[ -d \$USER_HOME/.config ]]; then
-            mkdir -p \$USER_HOME/.config
-            chown $NEWUSER:$NEWUSER \$USER_HOME/.config
-        fi
-
-        # Hyprland theme GitHub setup
-        if [[ \"${WM_CHOICE:-}\" == \"1\" ]]; then
-            cd \$USER_HOME
-            sudo -u $NEWUSER git clone https://github.com/Terra88/hyprland-setup.git
-            cd hyprland-setup || exit
-
-            # Backup existing .config if not a symlink
-            if [[ -d \$USER_HOME/.config && ! -L \$USER_HOME/.config ]]; then
-                mv \$USER_HOME/.config \$USER_HOME/.config.backup.\$(date +%s)
+            # detect conflicting packages (e.g. foo vs foo-git)
+            CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+            if [[ -n \"\$CONFLICTS\" ]]; then
+                echo '⚠️  Conflicts detected for' \$pkg ': '\$CONFLICTS
+                for C in \$CONFLICTS; do
+                    if pacman -Qq \$C &>/dev/null; then
+                        echo '→ Removing conflicting package:' \$C
+                        pacman -Rdd --noconfirm \$C || true
+                    fi
+                done
             fi
-            mkdir -p \$USER_HOME/.config
 
-            # Extract configs if zip exists
-            [[ -f config.zip ]] && sudo -u $NEWUSER unzip -o config.zip -d \$USER_HOME/.config
-            [[ -f wallpaper.zip ]] && sudo -u $NEWUSER unzip -o wallpaper.zip -d \$USER_HOME
-
-            # Copy wallpaper script if present
-            [[ -f wallpaper.sh ]] && sudo -u $NEWUSER cp -f wallpaper.sh \$USER_HOME/ && chmod +x \$USER_HOME/wallpaper.sh
-
-            # Fix ownership
-            chown -R $NEWUSER:$NEWUSER \$USER_HOME
-
-            # Cleanup repository
-            rm -rf \$USER_HOME/hyprland-setup
-            echo '✅ Hyprland theme setup completed safely.'
-        else
-            echo 'Skipping Hyprland theme setup.'
-        fi
+            # install package safely, skip failed ones
+            echo '📦 Installing:' \$pkg
+            sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
+            || echo '⚠️  Failed to install:' \$pkg
+        done
     "
 }
-
-# Usage: pass your CHROOT_CMD array and all AUR packages to install
-CHROOT_CMD=(arch-chroot /mnt)
-
-# Merge WM and DM AUR packages and any extra user-specified AUR packages
-ALL_AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
-if [[ -n "${EXTRA_AUR_INPUT:-}" ]]; then
-    ALL_AUR_PKGS+=($EXTRA_AUR_INPUT)
-fi
-
-safe_aur_install_and_hypr_theme CHROOT_CMD[@] "${ALL_AUR_PKGS[@]}"
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
@@ -939,11 +896,12 @@ echo "-------------------------------------------"
 
 # Clean list: neofetch removed (deprecated)
 EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop kitty network-manager-applet polkit-kde-agent 
-    qt5-wayland qt6-wayland unzip uwm nftables waybar ark bemenu-wayland breeze brightnessctl btop cliphist cpupower
-    discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire gst-plugins-bad gst-plugins-base gst-plugins-good
-    gst-plugins-ugly iwd kate konsole kvantum nvtop nwg-displays nwg-look otf-font-awesome pavucontrol qt5ct qt6ct smartmontools
-    sway thermald ttf-hack wireless_tools wireplumber wl-clipboard zram-generator 
+    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
+    network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
+    ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
+    gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
+    otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
+    vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
 )
 
 # Filter out non-existent packages before installing
@@ -986,53 +944,71 @@ else
     echo "Skipping AUR installation."
 fi
 #===================================================================================================#
-# 11) Hyprland Theme Setup (Optional, Safe)
+# 11) Hyprland Theme Setup (Optional) with Backup
 #===================================================================================================#
+echo
+echo "-------------------------------------------"
+echo "🎨 Hyprland Theme Setup (Optional)"
+echo "-------------------------------------------"
+
+# Only proceed if Hyprland was selected
 if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
     read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-    INSTALL_HYPR_THEME="${INSTALL_HYPR_THEME:-N}"
-
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Cloning Hyprland setup repository into /home/$NEWUSER..."
+        echo "→ Cloning Hyprland setup repository..."
+        
+        CONFIG_DIR="/home/$NEWUSER/.config"
+        mkdir -p "$CONFIG_DIR"
+        chown "$NEWUSER:$NEWUSER" "$CONFIG_DIR"
+        chmod 700 "$CONFIG_DIR"
 
-        # Ensure .config exists and owned by user
-        mkdir -p /home/$NEWUSER/.config
-        chown "$NEWUSER:$NEWUSER" /home/$NEWUSER/.config
-        chmod 700 /home/$NEWUSER/.config
+        sudo -u "$NEWUSER" bash <<EOF
+cd /home/$NEWUSER
 
-        # Run all setup as the new user with proper variable expansion
-        sudo -u "$NEWUSER" bash <<EOSU
-NEWUSER="$NEWUSER"
-cd /home/\$NEWUSER || exit
-
+# Clone repository
 git clone https://github.com/Terra88/hyprland-setup.git
-cd hyprland-setup || exit
+cd hyprland-setup
 
-# Backup existing .config if it exists
-if [[ -d /home/\$NEWUSER/.config && ! -L /home/\$NEWUSER/.config ]]; then
-    mv /home/\$NEWUSER/.config /home/\$NEWUSER/.config.backup.\$(date +%s)
+# Backup existing .config if non-empty
+if [[ -d "$CONFIG_DIR" && \$(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "$CONFIG_DIR.backup.$(date +%s)"
+    mkdir -p "$CONFIG_DIR"
 fi
-mkdir -p /home/\$NEWUSER/.config
 
-# Extract config and wallpapers if available
-[[ -f config.zip ]] && unzip -o config.zip -d /home/\$NEWUSER/.config
-[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/\$NEWUSER
+# Extract theme config
+if [[ -f config.zip ]]; then
+    unzip -o config.zip -d "$CONFIG_DIR"
+fi
 
-# Copy wallpaper script if present
-[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/\$NEWUSER/ && chmod +x /home/\$NEWUSER/wallpaper.sh
+# Extract wallpapers
+if [[ -f wallpaper.zip ]]; then
+    unzip -o wallpaper.zip -d /home/$NEWUSER
+fi
+
+# Copy wallpaper script and make executable
+if [[ -f wallpaper.sh ]]; then
+    cp -f wallpaper.sh /home/$NEWUSER/
+    chmod +x /home/$NEWUSER/wallpaper.sh
+fi
 
 # Fix ownership recursively
-chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER
+chown -R "$NEWUSER:$NEWUSER" /home/$NEWUSER
 
-# Cleanup repository
-rm -rf /home/\$NEWUSER/hyprland-setup
-EOSU
+# Secure permissions: dirs 700, files 600 inside .config
+find "$CONFIG_DIR" -type d -exec chmod 700 {} \;
+find "$CONFIG_DIR" -type f -exec chmod 600 {} \;
 
-        echo "✅ Hyprland theme setup completed safely."
+# Cleanup
+cd /home/$NEWUSER
+rm -rf hyprland-setup
+EOF
+
+        echo "✅ Hyprland theme setup completed."
     else
         echo "Skipping Hyprland theme setup."
     fi
 fi
+
 
 #===================================================================================================#
 # 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
