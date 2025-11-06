@@ -1000,31 +1000,32 @@ if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
         chown "$NEWUSER:$NEWUSER" /home/$NEWUSER/.config
         chmod 700 /home/$NEWUSER/.config
 
-        # Run all setup as the new user
-        sudo -u "$NEWUSER" bash <<'EOSU'
-cd /home/"$NEWUSER" || exit
+        # Run all setup as the new user with proper variable expansion
+        sudo -u "$NEWUSER" bash <<EOSU
+NEWUSER="$NEWUSER"
+cd /home/\$NEWUSER || exit
 
 git clone https://github.com/Terra88/hyprland-setup.git
 cd hyprland-setup || exit
 
 # Backup existing .config if it exists
-if [[ -d /home/"$NEWUSER"/.config && ! -L /home/"$NEWUSER"/.config ]]; then
-    mv /home/"$NEWUSER"/.config /home/"$NEWUSER"/.config.backup.$(date +%s)
+if [[ -d /home/\$NEWUSER/.config && ! -L /home/\$NEWUSER/.config ]]; then
+    mv /home/\$NEWUSER/.config /home/\$NEWUSER/.config.backup.\$(date +%s)
 fi
-mkdir -p /home/"$NEWUSER"/.config
+mkdir -p /home/\$NEWUSER/.config
 
 # Extract config and wallpapers if available
-[[ -f config.zip ]] && unzip -o config.zip -d /home/"$NEWUSER"/.config
-[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/"$NEWUSER"
+[[ -f config.zip ]] && unzip -o config.zip -d /home/\$NEWUSER/.config
+[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/\$NEWUSER
 
 # Copy wallpaper script if present
-[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/"$NEWUSER"/ && chmod +x /home/"$NEWUSER"/wallpaper.sh
+[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/\$NEWUSER/ && chmod +x /home/\$NEWUSER/wallpaper.sh
 
 # Fix ownership recursively
-chown -R "$NEWUSER:$NEWUSER" /home/"$NEWUSER"
+chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER
 
 # Cleanup repository
-rm -rf /home/"$NEWUSER"/hyprland-setup
+rm -rf /home/\$NEWUSER/hyprland-setup
 EOSU
 
         echo "✅ Hyprland theme setup completed safely."
