@@ -667,6 +667,57 @@ safe_pacman_install() {
     done
 }
 
+#===================================================================================================#
+# 7C) Helper Functions - For AUR (Paru)
+#===================================================================================================#
+safe_aur_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local AUR_PKGS=("$@")
+
+    # skip if no packages
+    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
+        echo "⚠️  No AUR packages specified — skipping safe_aur_install."
+        return 0
+    fi
+
+    echo
+    echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
+
+    "${CHROOT_CMD[@]}" bash -c "
+        pacman -S --needed --noconfirm base-devel git || true
+
+        # ensure paru exists
+        if ! command -v paru &>/dev/null; then
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
+        fi
+
+        for pkg in ${AUR_PKGS[*]}; do
+            echo
+            echo '→ Checking AUR package:' \$pkg
+
+            # detect conflicting packages (e.g. foo vs foo-git)
+            CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+            if [[ -n \"\$CONFLICTS\" ]]; then
+                echo '⚠️  Conflicts detected for' \$pkg ': '\$CONFLICTS
+                for C in \$CONFLICTS; do
+                    if pacman -Qq \$C &>/dev/null; then
+                        echo '→ Removing conflicting package:' \$C
+                        pacman -Rdd --noconfirm \$C || true
+                    fi
+                done
+            fi
+
+            # install package safely, skip failed ones
+            echo '📦 Installing:' \$pkg
+            sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
+            || echo '⚠️  Failed to install:' \$pkg
+        done
+    "
+}
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
@@ -758,25 +809,13 @@ case "$WM_CHOICE" in
         ;;
 esac
 
-# Install WM packages if selected
+# Install WM packages
 if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
 fi
 
-# If AUR packages are needed (e.g., wlogout)
-if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
-    echo "→ Installing AUR packages for WM: ${WM_AUR_PKGS[*]}"
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${WM_AUR_PKGS[*]}
-    "
-fi
+# Install AUR packages (safe, conflict-handling)
+safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
 #===================================================================================================#
@@ -827,27 +866,15 @@ case "$DM_CHOICE" in
         ;;
 esac
 
-# Install display manager packages if selected
+# Install display manager packages
 if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
 fi
 
-# Handle AUR-based display managers
-if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
-    echo "→ Installing AUR display manager packages: ${DM_AUR_PKGS[*]}"
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${DM_AUR_PKGS[*]}
-    "
-fi
+# Install AUR display manager packages (safe)
+safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
 
-# Enable chosen display manager
+# Enable chosen service
 if [[ -n "$DM_SERVICE" ]]; then
     "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
     echo "✅ Display manager service enabled: $DM_SERVICE"
@@ -900,49 +927,13 @@ read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
 
+    # Merge WM + DM AUR packages with user input
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
         AUR_PKGS+=($EXTRA_AUR_INPUT)
     fi
 
-    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping."
-    else
-        echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
-
-        "${CHROOT_CMD[@]}" bash -c "
-            pacman -S --needed --noconfirm base-devel git || true
-
-            # Ensure paru exists
-            if ! command -v paru &>/dev/null; then
-                cd /home/$NEWUSER
-                sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-                cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-                cd .. && rm -rf paru
-            fi
-
-            echo '⚙️  Checking for conflicts before installing AUR packages...'
-
-            for pkg in ${AUR_PKGS[*]}; do
-                echo '→ Processing:' \$pkg
-                # Detect conflicting packages
-                CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-                if [[ -n \"\$CONFLICTS\" ]]; then
-                    echo '⚠️  Detected conflicts for' \$pkg ': '\$CONFLICTS
-                    for C in \$CONFLICTS; do
-                        if pacman -Qq \$C &>/dev/null; then
-                            echo '→ Removing conflicting package:' \$C
-                            pacman -Rdd --noconfirm \$C || true
-                        fi
-                    done
-                fi
-
-                # Install package with overwrite and auto conflict resolution
-                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-                || echo '⚠️ Failed to install:' \$pkg
-            done
-        "
-    fi
+    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
 else
     echo "Skipping AUR installation."
 fi
