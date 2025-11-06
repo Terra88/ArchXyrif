@@ -515,6 +515,7 @@ systemctl enable sshd
 # --------------------------
 # 9) Done
 # --------------------------
+
 echo "Postinstall inside chroot finished."
 EOF
 #===================================================================================================#
@@ -895,12 +896,12 @@ echo "-------------------------------------------"
 
 # Clean list: neofetch removed (deprecated)
 EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst gdm grim htophypridle hyprland hyprlock hyprpaper hyprshot kitty 
-    network-manager-appletpolkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofinftables waybar archlinux-xdg-menu
-    ark bemenu-wayland breeze brightnessctlbtop cliphist cpupower discover evtest firefox flatpakgoverlay gst-libav gst-plugin-pipewire
-    gst-plugins-bad gst-plugins-basegst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulselinuxconsole nvtop nwg-displays nwg-look
-    otf-font-awesomepavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ctsmartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
-    vlc-plugins-allwireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlrxdg-utils xorg-server xorg-xinitzram-generator base-devel
+    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
+    network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
+    ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
+    gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
+    otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
+    vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
 )
 
 # Filter out non-existent packages before installing
@@ -951,60 +952,53 @@ echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
 # Only proceed if Hyprland was selected
-if [[ " ${WM_CHOICE} " =~ "1" ]]; then
+if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
     read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
         echo "→ Cloning Hyprland setup repository..."
-        "${CHROOT_CMD[@]}" bash -c "
-            pacman -Sy --needed --noconfirm git unzip
+        mkdir -p /home/$NEWUSER/.config
+        chown "$NEWUSER:$NEWUSER" /home/$NEWUSER/.config
+        chmod 700 /home/$NEWUSER/.config
+
+        sudo -u "$NEWUSER" bash -c "
             cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://github.com/Terra88/hyprland-setup.git
+            git clone https://github.com/Terra88/hyprland-setup.git
             cd hyprland-setup
 
-            # Backup existing .config
-            if [[ -d /home/$NEWUSER/.config ]]; then
-                echo '⚠️ Existing .config found, backing up...'
-                mv /home/$NEWUSER/.config /home/$NEWUSER/.config.backup.$(date +%s)
-                echo '✅ Backup created at .config.backup.TIMESTAMP'
+            # Backup existing .config if it exists
+            if [[ -d /home/$NEWUSER/.config && ! -L /home/$NEWUSER/.config ]]; then
+                mv /home/$NEWUSER/.config /home/$NEWUSER/.config.backup.\$(date +%s)
             fi
             mkdir -p /home/$NEWUSER/.config
 
-            # Unpack config.zip into ~/.config
+            # Unpack config.zip
             if [[ -f config.zip ]]; then
-                sudo -u $NEWUSER unzip -o config.zip -d /home/$NEWUSER/.config
-                echo '✅ Config files unpacked to /home/$NEWUSER/.config'
-            else
-                echo '⚠️ config.zip not found!'
+                unzip -o config.zip -d /home/$NEWUSER/.config
             fi
 
-            # Unpack wallpaper.zip directly into /home/$NEWUSER
+            # Unpack wallpaper.zip
             if [[ -f wallpaper.zip ]]; then
-                sudo -u $NEWUSER unzip -o wallpaper.zip -d /home/$NEWUSER
-                echo '✅ Wallpapers unpacked to /home/$NEWUSER'
-            else
-                echo '⚠️ wallpaper.zip not found!'
+                unzip -o wallpaper.zip -d /home/$NEWUSER
             fi
 
-            # Copy wallpaper.sh to home folder
+            # Copy wallpaper.sh
             if [[ -f wallpaper.sh ]]; then
                 cp -f wallpaper.sh /home/$NEWUSER/
-                chown $NEWUSER:$NEWUSER /home/$NEWUSER/wallpaper.sh
                 chmod +x /home/$NEWUSER/wallpaper.sh
-                echo '✅ wallpaper.sh copied to /home/$NEWUSER/'
-            else
-                echo '⚠️ wallpaper.sh not found!'
             fi
 
-            # Optional: clean up git folder
+            # Fix ownership recursively
+            chown -R $NEWUSER:$NEWUSER /home/$NEWUSER
+
+            # Cleanup
             rm -rf /home/$NEWUSER/hyprland-setup
         "
         echo "✅ Hyprland theme setup completed."
     else
         echo "Skipping Hyprland theme setup."
     fi
-else
-    echo "Hyprland not selected as WM, skipping theme setup."
 fi
+
 
 #===================================================================================================#
 # 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
