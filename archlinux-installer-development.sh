@@ -429,7 +429,7 @@ efibootmgr -v || true
 # /boot/efi/EFI/Boot/BOOTX64.EFI
 
 #===================================================================================================#
-# 6) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.
+# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.
 #===================================================================================================#
 # inline script for arch-chroot operations "postinstall.sh"
 
@@ -513,7 +513,7 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 #===================================================================================================#
-# 7A) Inject variables into /mnt/root/postinstall.sh
+# 6B) Inject variables into /mnt/root/postinstall.sh
 #===================================================================================================#
 # Replace placeholders with actual values (safe substitution)
 
@@ -530,7 +530,7 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 #===================================================================================================#
-# 7B) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
+# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
 #===================================================================================================#
 echo
 echo "-------------------------------------------"
@@ -580,7 +580,7 @@ fi
 
 
 #===================================================================================================#
-# 7C) Helper Functions - For Pacman 
+# 7B) Helper Functions - For Pacman 
 #===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
