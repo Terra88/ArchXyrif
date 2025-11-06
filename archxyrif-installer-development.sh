@@ -894,30 +894,35 @@ echo "-------------------------------------------"
 echo "📦 EXTRA SYSTEM PACKAGE INSTALLATION"
 echo "-------------------------------------------"
 
-# Clean list: neofetch removed (deprecated)
-EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
-    network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
-    ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
-    gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
-    otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
-    vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
-)
+read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+    # Clean list: neofetch removed (deprecated)
+    EXTRA_PKGS=(
+        blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
+        network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
+        ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
+        gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
+        otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
+        vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
+    )
 
-# Filter out non-existent packages before installing
-VALID_PKGS=()
-for pkg in "${EXTRA_PKGS[@]}"; do
-    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
-        VALID_PKGS+=("$pkg")
+    # Filter out non-existent packages before installing
+    VALID_PKGS=()
+    for pkg in "${EXTRA_PKGS[@]}"; do
+        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+            VALID_PKGS+=("$pkg")
+        else
+            echo "⚠️  Skipping invalid or missing package: $pkg"
+        fi
+    done
+
+    if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
     else
-        echo "⚠️  Skipping invalid or missing package: $pkg"
+        echo "⚠️  No valid packages to install."
     fi
-done
-
-if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
-    safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
 else
-    echo "⚠️  No valid packages to install."
+    echo "Skipping extra pacman packages."
 fi
 
 
