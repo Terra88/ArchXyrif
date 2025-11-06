@@ -734,7 +734,7 @@ case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
         WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
-        WM_AUR_PKGS=(wlogout)
+        WM_AUR_PKGS=(hyprlang-git hyprutils-git hyprwayland-scanner-git hyprland-protocols-git xdg-desktop-portal-hyprland-git kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
