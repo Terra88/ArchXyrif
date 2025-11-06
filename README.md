@@ -16,41 +16,41 @@ https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
 
 <br>
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
-<br>
+<br><br>
 ### **So Changes in Version 1.3**
-<br>
+<br><br>
 -1. First of all i decided to name the installer file to archxyrif-installer.sh instead of archlinux-installer.sh
-<br>
+<br><br>
 -2. Added Block 7:
-<br>
+<br><br>
 -3. 7A) Interactive mirror selection & optimization for pacman, you can choose closest pacman mirror from a menu and it will automatically change your mirrorlist, to conf and download packages through there.
-<br>
+<br><br>
 -Current mirrorlist options available: United States, Canada, Germany, Finland, United Kingdom, Japan, Australia, Custom country code (2-letter ISO, e.g., FR)
-<br>
+<br><br>
 -4. Added Block 7B) Pacman Helper: Sets pacman a helper through out the installer, to retry 3 times downloading a package if an error occurs, or if connection to the server fails or is bad.
-<br>
+<br><br>
 -5. 7B) Safe pacman install: checks if there are conflicts with packages being installed throughout the install process and overwrites files, let's say, if you want to install a git file manually at 9B) additional aur package, the aur pkg will overwrite the packman package without error.
-<br>
+<br><br>
 -6. Block 8:
-<br>
+<br><br>
 -7. 8A) Asks the user if the user wants to install gpu drivers or not, default is "all drivers - if you don't know what you should install. There is also an option for no driver at all. Intel, Nvidia, AMD, All, None.
-<br>
+<br><br>
 -8, 8B) Asks the user if the user wants to install a window manager to your system and gives options to choose from.
-<br>
+<br><br>
 -Current Window Managers Available: Hyprland, Sway, XFCE, KDE Plasma, Skip WM/DE Installation
-<br>
+<br><br>
 -9. 8C Asks the user if the user wants to install a Login / Display manager and gives options to choose from.
-<br>
+<br><br>
 -Current Login / Display managers Available: GDM, SDDM, LightDM, LXDM, Ly, Skip Display Manager
-<br>
--Block 9:<br>
+<br><br>
+-Block 9:<br><br>
 -9A) Changed and simplified the Pacman Extra packet handler, but now it calls the Helper before the GPU,WM/DM, to handle all pacman packets with same rules through out the installation.
-<br>
+<br><br>
 -Extra Pacman PKG "EXTRA_PKGS" list needs to still be edited manually, if you want to install any extra.
-<br>
+<br><br>
 -9B) Changed AUR Helper/Package installer to Paru instead of YAY, due to it simplifying the install process of packages, compared to YAY in 1.0.
-<br>
--AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br>
+<br><br>
+-AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
 
 1.0 - Version Feature Recall<br>
 
