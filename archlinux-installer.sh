@@ -535,7 +535,7 @@ EXTRA_PKGS=(
     smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg vlc-plugins-all
     wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr
     xdg-utils xorg-server xorg-xinit
-    zram-generator base-devel  # mesa vulkan-radeon
+    zram-generator base-devel  
 )
 
 # AUR packages
