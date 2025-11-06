@@ -223,7 +223,7 @@ p4_start=$p3_end                             # home start; end = 100%
 # Rounded values to avoid fractional MiB
 echo "Partition table (MiB):"
 echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~120GiB, ext4)"
+echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, ext4)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
 echo "  4) Home   : ${p4_start}MiB - 100% (ext4)"
 
