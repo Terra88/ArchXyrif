@@ -4,8 +4,11 @@
 Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
-HOW TO USE: From Archlinux Bootable installer ISO(USB Media) booted:<br>
-loadkeys fi or en etc. 
+HOW TO USE: Create a USB Boot Stick with Balena Etcher & Iso file from: https://archlinux.org/download/ <br>
+Set USB Boot to 1st priority from startup menu f2/del and Restart to Boot Archlinux Bootable installer ISO(USB Media)<br>
+Make sure you have internet connection turned on.<br>
+Type:<br>
+loadkeys fi or en etc. depending your keyboard language/layout.
 <br>
 git clone https://github.com/Terra88/ArchXyrif <br>
 cd ArchXyrif <br>
