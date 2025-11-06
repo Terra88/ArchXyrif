@@ -4,7 +4,7 @@
 Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
-HOW TO USE: From Archlinux Bootable installer ISO(USB ETC) booted:<br>
+HOW TO USE: From Archlinux Bootable installer ISO(USB Media) booted:<br>
 loadkeys fi or en etc. 
 <br>
 git clone https://github.com/Terra88/ArchXyrif <br>
