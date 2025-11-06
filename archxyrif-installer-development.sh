@@ -791,7 +791,7 @@ case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
         WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
-        WM_AUR_PKGS=(hyprlang-git hyprutils-git hyprwayland-scanner-git hyprland-protocols-git xdg-desktop-portal-hyprland-git kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
@@ -896,12 +896,11 @@ echo "-------------------------------------------"
 
 # Clean list: neofetch removed (deprecated)
 EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
-    network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
-    ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
-    gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
-    otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
-    vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
+    blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop kitty network-manager-applet polkit-kde-agent 
+    qt5-wayland qt6-wayland unzip uwm nftables waybar ark bemenu-wayland breeze brightnessctl btop cliphist cpupower
+    discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire gst-plugins-bad gst-plugins-base gst-plugins-good
+    gst-plugins-ugly iwd kate konsole kvantum nvtop nwg-displays nwg-look otf-font-awesome pavucontrol qt5ct qt6ct smartmontools
+    sway thermald ttf-hack wireless_tools wireplumber wl-clipboard zram-generator 
 )
 
 # Filter out non-existent packages before installing
@@ -944,61 +943,52 @@ else
     echo "Skipping AUR installation."
 fi
 #===================================================================================================#
-# 11) Hyprland Theme Setup (Optional) with Backup
+# 11) Hyprland Theme Setup (Optional, Safe)
 #===================================================================================================#
-echo
-echo "-------------------------------------------"
-echo "🎨 Hyprland Theme Setup (Optional)"
-echo "-------------------------------------------"
-
-# Only proceed if Hyprland was selected
 if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
     read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+    INSTALL_HYPR_THEME="${INSTALL_HYPR_THEME:-N}"
+
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Cloning Hyprland setup repository..."
+        echo "→ Cloning Hyprland setup repository into /home/$NEWUSER..."
+
+        # Ensure .config exists and owned by user
         mkdir -p /home/$NEWUSER/.config
         chown "$NEWUSER:$NEWUSER" /home/$NEWUSER/.config
         chmod 700 /home/$NEWUSER/.config
 
-        sudo -u "$NEWUSER" bash -c "
-            cd /home/$NEWUSER
-            git clone https://github.com/Terra88/hyprland-setup.git
-            cd hyprland-setup
+        # Run all setup as the new user
+        sudo -u "$NEWUSER" bash <<'EOSU'
+cd /home/"$NEWUSER" || exit
 
-            # Backup existing .config if it exists
-            if [[ -d /home/$NEWUSER/.config && ! -L /home/$NEWUSER/.config ]]; then
-                mv /home/$NEWUSER/.config /home/$NEWUSER/.config.backup.\$(date +%s)
-            fi
-            mkdir -p /home/$NEWUSER/.config
+git clone https://github.com/Terra88/hyprland-setup.git
+cd hyprland-setup || exit
 
-            # Unpack config.zip
-            if [[ -f config.zip ]]; then
-                unzip -o config.zip -d /home/$NEWUSER/.config
-            fi
+# Backup existing .config if it exists
+if [[ -d /home/"$NEWUSER"/.config && ! -L /home/"$NEWUSER"/.config ]]; then
+    mv /home/"$NEWUSER"/.config /home/"$NEWUSER"/.config.backup.$(date +%s)
+fi
+mkdir -p /home/"$NEWUSER"/.config
 
-            # Unpack wallpaper.zip
-            if [[ -f wallpaper.zip ]]; then
-                unzip -o wallpaper.zip -d /home/$NEWUSER
-            fi
+# Extract config and wallpapers if available
+[[ -f config.zip ]] && unzip -o config.zip -d /home/"$NEWUSER"/.config
+[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/"$NEWUSER"
 
-            # Copy wallpaper.sh
-            if [[ -f wallpaper.sh ]]; then
-                cp -f wallpaper.sh /home/$NEWUSER/
-                chmod +x /home/$NEWUSER/wallpaper.sh
-            fi
+# Copy wallpaper script if present
+[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/"$NEWUSER"/ && chmod +x /home/"$NEWUSER"/wallpaper.sh
 
-            # Fix ownership recursively
-            chown -R $NEWUSER:$NEWUSER /home/$NEWUSER
+# Fix ownership recursively
+chown -R "$NEWUSER:$NEWUSER" /home/"$NEWUSER"
 
-            # Cleanup
-            rm -rf /home/$NEWUSER/hyprland-setup
-        "
-        echo "✅ Hyprland theme setup completed."
+# Cleanup repository
+rm -rf /home/"$NEWUSER"/hyprland-setup
+EOSU
+
+        echo "✅ Hyprland theme setup completed safely."
     else
         echo "Skipping Hyprland theme setup."
     fi
 fi
-
 
 #===================================================================================================#
 # 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
