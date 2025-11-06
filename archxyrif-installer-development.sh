@@ -889,57 +889,126 @@ fi
 
 
 #===================================================================================================#
-# 9B) EXTRA AUR PACKAGE INSTALLATION (WM/DM + Predefined + Optional)
+# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)
 #===================================================================================================#
 echo
 echo "-------------------------------------------"
-echo "🌐 EXTRA / OPTIONAL AUR PACKAGE INSTALLATION"
+echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
 echo "-------------------------------------------"
 
-# Predefined EXTRA_AUR list — you can edit/paste here before running the script
-EXTRA_AUR=(
-    hyprland-git wlogout ly-themes-git nerd-fonts-complete
-)
+read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
 
-# Combine WM/DM AUR packages + EXTRA_AUR
-AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR[@]}")
+    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
+    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+        AUR_PKGS+=($EXTRA_AUR_INPUT)
+    fi
 
-# Optional interactive input
-read -r -p "Add any additional AUR packages (space-separated) or leave empty: " EXTRA_AUR_INPUT
-if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-    AUR_PKGS+=($EXTRA_AUR_INPUT)
-fi
+    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
+        echo "⚠️  No AUR packages specified — skipping."
+    else
+        echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
 
-if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-    echo "⚠️  No AUR packages specified — skipping."
+        "${CHROOT_CMD[@]}" bash -c "
+            pacman -S --needed --noconfirm base-devel git || true
+
+            # Ensure paru exists
+            if ! command -v paru &>/dev/null; then
+                cd /home/$NEWUSER
+                sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+                cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+                cd .. && rm -rf paru
+            fi
+
+            echo '⚙️  Checking for conflicts before installing AUR packages...'
+
+            for pkg in ${AUR_PKGS[*]}; do
+                echo '→ Processing:' \$pkg
+                # Detect conflicting packages
+                CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+                if [[ -n \"\$CONFLICTS\" ]]; then
+                    echo '⚠️  Detected conflicts for' \$pkg ': '\$CONFLICTS
+                    for C in \$CONFLICTS; do
+                        if pacman -Qq \$C &>/dev/null; then
+                            echo '→ Removing conflicting package:' \$C
+                            pacman -Rdd --noconfirm \$C || true
+                        fi
+                    done
+                fi
+
+                # Install package with overwrite and auto conflict resolution
+                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
+                || echo '⚠️ Failed to install:' \$pkg
+            done
+        "
+    fi
 else
-    echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
-
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git || true
-
-        # Ensure paru exists
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-
-        echo '⚙️  Installing AUR packages with automatic conflict resolution...'
-
-        for pkg in ${AUR_PKGS[*]}; do
-            echo '→ Installing:' \$pkg
-            # Install with overwrite, skip review, remove make dependencies
-            sudo -u $NEWUSER paru -S --needed --noconfirm --skipreview --removemake --overwrite='*' \$pkg \
-            || echo '⚠️ Failed to install:' \$pkg
-        done
-    "
+    echo "Skipping AUR installation."
 fi
+#===================================================================================================#
+# 11) Hyprland Theme Setup (Optional) with Backup
+#===================================================================================================#
+echo
+echo "-------------------------------------------"
+echo "🎨 Hyprland Theme Setup (Optional)"
+echo "-------------------------------------------"
 
-#===================================================================================================#
-# 11 Hyprland - Configs / Theme downloader
-#===================================================================================================#
+# Only proceed if Hyprland was selected
+if [[ " ${WM_CHOICE} " =~ "1" ]]; then
+    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+        echo "→ Cloning Hyprland setup repository..."
+        "${CHROOT_CMD[@]}" bash -c "
+            pacman -Sy --needed --noconfirm git unzip
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://github.com/Terra88/hyprland-setup.git
+            cd hyprland-setup
+
+            # Backup existing .config
+            if [[ -d /home/$NEWUSER/.config ]]; then
+                echo '⚠️ Existing .config found, backing up...'
+                mv /home/$NEWUSER/.config /home/$NEWUSER/.config.backup.$(date +%s)
+                echo '✅ Backup created at .config.backup.TIMESTAMP'
+            fi
+            mkdir -p /home/$NEWUSER/.config
+
+            # Unpack config.zip into ~/.config
+            if [[ -f config.zip ]]; then
+                sudo -u $NEWUSER unzip -o config.zip -d /home/$NEWUSER/.config
+                echo '✅ Config files unpacked to /home/$NEWUSER/.config'
+            else
+                echo '⚠️ config.zip not found!'
+            fi
+
+            # Unpack wallpaper.zip directly into /home/$NEWUSER
+            if [[ -f wallpaper.zip ]]; then
+                sudo -u $NEWUSER unzip -o wallpaper.zip -d /home/$NEWUSER
+                echo '✅ Wallpapers unpacked to /home/$NEWUSER'
+            else
+                echo '⚠️ wallpaper.zip not found!'
+            fi
+
+            # Copy wallpaper.sh to home folder
+            if [[ -f wallpaper.sh ]]; then
+                cp -f wallpaper.sh /home/$NEWUSER/
+                chown $NEWUSER:$NEWUSER /home/$NEWUSER/wallpaper.sh
+                chmod +x /home/$NEWUSER/wallpaper.sh
+                echo '✅ wallpaper.sh copied to /home/$NEWUSER/'
+            else
+                echo '⚠️ wallpaper.sh not found!'
+            fi
+
+            # Optional: clean up git folder
+            rm -rf /home/$NEWUSER/hyprland-setup
+        "
+        echo "✅ Hyprland theme setup completed."
+    else
+        echo "Skipping Hyprland theme setup."
+    fi
+else
+    echo "Hyprland not selected as WM, skipping theme setup."
+fi
 
 #===================================================================================================#
 # 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
