@@ -676,14 +676,13 @@ safe_pacman_install() {
 #===================================================================================================#
 # 7C) Helper Functions - For AUR (Paru)
 #===================================================================================================#
-safe_aur_install() {
+safe_aur_install_and_hypr_theme() {
     local CHROOT_CMD=("${!1}")
     shift
     local AUR_PKGS=("$@")
 
-    # skip if no packages
     if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping safe_aur_install."
+        echo "⚠️  No AUR packages specified — skipping AUR installation."
         return 0
     fi
 
@@ -691,39 +690,83 @@ safe_aur_install() {
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
     "${CHROOT_CMD[@]}" bash -c "
+        set -e
+
+        # Ensure base-devel and git are installed
         pacman -S --needed --noconfirm base-devel git || true
 
-        # ensure paru exists
+        # Setup user home
+        USER_HOME=/home/$NEWUSER
+        mkdir -p \$USER_HOME
+        chown $NEWUSER:$NEWUSER \$USER_HOME
+
+        # Install paru if missing
         if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
+            cd \$USER_HOME
             sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
+            cd paru
+            sudo -u $NEWUSER makepkg -si --noconfirm
+            cd ..
+            rm -rf paru
         fi
 
+        # Install all AUR packages as user
         for pkg in ${AUR_PKGS[*]}; do
             echo
-            echo '→ Checking AUR package:' \$pkg
-
-            # detect conflicting packages (e.g. foo vs foo-git)
-            CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-            if [[ -n \"\$CONFLICTS\" ]]; then
-                echo '⚠️  Conflicts detected for' \$pkg ': '\$CONFLICTS
-                for C in \$CONFLICTS; do
-                    if pacman -Qq \$C &>/dev/null; then
-                        echo '→ Removing conflicting package:' \$C
-                        pacman -Rdd --noconfirm \$C || true
-                    fi
-                done
-            fi
-
-            # install package safely, skip failed ones
-            echo '📦 Installing:' \$pkg
+            echo '→ Installing AUR package:' \$pkg
             sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-            || echo '⚠️  Failed to install:' \$pkg
+            || echo '⚠️ Failed: \$pkg'
         done
+
+        # ==============================
+        # Optional Hyprland theme setup
+        # ==============================
+        if [[ -d \$USER_HOME/.config ]]; then
+            mkdir -p \$USER_HOME/.config
+            chown $NEWUSER:$NEWUSER \$USER_HOME/.config
+        fi
+
+        # Hyprland theme GitHub setup
+        if [[ \"${WM_CHOICE:-}\" == \"1\" ]]; then
+            cd \$USER_HOME
+            sudo -u $NEWUSER git clone https://github.com/Terra88/hyprland-setup.git
+            cd hyprland-setup || exit
+
+            # Backup existing .config if not a symlink
+            if [[ -d \$USER_HOME/.config && ! -L \$USER_HOME/.config ]]; then
+                mv \$USER_HOME/.config \$USER_HOME/.config.backup.\$(date +%s)
+            fi
+            mkdir -p \$USER_HOME/.config
+
+            # Extract configs if zip exists
+            [[ -f config.zip ]] && sudo -u $NEWUSER unzip -o config.zip -d \$USER_HOME/.config
+            [[ -f wallpaper.zip ]] && sudo -u $NEWUSER unzip -o wallpaper.zip -d \$USER_HOME
+
+            # Copy wallpaper script if present
+            [[ -f wallpaper.sh ]] && sudo -u $NEWUSER cp -f wallpaper.sh \$USER_HOME/ && chmod +x \$USER_HOME/wallpaper.sh
+
+            # Fix ownership
+            chown -R $NEWUSER:$NEWUSER \$USER_HOME
+
+            # Cleanup repository
+            rm -rf \$USER_HOME/hyprland-setup
+            echo '✅ Hyprland theme setup completed safely.'
+        else
+            echo 'Skipping Hyprland theme setup.'
+        fi
     "
 }
+
+# Usage: pass your CHROOT_CMD array and all AUR packages to install
+CHROOT_CMD=(arch-chroot /mnt)
+
+# Merge WM and DM AUR packages and any extra user-specified AUR packages
+ALL_AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
+if [[ -n "${EXTRA_AUR_INPUT:-}" ]]; then
+    ALL_AUR_PKGS+=($EXTRA_AUR_INPUT)
+fi
+
+safe_aur_install_and_hypr_theme CHROOT_CMD[@] "${ALL_AUR_PKGS[@]}"
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
