@@ -632,18 +632,21 @@ safe_pacman_install() {
     local PKGS=("$@")
 
     echo
-    echo "🔍 Checking for potential conflicts: ${PKGS[*]}"
+    echo "🔍 Checking for potential conflicts before installation..."
+
+    # --- FIRST LOOP: detect and remove conflicts ---
     for PKG in "${PKGS[@]}"; do
+        echo "→ Analyzing: $PKG"
         local INFO
         if ! INFO=$("${CHROOT_CMD[@]}" pacman -Si "$PKG" 2>/dev/null); then
-            echo "⚠️ Could not retrieve info for $PKG (skip conflict check)"
+            echo "⚠️  Could not retrieve info for $PKG (skip conflict check)"
             continue
         fi
 
         local CONFLICTS
         CONFLICTS=$(echo "$INFO" | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
         if [[ -n "$CONFLICTS" ]]; then
-            echo "⚠️ $PKG conflicts with: $CONFLICTS"
+            echo "⚠️  $PKG conflicts with: $CONFLICTS"
             for C in $CONFLICTS; do
                 if "${CHROOT_CMD[@]}" pacman -Qq "$C" &>/dev/null; then
                     echo "→ Removing conflicting package: $C"
@@ -653,9 +656,17 @@ safe_pacman_install() {
         fi
     done
 
-    echo "📦 Installing packages: ${PKGS[*]}"
-    install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm "${PKGS[@]}"
+    echo
+    echo "📦 Installing packages safely (will skip failed ones)..."
+
+    # --- SECOND LOOP: install each package safely ---
+    for PKG in "${PKGS[@]}"; do
+        echo "→ Installing: $PKG"
+        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" \
+            || echo "⚠️ Skipping failed package: $PKG"
+    done
 }
+
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
