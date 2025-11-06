@@ -539,7 +539,9 @@ echo "-------------------------------------------"
 echo "Choose your country or region for faster package downloads."
 
 # Ensure reflector is installed in chroot
-arch-chroot /mnt pacman -Sy --needed --noconfirm reflector
+arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
+    echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
+}
 
 echo "Available mirror regions:"
 echo "1) United States"
@@ -571,13 +573,17 @@ esac
 
 if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "Optimizing mirrors for: $SELECTED_COUNTRY"
-    arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist
+    arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate \
+        --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror update failed, continuing."
     echo "✅ Mirrors updated."
 fi
+
 
 #===================================================================================================#
 # Helper Functions
 #===================================================================================================#
+
+# Resilient installation with retries, key refresh, and mirror recovery
 install_with_retry() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -585,6 +591,12 @@ install_with_retry() {
     local MAX_RETRIES=3
     local RETRY_DELAY=5
     local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
+
+    # sanity check
+    if [[ ! -d "/mnt" ]]; then
+        echo "❌ /mnt not found or not a directory — cannot chroot."
+        return 1
+    fi
 
     for ((i=1; i<=MAX_RETRIES; i++)); do
         echo
@@ -596,11 +608,14 @@ install_with_retry() {
             echo "⚠️ Installation failed on attempt $i"
             if (( i < MAX_RETRIES )); then
                 echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
-                "${CHROOT_CMD[@]}" pacman-key --init
-                "${CHROOT_CMD[@]}" pacman-key --populate archlinux
-                "${CHROOT_CMD[@]}" pacman -Sy --noconfirm archlinux-keyring
+                "${CHROOT_CMD[@]}" bash -c '
+                    pacman-key --init
+                    pacman-key --populate archlinux
+                    pacman -Sy --noconfirm archlinux-keyring
+                ' || echo "⚠️ Keyring refresh failed."
                 [[ -n "$MIRROR_COUNTRY" ]] && \
-                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate --save /etc/pacman.d/mirrorlist || true
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
                 sleep "$RETRY_DELAY"
             fi
         fi
@@ -610,6 +625,7 @@ install_with_retry() {
     return 1
 }
 
+# Conflict-preventing, retry-aware installer
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -623,6 +639,7 @@ safe_pacman_install() {
             echo "⚠️ Could not retrieve info for $PKG (skip conflict check)"
             continue
         fi
+
         local CONFLICTS
         CONFLICTS=$(echo "$INFO" | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
         if [[ -n "$CONFLICTS" ]]; then
@@ -637,17 +654,20 @@ safe_pacman_install() {
     done
 
     echo "📦 Installing packages: ${PKGS[*]}"
-    install_with_retry CHROOT_CMD[@] "${CHROOT_CMD[@]}" "${PKGS[@]}"
+    install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm "${PKGS[@]}"
 }
 
-# Define chroot command array
+# define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
+
 
 #===================================================================================================#
 # 8A) GPU DRIVER INSTALLATION & MULTILIB
 #===================================================================================================#
 echo
-echo "GPU DRIVER OPTIONS:"
+echo "-------------------------------------------"
+echo "🎮 GPU DRIVER INSTALLATION"
+echo "-------------------------------------------"
 echo "1) Intel"
 echo "2) NVIDIA"
 echo "3) AMD"
@@ -657,7 +677,6 @@ read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
 GPU_CHOICE="${GPU_CHOICE:-4}"
 
 GPU_PKGS=()
-GPU_AUR_PKGS=()
 
 case "$GPU_CHOICE" in
     1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
@@ -665,62 +684,104 @@ case "$GPU_CHOICE" in
     3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
     4)
         GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        echo "→ AMD skipped to prevent hybrid conflicts."
+        echo "→ AMD skipped to prevent hybrid driver conflicts."
         ;;
-    5|*) echo "Skipping GPU drivers."; GPU_PKGS=() ;;
+    5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
 esac
 
 if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    echo "Ensuring multilib is enabled..."
+    echo "🔧 Ensuring multilib repository is enabled..."
     "${CHROOT_CMD[@]}" bash -c '
-if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-fi
-pacman -Sy --noconfirm
-'
+        if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+            echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+        fi
+        pacman -Sy --noconfirm
+    '
     safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
 fi
 
 #===================================================================================================#
-# 8B) WM / DE SELECTION
+# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION
 #===================================================================================================#
 echo
-echo "WM/DE OPTIONS:"
+echo "-------------------------------------------"
+echo "🖥️  WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION"
+echo "-------------------------------------------"
 echo "1) Hyprland (Wayland)"
 echo "2) Sway (Wayland)"
 echo "3) XFCE (X11)"
-echo "4) KDE Plasma"
-echo "5) GNOME"
-echo "6) Skip"
-read -r -p "Select WM/DE [1-6, default=6]: " WM_CHOICE
+echo "4) KDE Plasma (X11/Wayland)"
+echo "5) GNOME (X11/Wayland)"
+echo "6) Skip WM/DE installation"
+read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
 WM_CHOICE="${WM_CHOICE:-6}"
 
 WM_PKGS=()
 WM_AUR_PKGS=()
 
 case "$WM_CHOICE" in
-    1) WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar); WM_AUR_PKGS=(wlogout) ;;
-    2) WM_PKGS=(sway swaybg swaylock waybar wofi) ;;
-    3) WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter) ;;
-    4) WM_PKGS=(plasma-desktop kde-applications sddm) ;;
-    5) WM_PKGS=(gnome gdm) ;;
-    6|*) echo "Skipping window manager." ;;
+    1)
+        echo "→ Selected: Hyprland (Wayland)"
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
+        WM_AUR_PKGS=(wlogout)
+        ;;
+    2)
+        echo "→ Selected: Sway (Wayland)"
+        WM_PKGS=(sway swaybg swaylock waybar wofi)
+        ;;
+    3)
+        echo "→ Selected: XFCE"
+        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+        ;;
+    4)
+        echo "→ Selected: KDE Plasma"
+        WM_PKGS=(plasma-desktop kde-applications sddm)
+        ;;
+    5)
+        echo "→ Selected: GNOME"
+        WM_PKGS=(gnome gdm)
+        ;;
+    6|*)
+        echo "Skipping window manager installation."
+        WM_PKGS=()
+        ;;
 esac
 
-[[ ${#WM_PKGS[@]} -gt 0 ]] && safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+# Install WM packages if selected
+if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+    safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+fi
+
+# If AUR packages are needed (e.g., wlogout)
+if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
+    echo "→ Installing AUR packages for WM: ${WM_AUR_PKGS[*]}"
+    "${CHROOT_CMD[@]}" bash -c "
+        pacman -S --needed --noconfirm base-devel git
+        if ! command -v paru &>/dev/null; then
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
+        fi
+        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${WM_AUR_PKGS[*]}
+    "
+fi
+
 
 #===================================================================================================#
-# 8C) LOGIN / DISPLAY MANAGER
+# 8C) LOGIN / DISPLAY MANAGER SELECTION
 #===================================================================================================#
 echo
-echo "LOGIN / DISPLAY MANAGER OPTIONS:"
+echo "-------------------------------------------"
+echo "🔐 LOGIN / DISPLAY MANAGER SELECTION"
+echo "-------------------------------------------"
 echo "1) GDM"
 echo "2) SDDM"
 echo "3) LightDM"
 echo "4) LXDM"
-echo "5) Ly"
-echo "6) None"
-read -r -p "Select login manager [1-6, default=6]: " DM_CHOICE
+echo "5) Ly (AUR)"
+echo "6) Skip Display Manager"
+read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
 DM_CHOICE="${DM_CHOICE:-6}"
 
 DM_PKGS=()
@@ -728,17 +789,58 @@ DM_AUR_PKGS=()
 DM_SERVICE=""
 
 case "$DM_CHOICE" in
-    1) DM_PKGS=(gdm); DM_SERVICE="gdm.service" ;;
-    2) DM_PKGS=(sddm); DM_SERVICE="sddm.service" ;;
-    3) DM_PKGS=(lightdm lightdm-gtk-greeter); DM_SERVICE="lightdm.service" ;;
-    4) DM_PKGS=(lxdm); DM_SERVICE="lxdm.service" ;;
-    5) DM_PKGS=(ly); DM_AUR_PKGS=(ly-themes-git); DM_SERVICE="ly.service" ;;
-    6|*) echo "Skipping login manager." ;;
+    1)
+        DM_PKGS=(gdm)
+        DM_SERVICE="gdm.service"
+        ;;
+    2)
+        DM_PKGS=(sddm)
+        DM_SERVICE="sddm.service"
+        ;;
+    3)
+        DM_PKGS=(lightdm lightdm-gtk-greeter)
+        DM_SERVICE="lightdm.service"
+        ;;
+    4)
+        DM_PKGS=(lxdm)
+        DM_SERVICE="lxdm.service"
+        ;;
+    5)
+        DM_PKGS=(ly)
+        DM_AUR_PKGS=(ly-themes-git)
+        DM_SERVICE="ly.service"
+        ;;
+    6|*)
+        echo "Skipping display manager installation."
+        DM_PKGS=()
+        ;;
 esac
 
-[[ ${#DM_PKGS[@]} -gt 0 ]] && safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
-[[ -n "$DM_SERVICE" ]] && "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE" && echo "✅ $DM_SERVICE enabled."
+# Install display manager packages if selected
+if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+    safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+fi
 
+# Handle AUR-based display managers
+if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
+    echo "→ Installing AUR display manager packages: ${DM_AUR_PKGS[*]}"
+    "${CHROOT_CMD[@]}" bash -c "
+        pacman -S --needed --noconfirm base-devel git
+        if ! command -v paru &>/dev/null; then
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
+        fi
+        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${DM_AUR_PKGS[*]}
+    "
+fi
+
+# Enable chosen display manager
+if [[ -n "$DM_SERVICE" ]]; then
+    "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+    echo "✅ Display manager service enabled: $DM_SERVICE"
+fi
 #===================================================================================================#
 # 9A) EXTRA PACMAN PACKAGES
 #===================================================================================================#
