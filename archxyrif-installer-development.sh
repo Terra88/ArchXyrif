@@ -469,12 +469,12 @@ cat > /etc/hosts <<HOSTS
 HOSTS
 
 # --------------------------
-# 4) Ensure /etc/vconsole.conf exists (fix mkinitcpio error)
+# 4) Keyboard layout
 # --------------------------
-if [[ ! -f /etc/vconsole.conf ]]; then
-    echo "KEYMAP=fi" > /etc/vconsole.conf
-    echo "FONT=lat9w-16" >> /etc/vconsole.conf
-fi
+echo "KEYMAP=fi" > /etc/vconsole.conf
+echo "FONT=lat9w-16" >> /etc/vconsole.conf
+localectl set-keymap fi
+localectl set-x11-keymap fi
 
 # --------------------------
 # 5) Initramfs for all kernels
@@ -490,16 +490,21 @@ passwd
 # --------------------------
 # 7) Create user, set password, enable sudo
 # --------------------------
-useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-echo "Set password for user ${NEWUSER}:"
-passwd "${NEWUSER}"
+if ! id "$NEWUSER" &>/dev/null; then
+    useradd -m -G wheel -s /bin/bash "$NEWUSER"
+    echo "Set password for user $NEWUSER:"
+    passwd "$NEWUSER"
+fi
 
-# Create sudoers drop-in
-echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
-chmod 440 /etc/sudoers.d/${NEWUSER}
-
-# Ensure wheel group sudo rights
+# Ensure sudo rights
+echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
+chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+# Ensure home directory and permissions are correct
+mkdir -p /home/$NEWUSER
+chown "$NEWUSER:$NEWUSER" /home/$NEWUSER
+chmod 755 /home/$NEWUSER
 
 # --------------------------
 # 8) Enable basic services
