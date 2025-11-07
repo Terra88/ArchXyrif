@@ -190,6 +190,7 @@ case "$MODE" in
     echo "1) EXT4   - Simple, reliable, widely used. Good all-around choice."
     echo "2) BTRFS  - Modern, supports snapshots and flexible resizing, a bit more complex."
     echo "3) BTRFS + EXT4 - Root on BTRFS (flexible), Home on EXT4 (stable for data)."
+    echo "4) Go back / Re-select partitioning mode"
     read -r -p "Select FS [1-3]: " FS_CHOICE
 
     # Partition sizes
@@ -228,7 +229,13 @@ case "$MODE" in
       1) ROOT_FS="ext4";;
       2) ROOT_FS="btrfs";;
       3) ROOT_FS="btrfs";;
-      *) ROOT_FS="ext4";;
+      4)
+          echo "Returning to partitioning mode selection..."
+          exec "$0"  # restart the script from the beginning
+          ;;
+      *)
+          echo "Invalid choice. Please select 1–4."
+          ;;
     esac
     parted -s "$DEV" mkpart primary "$ROOT_FS" "${P2_START}MiB" "${P2_END}MiB"
 
@@ -272,6 +279,7 @@ case "$MODE" in
       CUR=$(( CUR + SIZE ))
     done
     ;;
+
   *)
     die "Invalid mode."
     ;;
