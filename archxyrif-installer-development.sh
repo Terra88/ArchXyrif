@@ -280,20 +280,6 @@ case "$DEV_CHOICE" in
         parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
         ;;
         
-        echo "f2fs"
-    3)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary f2fs "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary f2fs "${p4_start}MiB" 100%
-        ;;
-        
-        echo "xfs"
-    4)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary xfs "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary xfs "${p4_start}MiB" 100%
-        ;;
-        
 esac
 
 # Set boot flag on partition 1 (UEFI)
