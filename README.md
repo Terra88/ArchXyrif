@@ -49,7 +49,8 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 
 -11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need to be modified manually to the file.
 
-Ver1.0: Had issues with installing AUR PKG's
+Ver1.0: Had issues with installing AUR PKG's<br>
+
 ### **Changes in Version 1.3**
 <br><br>
 -1. First of all i decided to name the installer file to archxyrif-installer.sh instead of archlinux-installer.sh
@@ -85,7 +86,7 @@ Ver1.0: Had issues with installing AUR PKG's
 <br><br>
 -AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
 
-<br>
+
 ### **Changes in Version 1.3.1**
 1.3.1 - Minor tweaks to add correct user rights when logging into fresh system, also to set correct keyboard layout to x11 systems when you log in to the first time.
 <br><br>
