@@ -974,8 +974,15 @@ echo "-------------------------------------------"
 
 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
     # Clean list: neofetch removed (deprecated)
     EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+
+    #Merge EXTRA_PKGS with EXTRA_PKG_INPUT
+    EXTRA_PKG=("${EXTRA_PKGS[@]}")
+    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+        EXTRA_PKG+=($EXTRA_PKG_INPUT)
+    fi
 
     # Filter out non-existent packages before installing
     VALID_PKGS=()
