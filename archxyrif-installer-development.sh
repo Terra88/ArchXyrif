@@ -18,6 +18,8 @@ set -euo pipefail
 # Arch logo: Edited manually by Terra88
 #===========================================================================
 clear
+loadkeys fi
+timedatectl set-ntp true
 echo
 echo "============================================================================================================================="
 echo "============================================================================================================================="
@@ -39,9 +41,22 @@ echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra8
 echo "============================================================================================================================="
 echo "============================================================================================================================="
 echo
-loadkeys fi
-timedatectl set-ntp true
-
+echo "Table of Contents:               "
+echo "1)Disk Selection & Format        "
+echo "2)Pacstrap:Installing Base system"
+echo "3)Generating fstab               "
+echo "4)Setting Basic variables        "
+echo "5)Installing GRUB for UEFI       "
+echo "6)Setting configs/enabling.srv   "
+echo "7)Setting Pacman Mirror          "
+echo "Optional:                        "
+echo "8A)GPU-Guided install            "
+echo "8B)Guided Window Manager Install "
+echo "8C)Guided Login Manager Install  "   
+echo "9)Extra Pacman & AUR PKG Install "
+echo "If Hyprland Selected As WM       "
+echo "10)Optional Theme install        "
+echo
 echo
 echo "#==================================================================================================#"
 echo " 0) Disk Format INFO                                                                                "
