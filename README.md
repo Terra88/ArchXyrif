@@ -5,7 +5,7 @@ Warning this script will reformat, re-part and reinstall your system to arch lin
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
 Aim of the project:<br> 
-Is to create a semi-automated script, that will help you install Arch Linux, semi automatically. The program will guide you through the installation and stop with prompts step by step.<br>
+Is to create a semi-automated script, that will help you install Arch Linux, semi-automatically. The program will guide you through the installation and stop with prompts step by step.<br>
 <br>1)Partition 2) Installing bare minimum build with pacstrap 3) Ask for user/host informations and set user/root pw set systemctl service on for network manager on etc.
 <br>
 Optional: [y/n] options: 4) Guides you through GPU driver/Window manager/Login manager setup with simple "example: (1.Intel,2.Nvidia,3.AMD,4.All drivers,5.Skip) options" 5) asks if you want to install extra Pacman or AUR packages y/n and finishes the install.
