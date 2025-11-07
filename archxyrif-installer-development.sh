@@ -864,7 +864,7 @@ case "$WM_CHOICE" in
         ;;
     4)
         echo "→ Selected: KDE Plasma"
-        WM_PKGS=(plasma-desktop kde-applications sddm)
+        WM_PKGS=(plasma kde-applications sddm)
         ;;
     5)
         echo "→ Selected: GNOME"
