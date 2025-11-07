@@ -790,8 +790,8 @@ WM_AUR_PKGS=()
 case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar kitty kvantum rofi polkit-kde-agent nwg-look)
-        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg )
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
@@ -897,7 +897,7 @@ echo "-------------------------------------------"
 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
     # Clean list: neofetch removed (deprecated)
-    EXTRA_PKGS=( zram-generator )
+    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
 
     # Filter out non-existent packages before installing
     VALID_PKGS=()
