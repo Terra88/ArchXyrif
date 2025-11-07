@@ -21,19 +21,19 @@ echo "==========================================================================
 echo "========================================================================================================================"
 echo "                                                                                     " "Table of Contents:"
 echo "       d8888                 888      Y88b   d88P                  d8b  .d888        " "1)Disk Selection & Format"
-echo "      d88888                 888       Y88b d88P                   Y8P d88P          " "2)"
-echo "     d88P888                 888        Y88o88P                        888           " "3)"
-echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888        " "4)"
-echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888           "
-echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           "
-echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           "
-echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           "
-echo "                                                       888                           "                  
-echo "                                                  Y8b d88P                           "                     
-echo "                                                    Y88P                             "    
-echo "        Automated and Interactive - Arch Linux Installer                             "
-echo "                                                                                     "
-echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 "
+echo "      d88888                 888       Y88b d88P                   Y8P d88P          " "2)Pacstrap:Installing Base system"
+echo "     d88P888                 888        Y88o88P                        888           " "3)Generating fstab"
+echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888        " "4)Setting Basic variables"
+echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888           " "5)Installing GRUB for UEFI"
+echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           " "6)Setting configs/enabling.srv"
+echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           " "7)Setting Pacman Mirror"
+echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           " "Optional:"
+echo "                                                       888                           " "8A)GPU-Guided install"                
+echo "                                                  Y8b d88P                           " "8B)Guided Window Manager Install"                    
+echo "                                                    Y88P                             " "8C)Guided Login Manager Install"   
+echo "        Automated and Interactive - Arch Linux Installer                             " "9)Extra Pacman & AUR PKG Install"
+echo "                                                                                     " "If Hyprland Selected As WM"
+echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88          " "10)Optional Theme install"
 echo "========================================================================================================================"
 echo "========================================================================================================================"
 
@@ -532,12 +532,12 @@ systemctl enable sshd
 
 echo "Postinstall inside chroot finished."
 EOF
-sleep 1
-clear
-echo"#===================================================================================================#"
-echo"# 6B) Inject variables into /mnt/root/postinstall.sh                                                 "
-echo"#===================================================================================================#"
-sleep 1
+
+
+#===================================================================================================#
+# 6B) Inject variables into /mnt/root/postinstall.sh                                                 
+#===================================================================================================#
+
 # Replace placeholders with actual values (safe substitution)
 
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
@@ -553,6 +553,7 @@ echo "Entering chroot to run configuration (this will prompt for root and user p
 arch-chroot /mnt /root/postinstall.sh
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
 echo"#===================================================================================================#"
@@ -604,11 +605,10 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 
-sleep 1
-echo"#===================================================================================================#"
-echo"# 7B) Helper Functions - For Pacman                                                                  "
-echo"#===================================================================================================#"
-sleep 1
+
+#===================================================================================================#
+# 7B) Helper Functions - For Pacman                                                                  
+#===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
 install_with_retry() {
@@ -694,11 +694,11 @@ safe_pacman_install() {
     done
 }
 
-sleep 1
-echo"#===================================================================================================#"
-echo"# 7C) Helper Functions - For AUR (Paru)                                                              "
-echo"#===================================================================================================#"
-sleep 1  
+
+#===================================================================================================#
+# 7C) Helper Functions - For AUR (Paru)                                                              
+#===================================================================================================#
+
 
 safe_aur_install() {
     local CHROOT_CMD=("${!1}")
@@ -855,6 +855,7 @@ safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 8C) LOGIN / DISPLAY MANAGER SELECTION                                                              "
 echo"#===================================================================================================#"
@@ -920,6 +921,7 @@ if [[ -n "$DM_SERVICE" ]]; then
 fi
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                           "
 echo"#===================================================================================================#"
@@ -956,6 +958,7 @@ fi
 
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                     "
 echo"#===================================================================================================#"
@@ -982,6 +985,7 @@ else
 fi
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 11) Hyprland Theme Setup (Optional) with Backup                                                    "
 echo"#===================================================================================================#"
@@ -1043,6 +1047,7 @@ rm -rf /home/\$NEWUSER/hyprland-setup
 fi
 
 sleep 1
+clear
 echo"#===================================================================================================#"
 echo"# 12 Cleanup postinstall script & Final Messages & Instructions                                      "
 echo"#===================================================================================================#"
