@@ -185,9 +185,9 @@ case "$MODE" in
   1)
     echo "Quick Mode selected."
     echo "Filesystem Options:"
-    echo "1) EXT4"
-    echo "2) BTRFS"
-    echo "3) BTRFS + EXT4 (root btrfs, home ext4)"
+    echo "1) EXT4   - Simple, reliable, widely used. Good all-around choice."
+    echo "2) BTRFS  - Modern, supports snapshots and flexible resizing, a bit more complex."
+    echo "3) BTRFS + EXT4 - Root on BTRFS (flexible), Home on EXT4 (stable for data)."
     read -r -p "Select FS [1-3]: " FS_CHOICE
 
     # Partition sizes
