@@ -18,6 +18,7 @@ set -euo pipefail
 # Arch logo: Edited manually by Terra88
 #===========================================================================
 clear
+echo
 echo "========================================================================================================================"
 echo "========================================================================================================================"
 echo "                                                                                     " "Table of Contents:"
@@ -25,10 +26,10 @@ echo "       d8888                 888      Y88b   d88P                  d8b  .d
 echo "      d88888                 888       Y88b d88P                   Y8P d88P          " "2)Pacstrap:Installing Base system"
 echo "     d88P888                 888        Y88o88P                        888           " "3)Generating fstab"
 echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888        " "4)Setting Basic variables"
-echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888           "   "5)Installing GRUB for UEFI"
+echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888           " "5)Installing GRUB for UEFI"
 echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           " "6)Setting configs/enabling.srv"
 echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           " "7)Setting Pacman Mirror"
-echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           "   "Optional:"
+echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           " "Optional:"
 echo "                                                       888                           " "8A)GPU-Guided install"                
 echo "                                                  Y8b d88P                           " "8B)Guided Window Manager Install"                    
 echo "                                                    Y88P                             " "8C)Guided Login Manager Install"   
@@ -37,10 +38,11 @@ echo "                                                                          
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88          " "10)Optional Theme install"
 echo "========================================================================================================================"
 echo "========================================================================================================================"
-
+echo
 loadkeys fi
 timedatectl set-ntp true
-sleep 1
+
+echo
 echo "#==================================================================================================#"
 echo " 0) Disk Format INFO                                                                                "
 echo "#==================================================================================================#"
@@ -54,6 +56,7 @@ echo " WARNING: destructive. Run as root. Double-check device before continuing.
 echo "#==================================================================================================#"
 echo " 1) Disk Selection & Format                                                                         "
 echo "#==================================================================================================#"
+echo
 
 # Helpers
 confirm() {
@@ -302,12 +305,14 @@ mount "$P4" /mnt/home
 echo "Enabling swap on $P3..."
 swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
 echo "#===================================================================================================#"
-sleep 1     # You can modify the package list below as needed.
+echo
+      # You can modify the package list below as needed.
 
 PKGS=(
   base
@@ -334,24 +339,26 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo "Generating /etc/fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 4) Setting Basic variables for chroot (defaults provided)                                          "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 DEFAULT_TZ="Europe/Helsinki"
 read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
@@ -370,12 +377,13 @@ read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)                      "
 echo "#===================================================================================================#"
-sleep 1
+echo
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
@@ -440,12 +448,13 @@ efibootmgr -v || true
 #-Should Show:
 # /boot/efi/EFI/GRUB/grubx64.efi
 # /boot/efi/EFI/Boot/BOOTX64.EFI
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.     "
 echo "#===================================================================================================#"
-sleep 1
+echo
 # inline script for arch-chroot operations "postinstall.sh"
 
 cat > /mnt/root/postinstall.sh <<'EOF'
@@ -553,12 +562,13 @@ chmod +x /mnt/root/postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -754,11 +764,11 @@ safe_aur_install() {
 CHROOT_CMD=(arch-chroot /mnt)
 
 
-sleep 1
+echo
 echo "#===================================================================================================#"
 echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                             "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -796,11 +806,11 @@ if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
 fi
 
-sleep 1
+echo
 echo "#===================================================================================================#"
 echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                 "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -855,12 +865,13 @@ fi
 safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 8C) LOGIN / DISPLAY MANAGER SELECTION                                                              "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -921,12 +932,13 @@ if [[ -n "$DM_SERVICE" ]]; then
     echo "✅ Display manager service enabled: $DM_SERVICE"
 fi
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                           "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -958,12 +970,12 @@ else
 fi
 
 
-sleep 1
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                     "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -985,12 +997,13 @@ else
     echo "Skipping AUR installation."
 fi
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 11) Hyprland Theme Setup (Optional) with Backup                                                    "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo
 echo "-------------------------------------------"
@@ -1047,12 +1060,13 @@ rm -rf /home/\$NEWUSER/hyprland-setup
     fi
 fi
 
-sleep 1
+
 clear
+echo
 echo "#===================================================================================================#"
 echo "# 12 Cleanup postinstall script & Final Messages & Instructions                                      "
 echo "#===================================================================================================#"
-sleep 1
+echo
 
 echo 
 echo "Custom package installation phase complete."
