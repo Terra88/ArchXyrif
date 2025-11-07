@@ -70,10 +70,11 @@ echo "#=========================================================================
 echo " 1) Disk Selection & Format                                                                         "
 echo "#==================================================================================================#"
 echo
+#==========================
+# HELPERS
+#==========================
 
-# Helpers
 confirm() {
-  # ask Yes/No, return 0 if yes
   local msg="${1:-Continue?}"
   read -r -p "$msg [yes/NO]: " ans
   case "$ans" in
@@ -83,7 +84,6 @@ confirm() {
 }
 
 part_suffix() {
-  # given /dev/sdX or /dev/nvme0n1, print partition suffix ('' or 'p')
   local dev="$1"
   if [[ "$dev" =~ nvme|mmcblk ]]; then
     echo "p"
@@ -97,60 +97,46 @@ die() {
   exit 1
 }
 
-# Show devices
+#==========================
+# ASK FOR DEVICE
+#==========================
+
 echo "Available block devices (lsblk):"
 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
 
-# Ask device
 read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
 DEV="${DEV:-}"
 
-if [[ -z "$DEV" ]]; then
-  die "No device given. Exiting."
-fi
-
-if [[ ! -b "$DEV" ]]; then
-  die "Device '$DEV' not found or not a block device."
-fi
-
-echo
+[[ -b "$DEV" ]] || die "Device '$DEV' not found or not a block device."
 echo "You selected: $DEV"
-echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
-if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-  die "User cancelled."
-fi
+echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS, LVM, swap, etc)."
+confirm "Are you absolutely sure?" || die "User cancelled."
 
-# Unmount any mounted partitions and swapoff
-echo "Attempting to unmount any mounted partitions and disable swap on $DEV..."
+#==========================
+# UNMOUNT & SWAPOFF
+#==========================
+
 mapfile -t MOUNTS < <(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!="" {print $1":"$2}')
 for m in "${MOUNTS[@]:-}"; do
   name="${m%%:*}"
   mnt="${m#*:}"
-  if [[ -n "$mnt" ]]; then
-    echo "  Unmounting /dev/$name from $mnt"
-    umount -l "/dev/$name" || true
-  fi
+  [[ -n "$mnt" ]] && echo "Unmounting /dev/$name from $mnt" && umount -l "/dev/$name" || true
 done
 
-# swapoff on partitions of this device
-for sw in $(cat /proc/swaps | awk 'NR>1 {print $1}'); do
-  if [[ "$sw" == "$DEV"* ]]; then
-    echo "  Turning off swap on $sw"
-    swapoff "$sw" || true
-  fi
+for sw in $(awk 'NR>1 {print $1}' /proc/swaps); do
+  [[ "$sw" == "$DEV"* ]] && echo "Turning off swap $sw" && swapoff "$sw" || true
 done
 
-#===================================================================================================#
-# 1.1) Clearing Partition Tables / Luks / LVM Signatures
-#===================================================================================================#
+#==========================
+# CLEAR OLD PARTITION TABLES / LUKS / LVM SIGNATURES
+#==========================
 
-# Clear partition table / LUKS / LVM signatures
-echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
-which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
-which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
+echo "Wiping partition table and signatures..."
+which sgdisk >/dev/null 2>&1 || die "sgdisk required."
+which wipefs >/dev/null 2>&1 || die "wipefs required."
 
-# try to shut down any open LUKS mappings referring to this device (best-effort)
-echo "Attempting to close any open LUKS mappings referencing $DEV..."
+# Close any LUKS mappings
+echo "Closing any LUKS mappings..."
 for map in /dev/mapper/*; do
   if [[ -L "$map" ]]; then
     target=$(readlink -f "$map" || true)
@@ -162,191 +148,215 @@ for map in /dev/mapper/*; do
   fi
 done
 
-# Zap GPT, MBR, etc.
+# Zap GPT/MBR, wipe signatures
 sgdisk --zap-all "$DEV" || true
-
-# Wipe filesystem signatures on whole device
 wipefs -a "$DEV" || true
 
-# Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
-echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
+# Overwrite first 2MiB
+echo "Zeroing first 2MiB of $DEV..."
 dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
 
-# If device supports it, also zero last MiB (LVM metadata sometimes at end)
+# Overwrite last 1MiB if device supports
 devsize_bytes=$(blockdev --getsize64 "$DEV")
 if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-  last_offset=$((devsize_bytes - 1*1024*1024))
   dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
 fi
 
-#===================================================================================================#
-# 1.2) Re-Partitioning Selected Drive
-#===================================================================================================#
+#==========================
+# SWAP PROMPT
+#==========================
 
-partprobe "$DEV" || true
+read -r -p "Do you want a swap partition? [y/N]: " SWAP_ANSWER
+SWAP_ANSWER="${SWAP_ANSWER:-n}"
+USE_SWAP=false
+[[ "$SWAP_ANSWER" =~ ^[yY]$ ]] && USE_SWAP=true
 
-# Compute sizes
-# EFI: 1024 MiB
-EFI_SIZE_MIB=1024
-
-# Root: ~100 GiB -> 100*1024 MiB (Example: If you want 120GB root swap 100 with 120, rest will be calculated automatically.)
-ROOT_SIZE_MIB=$((100 * 1024))
-
-# Detect RAM in MiB
-ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-if [[ -z "$ram_kb" ]]; then
-  die "Failed to read RAM from /proc/meminfo"
-fi
-ram_mib=$(( (ram_kb + 1023) / 1024 ))
-
-# Swap sizing policy:
-# - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
-# - Otherwise swap = RAM (1:1)
-if (( ram_mib <= 8192 )); then
-  SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-else
-  SWAP_SIZE_MIB=$(( ram_mib ))
-fi
+#==========================
+# QUICK OR CUSTOM MODE
+#==========================
 
 echo
-echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
-echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~100 GiB)."
-echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
-echo
+echo "Partitioning Mode:"
+echo "1) Quick Mode"
+echo "2) Custom Mode"
+read -r -p "Choose mode [1-2]: " MODE
 
-if ! confirm "Proceed to partition $DEV with the sizes above?"; then
-  die "User cancelled."
-fi
+case "$MODE" in
+  1)
+    echo "Quick Mode selected."
+    echo "Filesystem Options:"
+    echo "1) EXT4"
+    echo "2) BTRFS"
+    echo "3) BTRFS + EXT4 (root btrfs, home ext4)"
+    read -r -p "Select FS [1-3]: " FS_CHOICE
 
-# Partitioning with parted (using MiB units)
-which parted >/dev/null 2>&1 || die "parted required but not found."
+    # Partition sizes
+    EFI_SIZE=1024
+    ROOT_SIZE=102400
+    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    ram_mib=$(( (ram_kb+1023)/1024 ))
+    if (( ram_mib <= 8192 )); then SWAP_SIZE=$((ram_mib*2)); else SWAP_SIZE=$ram_mib; fi
 
-echo "Creating GPT label and partitions..."
-parted -s "$DEV" mklabel gpt
+    CUR=1
+    P1_START=$CUR
+    P1_END=$((CUR+EFI_SIZE))
+    CUR=$P1_END
+    P2_START=$CUR
+    P2_END=$((CUR+ROOT_SIZE))
+    CUR=$P2_END
+    if $USE_SWAP; then
+      P3_START=$CUR
+      P3_END=$((CUR+SWAP_SIZE))
+      CUR=$P3_END
+      P4_START=$CUR
+      P4_END="100%"
+    else
+      P3_START=0; P3_END=0
+      P4_START=$CUR
+      P4_END="100%"
+    fi
 
-# Calculate partition boundaries (MiB)
-p1_start=1
-p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..1024MiB
+    parted -s "$DEV" mklabel gpt
+    # Partition 1 EFI
+    parted -s "$DEV" mkpart primary fat32 "${P1_START}MiB" "${P1_END}MiB"
+    parted -s "$DEV" set 1 boot on
 
-p2_start=$p1_end                             # root start
-p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
+    # Partition 2 Root
+    case "$FS_CHOICE" in
+      1) ROOT_FS="ext4";;
+      2) ROOT_FS="btrfs";;
+      3) ROOT_FS="btrfs";;
+      *) ROOT_FS="ext4";;
+    esac
+    parted -s "$DEV" mkpart primary "$ROOT_FS" "${P2_START}MiB" "${P2_END}MiB"
 
-p3_start=$p2_end                             # swap start
-p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
+    # Partition 3 Swap (optional)
+    $USE_SWAP && parted -s "$DEV" mkpart primary linux-swap "${P3_START}MiB" "${P3_END}MiB"
 
-p4_start=$p3_end                             # home start; end = 100%
+    # Partition 4 Home
+    if [[ "$FS_CHOICE" == "3" ]]; then
+      HOME_FS="ext4"
+    else
+      HOME_FS="$ROOT_FS"
+    fi
+    parted -s "$DEV" mkpart primary "$HOME_FS" "${P4_START}MiB" "$P4_END"
+    ;;
 
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.3) SELECT FILESYSTEM                                                                             "
-echo "#===================================================================================================#"
-echo 
+  2)
+    echo "Custom Mode selected."
+    echo "Enter partitions manually. Use 'done' when finished."
+    declare -A PARTS
+    PART_START=1
+    while true; do
+      read -r -p "Partition name (boot/root/home/swap) or 'done': " NAME
+      [[ "$NAME" == "done" ]] && break
+      read -r -p "Size in MiB (or 'rest'): " SIZE
+      PARTS["$NAME"]="$SIZE"
+    done
 
-# Rounded values to avoid fractional MiB
-echo "Partition table (MiB):"
-echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, root)"
-echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
-echo "  4) Home   : ${p4_start}MiB - 100% (home)"
-
-# Partition option btrfs or ext4
-echo
-echo "-------------------------------------------"
-echo "Filesystem Partition Options"
-echo "-------------------------------------------"
-echo "1) EXT4"
-echo "2) BTRFS"
-read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-DEV_CHOICE="${DEV_CHOICE:-1}"
-
-case "$DEV_CHOICE" in
-    1)
-        echo "EXT4"
-        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
-        ;;
-        
-    2)
-        echo "BTRFS"
-        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
-        ;;
-        
+    parted -s "$DEV" mklabel gpt
+    CUR=$PART_START
+    for NAME in "${!PARTS[@]}"; do
+      SIZE="${PARTS[$NAME]}"
+      END="$((CUR+SIZE))"
+      [[ "$SIZE" == "rest" ]] && END="100%"
+      case "$NAME" in
+        boot) FS="fat32";;
+        swap) FS="linux-swap";;
+        *) FS="ext4";;
+      esac
+      parted -s "$DEV" mkpart primary "$FS" "${CUR}MiB" "${END}MiB"
+      [[ "$NAME" == "boot" ]] && parted -s "$DEV" set 1 boot on
+      CUR=$(( CUR + SIZE ))
+    done
+    ;;
+  *)
+    die "Invalid mode."
+    ;;
 esac
 
-# Set boot flag on partition 1 (UEFI)
-parted -s "$DEV" set 1 boot on
-
-# Inform kernel of new partitions
 partprobe "$DEV"
 sleep 1
 
-# Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+#==========================
+# Derive partition names
+#==========================
+
 PSUFF=$(part_suffix "$DEV")
-P1="${DEV}${PSUFF}1"
-P2="${DEV}${PSUFF}2"
-P3="${DEV}${PSUFF}3"
-P4="${DEV}${PSUFF}4"
+declare -A PDEV
+INDEX=1
 
-echo "Partitions created:"
-lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-
-# Wait a bit for device nodes to appear
-sleep 1
-if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
-  echo "Waiting for partition nodes..."
-  sleep 2
+# Quick Mode PDEV assignment
+if [[ "$MODE" == "1" ]]; then
+  PDEV["boot"]="${DEV}${PSUFF}1"
+  PDEV["root"]="${DEV}${PSUFF}2"
+  [[ $USE_SWAP == true ]] && PDEV["swap"]="${DEV}${PSUFF}3" || PDEV["swap"]=""
+  if [[ "$FS_CHOICE" == "3" ]]; then
+    PDEV["home"]="${DEV}${PSUFF}4"
+  else
+    [[ $USE_SWAP == true ]] && PDEV["home"]="${DEV}${PSUFF}4" || PDEV["home"]="${DEV}${PSUFF}3"
+  fi
+else
+  # Custom mode assignment
+  INDEX=1
+  for NAME in "${!PARTS[@]}"; do
+    PDEV["$NAME"]="${DEV}${PSUFF}${INDEX}"
+    INDEX=$((INDEX+1))
+  done
 fi
 
-#===================================================================================================#
-# 1.4) Mounting Created Partitions
-#===================================================================================================#
+#==========================
+# Format partitions
+#==========================
 
-# Filesystems
-echo "Creating filesystems:"
-echo "  EFI -> $P1 (FAT32)"
-echo "  Root -> $P2 (/)"
-echo "  Swap -> $P3 (mkswap)"
-echo "  Home -> $P4 (/home)"
-
-# Format EFI
-mkfs.fat -F32 "$P1"
-
-# Format root and home
-mkfs.ext4 -F "$P2"
-mkfs.ext4 -F "$P4"
-
-#===================================================================================================#
-# 1.5) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
-#===================================================================================================#
-mkswap "$P3"
-swapon "$P3"
-
-# Sanity check: ensure partitions exist
-for p in "$P1" "$P2" "$P3" "$P4"; do
-  if [[ ! -b "$p" ]]; then
-    echo "ERROR: Partition $p not found. Aborting." >&2
-    exit 1
-  fi
+for NAME in "${!PDEV[@]}"; do
+  PART="${PDEV[$NAME]}"
+  [[ -z "$PART" ]] && continue
+  case "$NAME" in
+    boot) mkfs.fat -F32 "$PART";;
+    swap) $USE_SWAP && { mkswap "$PART"; swapon "$PART"; };;
+    root|home)
+      if [[ "$MODE" == "1" && "$FS_CHOICE" == "2" && "$NAME" == "root" ]]; then
+        mkfs.btrfs -f "$PART"
+      elif [[ "$MODE" == "1" && "$FS_CHOICE" == "3" && "$NAME" == "root" ]]; then
+        mkfs.btrfs -f "$PART"
+      elif [[ "$MODE" == "1" && "$FS_CHOICE" == "3" && "$NAME" == "home" ]]; then
+        mkfs.ext4 -F "$PART"
+      else
+        mkfs.ext4 -F "$PART"
+      fi
+      ;;
+  esac
 done
 
-#Mount root and other partitions
-echo "Mounting partitions..."
-mount "$P2" /mnt
-mkdir -p /mnt/boot
-mount "$P1" /mnt/boot
-mkdir -p /mnt/home
-mount "$P4" /mnt/home
+#==========================
+# Mount partitions
+#==========================
 
-# Enable swap now (so pacstrap has more headroom if needed)
-echo "Enabling swap on $P3..."
-swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
+for NAME in "${!PDEV[@]}"; do
+  PART="${PDEV[$NAME]}"
+  [[ -z "$PART" ]] && continue
+  case "$NAME" in
+    root) mount "$PART" /mnt;;
+    boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot;;
+    home) mkdir -p /mnt/home; mount "$PART" /mnt/home;;
+  esac
+done
+
+#==========================
+# Final lsblk & Restart Option
+#==========================
+
+echo
+echo "Final Partition Layout:"
+lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+
+if ! confirm "Partitioning correct? Continue with installation?"; then
+  echo "Restarting partitioning..."
+  exec "$0"
+fi
+
+echo "Partitioning complete. Ready for installation..."
 
 
 clear
