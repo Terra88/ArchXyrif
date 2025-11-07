@@ -63,8 +63,9 @@ echo " archformat.sh                                                            
 echo " - shows lsblk and asks which device to use                                                         "
 echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
 echo " - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)                "
-echo " - filesystems: FAT32 on Boot/EFI                                                                   "
-echo " - filesystems: ext4, btrfs root/home, mkswap on swap                                               "
+echo " - filesystems: FAT32 on Boot/EFI ext4, btrfs root/home, mkswap on swap                             "
+echo " - Quick Format: ext4/btrfs 1024MiB(boot),100GB(/Root)Rest 100%(/Home) (Opt:Swap(on/off)calc by ram "
+echo " - Custom Format:ext4/btrfs boot/root/home/swap                                                                                   "
 echo " - Press CTRL+Z if you want to exit the program                                                     "
 echo " WARNING: destructive. Run as root. Double-check device before continuing.                          "
 echo "#==================================================================================================#"
@@ -445,17 +446,19 @@ sleep 1
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
-# Determine EFI partition mountpoint and ensure it’s /boot/efi
+EFI_PART="${PDEV["boot"]}"
+
+# Ensure EFI partition is mounted at /mnt/boot/efi
 if ! mountpoint -q /mnt/boot/efi; then
-  echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-  mkdir -p /mnt/boot/efi
-  mount "$P1" /mnt/boot/efi
+    echo "→ Mounting EFI partition at /boot/efi..."
+    mkdir -p /mnt/boot/efi
+    mount "$EFI_PART" /mnt/boot/efi
 fi
 
-# Basic, minimal GRUB modules needed for UEFI boot
+# Basic GRUB modules for UEFI boot
 GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
 
-# Run grub-install safely inside chroot
+# Run grub-install inside chroot
 arch-chroot /mnt grub-install \
   --target=x86_64-efi \
   --efi-directory=/boot/efi \
@@ -464,28 +467,28 @@ arch-chroot /mnt grub-install \
   --recheck \
   --no-nvram
 
-# Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-echo "→ Copying fallback EFI binary..."
+# Copy fallback EFI binary (BOOTX64.EFI)
 arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-# Ensure a clean efibootmgr entry (use the parent disk of $P1)
+# Detect parent disk and EFI partition number dynamically
 DISK="${DEV}"
-PARTNUM=1
+PARTNUM=$(lsblk -no PARTNUM "$EFI_PART")
+
 LABEL="Arch Linux"
 LOADER='\EFI\GRUB\grubx64.efi'
 
-# Delete stale entries with same label to avoid duplicates
+# Remove stale entries to avoid duplicates
 for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-  efibootmgr -b "$bootnum" -B || true
+    efibootmgr -b "$bootnum" -B || true
 done
 
-# Create new entry
+# Create new EFI boot entry
 efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
 
 # Generate GRUB config inside chroot
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
-# Secure Boot Integration
+# Optional Secure Boot signing
 if command -v sbctl >/dev/null 2>&1; then
   echo "→ Signing EFI binaries for Secure Boot..."
   arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
@@ -494,18 +497,9 @@ if command -v sbctl >/dev/null 2>&1; then
   arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
 fi
 
-echo "GRUB installation complete."
-echo
+echo "✅ GRUB installation complete."
 echo "Verifying EFI boot entries..."
 efibootmgr -v || true
-
-
-# Grub Troubleshoot if needed - commands are here after install - you can run:
-# efibootmgr -v
-# ls /boot/efi/EFI/
-#-Should Show:
-# /boot/efi/EFI/GRUB/grubx64.efi
-# /boot/efi/EFI/Boot/BOOTX64.EFI
 
 clear
 echo
@@ -1156,7 +1150,6 @@ echo " -------------------------------------------------------------------------
 echo "Full base + extras installation is complete."
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
 echo "  reboot"
 
 #Cleanup postinstall script
@@ -1171,7 +1164,6 @@ echo "  - Install any additional packages (e.g. desktop environment, display man
 echo
 echo "To reboot into your new system:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
 echo "  reboot"
 echo
 echo "Done."
