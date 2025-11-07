@@ -1,5 +1,6 @@
 # ArchXyrif - Automated Install Script to install Archlinux with. Currently UEFI Support only.
-<br><img width="753" height="304" alt="2025-11-06-093828_hyprshot" src="https://github.com/user-attachments/assets/8ee9e28f-35ad-4ae5-8ec7-be9d7a58f4aa" />
+<br><img width="738" height="320" alt="2025-11-07-183944_hyprshot" src="https://github.com/user-attachments/assets/2ec75712-16a1-481a-9fd9-1bb474e7b2b2" />
+
 
 Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
