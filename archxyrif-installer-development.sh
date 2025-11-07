@@ -258,9 +258,7 @@ echo "Filesystem Partition Options"
 echo "-------------------------------------------"
 echo "1) EXT4"
 echo "2) BTRFS"
-echo "3) f2fs"
-echo "4) xfs"
-read -r -p "Select File System [1-4, default=1]: " DEV_CHOICE
+read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
 DEV_CHOICE="${DEV_CHOICE:-1}"
 
 case "$DEV_CHOICE" in
@@ -278,20 +276,6 @@ case "$DEV_CHOICE" in
         parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
         parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
         parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
-        ;;
-        
-        echo "f2fs"
-    3)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary f2fs "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary f2fs "${p4_start}MiB" 100%
-        ;;
-        
-        echo "xfs"
-    4)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-        parted -s "$DEV" mkpart primary xfs "${p2_start}MiB" "${p2_end}MiB"
-        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-        parted -s "$DEV" mkpart primary xfs "${p4_start}MiB" 100%
         ;;
         
 esac
