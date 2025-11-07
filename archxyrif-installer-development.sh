@@ -34,7 +34,7 @@ echo "d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888
 echo "                                                       888                       "        
 echo "                                                  Y8b d88P                       "                    
 echo "                                                    Y88P                         "  
-echo "        Semi-Automated and Interactive - Arch Linux Installer                         "
+echo "        Semi-Automated / Interactive - Arch Linux Installer                      "
 echo "                                                                                 "
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      "
 echo "#=====================================================================================================#"
