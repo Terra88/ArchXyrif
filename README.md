@@ -23,7 +23,7 @@ chmod +x archxyrif-installer.sh <br>
 
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
 <br><br>
-1.0 - Version Feature Recall
+### **1.0 - Version Feature Recall**
 
 -1. Gives lsblk disk layout to interact with, which disk to choose, format and re-partition.
 
@@ -50,7 +50,7 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need to be modified manually to the file.
 
 Ver1.0: Had issues with installing AUR PKG's
-### **So Changes in Version 1.3**
+### **Changes in Version 1.3**
 <br><br>
 -1. First of all i decided to name the installer file to archxyrif-installer.sh instead of archlinux-installer.sh
 <br><br>
@@ -86,7 +86,8 @@ Ver1.0: Had issues with installing AUR PKG's
 -AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
 
 <br>
-1.3.1 1.3.1 - Minor tweaks to add correct user rights when logging into fresh system, also to set correct keyboard layout to x11 systems when you log in to the first time.
+### **Changes in Version 1.3.1**
+1.3.1 - Minor tweaks to add correct user rights when logging into fresh system, also to set correct keyboard layout to x11 systems when you log in to the first time.
 <br><br>
 
 -Created a table of contents to the start of the script and Interactive Headers that pop up, when next stage of installation starts to help the user with the installation progress. Makes the installation much more clear, when the new header pops and the old "garbage on the screen clears".<br>
