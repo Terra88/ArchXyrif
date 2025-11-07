@@ -4,7 +4,7 @@
 #
 #===========================================================================
 #===========================================================================
-# Author  : Terra88 
+# Author  : Terra88
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
 #===========================================================================
@@ -28,9 +28,9 @@ echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888
 echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           "
 echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           "
 echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           "
-echo "                                                       888                           "                  
-echo "                                                  Y8b d88P                           "                     
-echo "                                                    Y88P                             "    
+echo "                                                       888                           "
+echo "                                                  Y8b d88P                           "
+echo "                                                    Y88P                             "
 echo "        Automated and Interactive - Arch Linux Installer                             "
 echo "                                                                                     "
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 "
@@ -194,7 +194,7 @@ fi
 echo
 echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
 echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~120 GiB)."
+echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~100 GiB)."
 echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
 echo
 
@@ -223,7 +223,7 @@ p4_start=$p3_end                             # home start; end = 100%
 # Rounded values to avoid fractional MiB
 echo "Partition table (MiB):"
 echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~120GiB, ext4)"
+echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, ext4)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
 echo "  4) Home   : ${p4_start}MiB - 100% (ext4)"
 
@@ -469,12 +469,12 @@ cat > /etc/hosts <<HOSTS
 HOSTS
 
 # --------------------------
-# 4) Ensure /etc/vconsole.conf exists (fix mkinitcpio error)
+# 4) Keyboard layout
 # --------------------------
-if [[ ! -f /etc/vconsole.conf ]]; then
-    echo "KEYMAP=fi" > /etc/vconsole.conf
-    echo "FONT=lat9w-16" >> /etc/vconsole.conf
-fi
+echo "KEYMAP=fi" > /etc/vconsole.conf
+echo "FONT=lat9w-16" >> /etc/vconsole.conf
+localectl set-keymap fi
+localectl set-x11-keymap fi
 
 # --------------------------
 # 5) Initramfs for all kernels
@@ -490,16 +490,21 @@ passwd
 # --------------------------
 # 7) Create user, set password, enable sudo
 # --------------------------
-useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-echo "Set password for user ${NEWUSER}:"
-passwd "${NEWUSER}"
+if ! id "$NEWUSER" &>/dev/null; then
+    useradd -m -G wheel -s /bin/bash "$NEWUSER"
+    echo "Set password for user $NEWUSER:"
+    passwd "$NEWUSER"
+fi
 
-# Create sudoers drop-in
-echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
-chmod 440 /etc/sudoers.d/${NEWUSER}
-
-# Ensure wheel group sudo rights
+# Ensure sudo rights
+echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
+chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+# Ensure home directory and permissions are correct
+mkdir -p /home/$NEWUSER
+chown "$NEWUSER:$NEWUSER" /home/$NEWUSER
+chmod 755 /home/$NEWUSER
 
 # --------------------------
 # 8) Enable basic services
@@ -510,6 +515,7 @@ systemctl enable sshd
 # --------------------------
 # 9) Done
 # --------------------------
+
 echo "Postinstall inside chroot finished."
 EOF
 #===================================================================================================#
@@ -580,7 +586,7 @@ fi
 
 
 #===================================================================================================#
-# 7B) Helper Functions - For Pacman 
+# 7B) Helper Functions - For Pacman
 #===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
@@ -667,6 +673,57 @@ safe_pacman_install() {
     done
 }
 
+#===================================================================================================#
+# 7C) Helper Functions - For AUR (Paru)
+#===================================================================================================#
+safe_aur_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local AUR_PKGS=("$@")
+
+    # skip if no packages
+    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
+        echo "⚠️  No AUR packages specified — skipping safe_aur_install."
+        return 0
+    fi
+
+    echo
+    echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
+
+    "${CHROOT_CMD[@]}" bash -c "
+        pacman -S --needed --noconfirm base-devel git || true
+
+        # ensure paru exists
+        if ! command -v paru &>/dev/null; then
+            cd /home/$NEWUSER
+            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
+            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
+            cd .. && rm -rf paru
+        fi
+
+        for pkg in ${AUR_PKGS[*]}; do
+            echo
+            echo '→ Checking AUR package:' \$pkg
+
+            # detect conflicting packages (e.g. foo vs foo-git)
+            CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+            if [[ -n \"\$CONFLICTS\" ]]; then
+                echo '⚠️  Conflicts detected for' \$pkg ': '\$CONFLICTS
+                for C in \$CONFLICTS; do
+                    if pacman -Qq \$C &>/dev/null; then
+                        echo '→ Removing conflicting package:' \$C
+                        pacman -Rdd --noconfirm \$C || true
+                    fi
+                done
+            fi
+
+            # install package safely, skip failed ones
+            echo '📦 Installing:' \$pkg
+            sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
+            || echo '⚠️  Failed to install:' \$pkg
+        done
+    "
+}
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
@@ -733,8 +790,8 @@ WM_AUR_PKGS=()
 case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
-        WM_AUR_PKGS=(wlogout)
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar kitty kvantum rofi polkit-kde-agent nwg-look)
+        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
@@ -758,25 +815,13 @@ case "$WM_CHOICE" in
         ;;
 esac
 
-# Install WM packages if selected
+# Install WM packages
 if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
 fi
 
-# If AUR packages are needed (e.g., wlogout)
-if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
-    echo "→ Installing AUR packages for WM: ${WM_AUR_PKGS[*]}"
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${WM_AUR_PKGS[*]}
-    "
-fi
+# Install AUR packages (safe, conflict-handling)
+safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
 #===================================================================================================#
@@ -827,27 +872,15 @@ case "$DM_CHOICE" in
         ;;
 esac
 
-# Install display manager packages if selected
+# Install display manager packages
 if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
 fi
 
-# Handle AUR-based display managers
-if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
-    echo "→ Installing AUR display manager packages: ${DM_AUR_PKGS[*]}"
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
-        sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake ${DM_AUR_PKGS[*]}
-    "
-fi
+# Install AUR display manager packages (safe)
+safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
 
-# Enable chosen display manager
+# Enable chosen service
 if [[ -n "$DM_SERVICE" ]]; then
     "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
     echo "✅ Display manager service enabled: $DM_SERVICE"
@@ -861,30 +894,28 @@ echo "-------------------------------------------"
 echo "📦 EXTRA SYSTEM PACKAGE INSTALLATION"
 echo "-------------------------------------------"
 
-# Clean list: neofetch removed (deprecated)
-EXTRA_PKGS=(
-    blueman bluez bluez-utils dolphin dolphin-plugins dunst gdm grim htophypridle hyprland hyprlock hyprpaper hyprshot kitty 
-    network-manager-appletpolkit-kde-agent qt5-wayland qt6-wayland unzip uwsm rofi slurp wget wofinftables waybar archlinux-xdg-menu
-    ark bemenu-wayland breeze brightnessctlbtop cliphist cpupower discover evtest firefox flatpakgoverlay gst-libav gst-plugin-pipewire
-    gst-plugins-bad gst-plugins-basegst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulselinuxconsole nvtop nwg-displays nwg-look
-    otf-font-awesomepavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ctsmartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
-    vlc-plugins-allwireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlrxdg-utils xorg-server xorg-xinitzram-generator base-devel
-)
+read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+    # Clean list: neofetch removed (deprecated)
+    EXTRA_PKGS=( zram-generator )
 
-# Filter out non-existent packages before installing
-VALID_PKGS=()
-for pkg in "${EXTRA_PKGS[@]}"; do
-    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
-        VALID_PKGS+=("$pkg")
+    # Filter out non-existent packages before installing
+    VALID_PKGS=()
+    for pkg in "${EXTRA_PKGS[@]}"; do
+        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+            VALID_PKGS+=("$pkg")
+        else
+            echo "⚠️  Skipping invalid or missing package: $pkg"
+        fi
+    done
+
+    if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
     else
-        echo "⚠️  Skipping invalid or missing package: $pkg"
+        echo "⚠️  No valid packages to install."
     fi
-done
-
-if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
-    safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
 else
-    echo "⚠️  No valid packages to install."
+    echo "Skipping extra pacman packages."
 fi
 
 
@@ -900,56 +931,74 @@ read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
 
+    # Merge WM + DM AUR packages with user input
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
         AUR_PKGS+=($EXTRA_AUR_INPUT)
     fi
 
-    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping."
-    else
-        echo "🛠️  Preparing paru and installing AUR packages: ${AUR_PKGS[*]}"
-
-        "${CHROOT_CMD[@]}" bash -c "
-            pacman -S --needed --noconfirm base-devel git || true
-
-            # Ensure paru exists
-            if ! command -v paru &>/dev/null; then
-                cd /home/$NEWUSER
-                sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-                cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-                cd .. && rm -rf paru
-            fi
-
-            echo '⚙️  Checking for conflicts before installing AUR packages...'
-
-            for pkg in ${AUR_PKGS[*]}; do
-                echo '→ Processing:' \$pkg
-                # Detect conflicting packages
-                CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-                if [[ -n \"\$CONFLICTS\" ]]; then
-                    echo '⚠️  Detected conflicts for' \$pkg ': '\$CONFLICTS
-                    for C in \$CONFLICTS; do
-                        if pacman -Qq \$C &>/dev/null; then
-                            echo '→ Removing conflicting package:' \$C
-                            pacman -Rdd --noconfirm \$C || true
-                        fi
-                    done
-                fi
-
-                # Install package with overwrite and auto conflict resolution
-                sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-                || echo '⚠️ Failed to install:' \$pkg
-            done
-        "
-    fi
+    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
 else
     echo "Skipping AUR installation."
 fi
+#===================================================================================================#
+# 11) Hyprland Theme Setup (Optional) with Backup
+#===================================================================================================#
+echo
+echo "-------------------------------------------"
+echo "🎨 Hyprland Theme Setup (Optional)"
+echo "-------------------------------------------"
 
-#===================================================================================================#
-# 11 Hyprland - Configs / Theme downloader
-#===================================================================================================#
+if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+        echo "→ Running Hyprland theme setup inside chroot..."
+
+ arch-chroot /mnt /bin/bash -c "
+NEWUSER=\"$NEWUSER\"
+CONFIG_DIR=\"/home/\$NEWUSER/.config\"
+THEME_ZIP=\"config.zip\"
+
+# Ensure home exists
+cd /home/\$NEWUSER
+
+# Backup existing .config if it contains files
+if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+fi
+
+# Extract theme config
+if [[ -f \$THEME_ZIP ]]; then
+    unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
+    # Assuming the zip contains a folder named 'config', rename it to .config
+    if [[ -d /home/\$NEWUSER/config ]]; then
+        mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
+    fi
+fi
+
+# Extract wallpapers
+[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/\$NEWUSER
+
+# Copy wallpaper script and make executable
+[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/\$NEWUSER/ && chmod +x /home/\$NEWUSER/wallpaper.sh
+
+# Fix ownership recursively
+chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER
+
+# Secure permissions: directories 700, files 600 inside .config
+find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
+find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
+
+# Cleanup cloned repo
+rm -rf /home/\$NEWUSER/hyprland-setup
+"
+
+        echo "✅ Hyprland theme setup completed."
+    else
+        echo "Skipping Hyprland theme setup."
+    fi
+fi
+
 
 #===================================================================================================#
 # 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
