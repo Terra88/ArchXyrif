@@ -40,19 +40,19 @@ echo "==========================================================================
 loadkeys fi
 timedatectl set-ntp true
 sleep 1
-echo"#===================================================================================================#"
-echo"# 0) Disk Format INFO                                                                                "
-echo"#===================================================================================================#"
-echo"# archformat.sh                                                                                      "
-echo"# - shows lsblk and asks which device to use                                                         "
-echo"# - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
-echo"# - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)                "
-echo"# - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap                             "
-echo"#                                                                                                    "
-echo"# WARNING: destructive. Run as root. Double-check device before continuing.                          "
-echo"#===================================================================================================#"
-echo"# 1) Disk Selection & Format                                                                         "
-echo"#===================================================================================================#"
+echo"==================================================================================================="
+echo" 0) Disk Format INFO                                                                               "
+echo"==================================================================================================="
+echo" archformat.sh                                                                                     "
+echo" - shows lsblk and asks which device to use                                                        "
+echo" - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                            "
+echo" - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)               "
+echo" - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap                            "
+echo"                                                                                                   "
+echo" WARNING: destructive. Run as root. Double-check device before continuing.                         "
+echo"==================================================================================================="
+echo" 1) Disk Selection & Format                                                                        "
+echo"==================================================================================================="
 
 # Helpers
 confirm() {
