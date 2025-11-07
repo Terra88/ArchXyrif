@@ -17,42 +17,59 @@ set -euo pipefail
 #===========================================================================
 # Arch logo: Edited manually by Terra88
 #===========================================================================
-echo "========================================================================================================================"
-echo "========================================================================================================================"
-echo "                                                                                     "
-echo "       d8888                 888      Y88b   d88P                  d8b  .d888        "
-echo "      d88888                 888       Y88b d88P                   Y8P d88P          "
-echo "     d88P888                 888        Y88o88P                        888           "
-echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888        "
-echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888           "
-echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           "
-echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           "
-echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           "
-echo "                                                       888                           "                  
-echo "                                                  Y8b d88P                           "                     
-echo "                                                    Y88P                             "    
-echo "        Automated and Interactive - Arch Linux Installer                             "
-echo "                                                                                     "
-echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 "
-echo "========================================================================================================================"
-echo "========================================================================================================================"
-
+clear
 loadkeys fi
 timedatectl set-ntp true
-
-#===================================================================================================#
-# 0) Disk Format INFO
-#===================================================================================================#
-# archformat.sh
-# - shows lsblk and asks which device to use
-# - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)
-# - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)
-# - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap
-#
-# WARNING: destructive. Run as root. Double-check device before continuing.
-#===================================================================================================#
-# 1) Disk Selection & Format
-#===================================================================================================#
+echo
+echo "#=====================================================================================================#"
+echo "                                                                                 "      
+echo "       d8888                 888      Y88b   d88P                  d8b  .d888    "        
+echo "      d88888                 888       Y88b d88P                   Y8P d88P      "
+echo "     d88P888                 888        Y88o88P                        888       "
+echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888    "
+echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888       "
+echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888       "
+echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888       "
+echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888       "
+echo "                                                       888                       "        
+echo "                                                  Y8b d88P                       "                    
+echo "                                                    Y88P                         "  
+echo "        Automated and Interactive - Arch Linux Installer                         "
+echo "                                                                                 "
+echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      "
+echo "#=====================================================================================================#"
+echo "Table of Contents:               "
+echo "---------------------------------"
+echo "1)Disk Selection & Format        "
+echo "2)Pacstrap:Installing Base system"
+echo "3)Generating fstab               "
+echo "4)Setting Basic variables        "
+echo "5)Installing GRUB for UEFI       "
+echo "6)Setting configs/enabling.srv   "
+echo "7)Setting Pacman Mirror          "
+echo "Optional:                        "
+echo "8A)GPU-Guided install            "
+echo "8B)Guided Window Manager Install "
+echo "8C)Guided Login Manager Install  "   
+echo "9)Extra Pacman & AUR PKG Install "
+echo "If Hyprland Selected As WM       "
+echo "10)Optional Theme install        "
+echo
+echo
+echo "#==================================================================================================#"
+echo " 0) Disk Format INFO                                                                                "
+echo "#==================================================================================================#"
+echo " archformat.sh                                                                                      "
+echo " - shows lsblk and asks which device to use                                                         "
+echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
+echo " - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)                "
+echo " - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap                             "
+echo "                                                                                                    "
+echo " WARNING: destructive. Run as root. Double-check device before continuing.                          "
+echo "#==================================================================================================#"
+echo " 1) Disk Selection & Format                                                                         "
+echo "#==================================================================================================#"
+echo
 
 # Helpers
 confirm() {
@@ -301,10 +318,14 @@ mount "$P4" /mnt/home
 echo "Enabling swap on $P3..."
 swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
 
-#===================================================================================================#
-# 2) Pacstrap: Installing Base system + recommended packages for basic use
-#===================================================================================================#
-# You can modify the package list below as needed.
+
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
+echo "#===================================================================================================#"
+echo
+      # You can modify the package list below as needed.
 
 PKGS=(
   base
@@ -331,18 +352,28 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 
-#===================================================================================================#
-# 3) Generating fstab & Showing Partition Table / Mountpoints
-#===================================================================================================#
+
+clear
+sleep 1
+echo
+echo "#===================================================================================================#"
+echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
+echo "#===================================================================================================#"
+echo
+sleep 1
 
 echo "Generating /etc/fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
 
-#===================================================================================================#
-# 4) Setting Basic variables for chroot (defaults provided)
-#===================================================================================================#
+
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 4) Setting Basic variables for chroot (defaults provided)                                          "
+echo "#===================================================================================================#"
+echo
 
 DEFAULT_TZ="Europe/Helsinki"
 read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
@@ -360,9 +391,16 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
-#===================================================================================================#
-# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)
-#===================================================================================================#
+
+
+clear
+sleep 1
+echo
+echo "#===================================================================================================#"
+echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)                      "
+echo "#===================================================================================================#"
+echo
+sleep 1
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
@@ -428,9 +466,12 @@ efibootmgr -v || true
 # /boot/efi/EFI/GRUB/grubx64.efi
 # /boot/efi/EFI/Boot/BOOTX64.EFI
 
-#===================================================================================================#
-# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.
-#===================================================================================================#
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.     "
+echo "#===================================================================================================#"
+echo
 # inline script for arch-chroot operations "postinstall.sh"
 
 cat > /mnt/root/postinstall.sh <<'EOF'
@@ -518,9 +559,12 @@ systemctl enable sshd
 
 echo "Postinstall inside chroot finished."
 EOF
+
+
 #===================================================================================================#
-# 6B) Inject variables into /mnt/root/postinstall.sh
+# 6B) Inject variables into /mnt/root/postinstall.sh                                                 
 #===================================================================================================#
+
 # Replace placeholders with actual values (safe substitution)
 
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
@@ -535,9 +579,14 @@ chmod +x /mnt/root/postinstall.sh
 echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
 arch-chroot /mnt /root/postinstall.sh
 
-#===================================================================================================#
-# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION
-#===================================================================================================#
+
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "📡 Arch Linux Mirror Selection & Optimization"
@@ -586,7 +635,7 @@ fi
 
 
 #===================================================================================================#
-# 7B) Helper Functions - For Pacman 
+# 7B) Helper Functions - For Pacman                                                                  
 #===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
@@ -673,9 +722,12 @@ safe_pacman_install() {
     done
 }
 
+
 #===================================================================================================#
-# 7C) Helper Functions - For AUR (Paru)
+# 7C) Helper Functions - For AUR (Paru)                                                              
 #===================================================================================================#
+
+
 safe_aur_install() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -728,10 +780,14 @@ safe_aur_install() {
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
 
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                             "
+echo "#===================================================================================================#"
+echo
 
-#===================================================================================================#
-# 8A) GPU DRIVER INSTALLATION & MULTILIB
-#===================================================================================================#
 echo
 echo "-------------------------------------------"
 echo "🎮 GPU DRIVER INSTALLATION"
@@ -768,9 +824,14 @@ if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
     safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
 fi
 
-#===================================================================================================#
-# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION
-#===================================================================================================#
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                 "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "🖥️  WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION"
@@ -824,9 +885,15 @@ fi
 safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
-#===================================================================================================#
-# 8C) LOGIN / DISPLAY MANAGER SELECTION
-#===================================================================================================#
+
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 8C) LOGIN / DISPLAY MANAGER SELECTION                                                              "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "🔐 LOGIN / DISPLAY MANAGER SELECTION"
@@ -886,9 +953,15 @@ if [[ -n "$DM_SERVICE" ]]; then
     echo "✅ Display manager service enabled: $DM_SERVICE"
 fi
 
-#===================================================================================================#
-# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)
-#===================================================================================================#
+
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                           "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "📦 EXTRA SYSTEM PACKAGE INSTALLATION"
@@ -919,9 +992,14 @@ else
 fi
 
 
-#===================================================================================================#
-# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)
-#===================================================================================================#
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                     "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
@@ -941,9 +1019,16 @@ if [[ "$install_aur" =~ ^[Yy]$ ]]; then
 else
     echo "Skipping AUR installation."
 fi
-#===================================================================================================#
-# 11) Hyprland Theme Setup (Optional) with Backup
-#===================================================================================================#
+
+
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 11) Hyprland Theme Setup (Optional) with Backup                                                    "
+echo "#===================================================================================================#"
+echo
+
 echo
 echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
@@ -1000,10 +1085,14 @@ rm -rf /home/\$NEWUSER/hyprland-setup
 fi
 
 
-#===================================================================================================#
-# 12 Cleanup postinstall script & Final Messages & Instructions - Not Finished
-#===================================================================================================#
+clear
 echo
+echo "#===================================================================================================#"
+echo "# 12 Cleanup postinstall script & Final Messages & Instructions                                      "
+echo "#===================================================================================================#"
+echo
+
+echo 
 echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
 echo "  - EXTRA_PKGS[] for pacman packages"
