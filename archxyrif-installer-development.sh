@@ -852,27 +852,32 @@ case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
         WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
-        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg )
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
         WM_PKGS=(sway swaybg swaylock waybar wofi)
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
     3)
         echo "→ Selected: XFCE"
         WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
     4)
         echo "→ Selected: KDE Plasma"
         WM_PKGS=(plasma-desktop kde-applications sddm)
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
     5)
         echo "→ Selected: GNOME"
         WM_PKGS=(gnome gdm)
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
     6|*)
         echo "Skipping window manager installation."
         WM_PKGS=()
+        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
         ;;
 esac
 
@@ -1008,7 +1013,7 @@ echo "-------------------------------------------"
 read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
-EXTRA_AUR_PKGS=() #Extra AUR PKG can be set here pre hand.
+EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG can be set here pre hand.
 
     # Merge WM + DM AUR packages with user input
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
