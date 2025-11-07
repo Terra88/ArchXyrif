@@ -22,18 +22,20 @@ loadkeys fi
 timedatectl set-ntp true
 echo
 echo "#=====================================================================================================#"
-echo                                                                                       
-cat <<'BANNER'
-       d8888                 888      Y88b   d88P                  d8b  .d888
-      d88888                 888       Y88b d88P                   Y8P d88P
-     d88P888                 888        Y88o88P                        888
-    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888
-   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888
-  d88P   888 888    888      888  888   d88888b   888  888 888     888 888
- d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888
-d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888
-BANNER  
-echo "        Automated and Interactive - Arch Linux Installer                         "                                                                                
+echo "                                                                                 "      
+echo "       d8888                 888      Y88b   d88P                  d8b  .d888    "        
+echo "      d88888                 888       Y88b d88P                   Y8P d88P      "
+echo "     d88P888                 888        Y88o88P                        888       "
+echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888    "
+echo "   d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888       "
+echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888       "
+echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888       "
+echo "d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888       "
+echo "                                                       888                       "        
+echo "                                                  Y8b d88P                       "                    
+echo "                                                    Y88P                         "  
+echo "        Automated and Interactive - Arch Linux Installer                         "
+echo "                                                                                 "
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      "
 echo "#=====================================================================================================#"
 echo "Table of Contents:               "
