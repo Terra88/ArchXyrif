@@ -4,7 +4,7 @@
 #
 #===========================================================================
 #===========================================================================
-# Author  : Terra88
+# Author  : Terra88 
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
 #===========================================================================
@@ -28,9 +28,9 @@ echo "   d88P  888 888P"  d88P"    888 "88b    d888b    888  888 888P"   888 888
 echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888           "
 echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888           "
 echo "d88P     888 888     "Y8888P 888  888 d88P   Y88b  "Y88888 888     888 888           "
-echo "                                                       888                           "
-echo "                                                  Y8b d88P                           "
-echo "                                                    Y88P                             "
+echo "                                                       888                           "                  
+echo "                                                  Y8b d88P                           "                     
+echo "                                                    Y88P                             "    
 echo "        Automated and Interactive - Arch Linux Installer                             "
 echo "                                                                                     "
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 "
@@ -586,7 +586,7 @@ fi
 
 
 #===================================================================================================#
-# 7B) Helper Functions - For Pacman
+# 7B) Helper Functions - For Pacman 
 #===================================================================================================#
 
 # Resilient installation with retries, key refresh, and mirror recovery
@@ -790,8 +790,8 @@ WM_AUR_PKGS=()
 case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar kitty kvantum rofi polkit-kde-agent nwg-look)
-        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+        WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg )
         ;;
     2)
         echo "→ Selected: Sway (Wayland)"
@@ -897,7 +897,7 @@ echo "-------------------------------------------"
 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
     # Clean list: neofetch removed (deprecated)
-    EXTRA_PKGS=( zram-generator )
+    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
 
     # Filter out non-existent packages before installing
     VALID_PKGS=()
