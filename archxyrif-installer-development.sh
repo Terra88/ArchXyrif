@@ -1085,17 +1085,16 @@ echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
-if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+if [[ "$WM_CHOICE" == "1" ]]; then
     read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
         echo "→ Running Hyprland theme setup inside chroot..."
 
- arch-chroot /mnt /bin/bash -c "
+        arch-chroot /mnt /bin/bash -c "
 NEWUSER=\"$NEWUSER\"
 CONFIG_DIR=\"/home/\$NEWUSER/.config\"
 THEME_ZIP=\"config.zip\"
 
-# Ensure home exists
 cd /home/\$NEWUSER
 
 # Backup existing .config if it contains files
@@ -1106,7 +1105,6 @@ fi
 # Extract theme config
 if [[ -f \$THEME_ZIP ]]; then
     unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
-    # Assuming the zip contains a folder named 'config', rename it to .config
     if [[ -d /home/\$NEWUSER/config ]]; then
         mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
     fi
@@ -1128,11 +1126,12 @@ find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
 # Cleanup cloned repo
 rm -rf /home/\$NEWUSER/hyprland-setup
 "
-
         echo "✅ Hyprland theme setup completed."
     else
         echo "Skipping Hyprland theme setup."
     fi
+else
+    echo "Skipping Hyprland theme setup (not using Hyprland)."
 fi
 
 sleep 2
