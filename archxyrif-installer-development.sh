@@ -72,6 +72,9 @@ echo "#=========================================================================
 echo " 1) Disk Selection & Format                                                                         "
 echo "#==================================================================================================#"
 echo
+#!/usr/bin/env bash
+set -euo pipefail
+
 #==========================
 # HELPERS
 #==========================
@@ -231,23 +234,29 @@ fi
 #==========================
 mkfs.fat -F32 "${PDEV["boot"]}"
 $USE_SWAP && { mkswap "${PDEV["swap"]}"; swapon "${PDEV["swap"]}"; }
-mkfs.ext4 -F "$MOUNT_ROOT"
-mkfs.ext4 -F "$MOUNT_HOME"
+mkfs.btrfs -f "$MOUNT_ROOT"
+mkfs.btrfs -f "$MOUNT_HOME"
 
 #==========================
-# MOUNT PARTITIONS
+# MOUNT PARTITIONS & BTRFS SUBVOLS
 #==========================
 mount "$MOUNT_ROOT" /mnt
+btrfs subvolume create /mnt/@
+btrfs subvolume create /mnt/@home
+btrfs subvolume create /mnt/@snapshots
+umount /mnt
+
+mount -o subvol=@ "$MOUNT_ROOT" /mnt
 mkdir -p /mnt/boot
 mount "${PDEV["boot"]}" /mnt/boot
 mkdir -p /mnt/home
-mount "$MOUNT_HOME" /mnt/home
+mount -o subvol=@home "$MOUNT_HOME" /mnt/home
 
 #==========================
 # FINAL CHECK
 #==========================
 echo
-echo "✅ Partitioning & encryption complete. Layout:"
+echo "✅ Partitioning, LUKS, and BTRFS subvolumes complete. Layout:"
 lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT "$DEV"
 
 confirm "Is this layout correct? Continue?" || exec "$0"
