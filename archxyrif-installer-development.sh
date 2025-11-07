@@ -11,7 +11,6 @@
 #===========================================================================
 # Source variables
 #===========================================================================
-set -euo pipefail
 #===========================================================================
 # Preparation
 #===========================================================================
@@ -74,6 +73,7 @@ echo "#=========================================================================
 echo
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s extglob
 
 #==========================
 # HELPERS
@@ -81,10 +81,7 @@ set -euo pipefail
 confirm() {
     local msg="${1:-Continue?}"
     read -r -p "$msg [yes/NO]: " ans
-    case "$ans" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-        *) return 1 ;;
-    esac
+    [[ "$ans" =~ ^[yY](es)?$ ]]
 }
 
 part_suffix() {
@@ -92,102 +89,81 @@ part_suffix() {
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
 
-die() {
-    echo "ERROR: $*" >&2
-    exit 1
-}
+die() { echo "ERROR: $*" >&2; exit 1; }
 
 #==========================
-# DISK SELECTION & PARTITIONING
+# PREPARATION
 #==========================
+clear
+loadkeys fi
+timedatectl set-ntp true
+
 echo "Available block devices:"
 lsblk -d -o NAME,SIZE,MODEL,TYPE | grep disk
 
-read -r -p "Enter the disk to use (e.g., /dev/sda or /dev/nvme0n1): " DEV
-[[ -b "$DEV" ]] || { echo "ERROR: Device '$DEV' not found."; exit 1; }
+read -r -p "Enter disk to use (e.g., /dev/sda or /dev/nvme0n1): " DEV
+[[ -b "$DEV" ]] || die "Device '$DEV' not found."
 
-echo
-echo "Existing partitions on $DEV:"
-lsblk "$DEV" -o NAME,SIZE,FSTYPE,MOUNTPOINT
+echo "⚠️ All data on $DEV will be destroyed!"
+confirm "Are you sure?" || exit 1
 
-echo
-echo "⚠️ This will DESTROY ALL DATA on $DEV"
-read -r -p "Are you absolutely sure? [yes/NO]: " CONFIRM
-[[ "$CONFIRM" =~ ^[yY](es)?$ ]] || { echo "User cancelled."; exit 1; }
+# Unmount and disable swap
+for mnt in $(lsblk -ln -o MOUNTPOINT "$DEV" | grep -v '^$'); do umount -l "$mnt" || true; done
+for sw in $(awk 'NR>1 {print $1}' /proc/swaps); do [[ "$sw" == "$DEV"* ]] && swapoff "$sw"; done
 
-# Unmount existing mounts & disable swap
-for mnt in $(lsblk -ln -o MOUNTPOINT "$DEV" | grep -v '^$'); do
-    umount -l "$mnt" || true
-done
-for sw in $(awk 'NR>1 {print $1}' /proc/swaps); do
-    [[ "$sw" == "$DEV"* ]] && swapoff "$sw"
-done
-
-# Remove LVM, LUKS, RAID if any
-if command -v lvremove >/dev/null 2>&1; then
-    for vg in $(vgs --noheadings -o vg_name 2>/dev/null); do
-        if lvdisplay "/dev/$vg" | grep -q "$DEV"; then
-            lvremove -ff "/dev/$vg" || true
-            vgremove -ff "$vg" || true
-        fi
-    done
-fi
-
+# Remove LVM/LUKS/RAID if present
 for part in $(lsblk -ln -o NAME "$DEV"); do
     devpath="/dev/$part"
-    if cryptsetup isLuks "$devpath" >/dev/null 2>&1; then
+    if command -v cryptsetup >/dev/null 2>&1 && cryptsetup isLuks "$devpath" >/dev/null 2>&1; then
         cryptsetup luksErase "$devpath" --force || true
     fi
 done
 
-if command -v mdadm >/dev/null 2>&1; then
-    mdadm --zero-superblock --scan --force || true
-fi
-
-# Wipe disk
+if command -v mdadm >/dev/null 2>&1; then mdadm --zero-superblock --scan --force || true; fi
 sgdisk --zap-all "$DEV"
 wipefs -a "$DEV"
 dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none
-
 partprobe "$DEV"
 sleep 2
 
 #==========================
-# PARTITIONING MODE PROMPT
+# PARTITIONING MODE
 #==========================
 echo "Select partitioning mode:"
 echo "1) Quick (default sizes, btrfs root/home, FAT32 boot)"
-echo "2) Custom (choose sizes and filesystems)"
+echo "2) Custom (choose sizes/filesystems)"
 read -r PART_MODE
 PART_MODE="${PART_MODE:-1}"
 
-# Swap prompt
-read -r -p "Do you want a swap partition? [y/N]: " SWAP_ANSWER
+read -r -p "Use swap? [y/N]: " SWAP_ANSWER
 USE_SWAP=false
 [[ "$SWAP_ANSWER" =~ ^[yY]$ ]] && USE_SWAP=true
 
-# LUKS prompt
-read -r -p "Do you want to encrypt root and home partitions with LUKS? [y/N]: " ENCRYPT_ANSWER
+read -r -p "Encrypt root/home with LUKS? [y/N]: " ENCRYPT_ANSWER
 USE_LUKS=false
 [[ "$ENCRYPT_ANSWER" =~ ^[yY]$ ]] && USE_LUKS=true
 
-#==========================
-# CREATE PARTITIONS
-#==========================
 parted -s "$DEV" mklabel gpt
-PSUFF=$( [[ "$DEV" =~ nvme|mmcblk ]] && echo "p" || echo "" )
+PSUFF=$(part_suffix "$DEV")
 CUR=1
 
+# Initialize associative array for partitions
+declare -A PDEV
+PDEV["boot"]=""
+PDEV["root"]=""
+PDEV["swap"]=""
+PDEV["home"]=""
+
 if [[ "$PART_MODE" == "1" ]]; then
-    # Quick Mode
-    EFI_SIZE=1024        # MiB
-    ROOT_SIZE=102400     # MiB
+    # Quick mode sizes
+    EFI_SIZE=1024
+    ROOT_SIZE=102400
     RAM_MIB=$(( ( $(awk '/MemTotal/ {print $2}' /proc/meminfo) + 1023 ) / 1024 ))
     SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
 
     P1_START=$CUR; P1_END=$((CUR+EFI_SIZE)); CUR=$P1_END
     P2_START=$CUR; P2_END=$((CUR+ROOT_SIZE)); CUR=$P2_END
-    $USE_SWAP && P3_START=$CUR; P3_END=$((CUR+SWAP_SIZE)); CUR=$P3_END
+    $USE_SWAP && { P3_START=$CUR; P3_END=$((CUR+SWAP_SIZE)); CUR=$P3_END; }
     P4_START=$CUR; P4_END="100%"
 
     parted -s "$DEV" mkpart primary fat32 "${P1_START}MiB" "${P1_END}MiB"
@@ -198,32 +174,23 @@ if [[ "$PART_MODE" == "1" ]]; then
 
     ROOT_FS="btrfs"
     HOME_FS="btrfs"
-
 else
-    # Custom Mode
-    read -r -p "Size of EFI partition in MiB [1024]: " EFI_SIZE
-    EFI_SIZE="${EFI_SIZE:-1024}"
-
-    read -r -p "Size of root partition in MiB [120000]: " ROOT_SIZE
-    ROOT_SIZE="${ROOT_SIZE:-120000}"
-
+    # Custom mode
+    read -r -p "EFI partition size [1024]: " EFI_SIZE; EFI_SIZE="${EFI_SIZE:-1024}"
+    read -r -p "Root partition size [120000]: " ROOT_SIZE; ROOT_SIZE="${ROOT_SIZE:-120000}"
     if $USE_SWAP; then
-        read -r -p "Size of swap partition in MiB (leave empty to use 2x RAM): " SWAP_SIZE
+        read -r -p "Swap size (MiB, empty=2xRAM): " SWAP_SIZE
         if [[ -z "$SWAP_SIZE" ]]; then
             RAM_MIB=$(( ( $(awk '/MemTotal/ {print $2}' /proc/meminfo) + 1023 ) / 1024 ))
             SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
         fi
     fi
-
-    read -r -p "Filesystem for root partition [btrfs/ext4, default=btrfs]: " ROOT_FS
-    ROOT_FS="${ROOT_FS:-btrfs}"
-
-    read -r -p "Filesystem for home partition [btrfs/ext4, default=btrfs]: " HOME_FS
-    HOME_FS="${HOME_FS:-btrfs}"
+    read -r -p "Filesystem for root [btrfs/ext4, default=btrfs]: " ROOT_FS; ROOT_FS="${ROOT_FS:-btrfs}"
+    read -r -p "Filesystem for home [btrfs/ext4, default=btrfs]: " HOME_FS; HOME_FS="${HOME_FS:-btrfs}"
 
     P1_START=$CUR; P1_END=$((CUR+EFI_SIZE)); CUR=$P1_END
     P2_START=$CUR; P2_END=$((CUR+ROOT_SIZE)); CUR=$P2_END
-    $USE_SWAP && P3_START=$CUR; P3_END=$((CUR+SWAP_SIZE)); CUR=$P3_END
+    $USE_SWAP && { P3_START=$CUR; P3_END=$((CUR+SWAP_SIZE)); CUR=$P3_END; }
     P4_START=$CUR; P4_END="100%"
 
     parted -s "$DEV" mkpart primary fat32 "${P1_START}MiB" "${P1_END}MiB"
@@ -236,6 +203,7 @@ fi
 partprobe "$DEV"
 sleep 2
 
+# Assign partitions to associative array
 PDEV["boot"]="${DEV}${PSUFF}1"
 PDEV["root"]="${DEV}${PSUFF}2"
 $USE_SWAP && PDEV["swap"]="${DEV}${PSUFF}3" || PDEV["swap"]=""
@@ -244,12 +212,16 @@ PDEV["home"]="${DEV}${PSUFF}4"
 #==========================
 # ENCRYPTION
 #==========================
+MOUNT_ROOT=""
+MOUNT_HOME=""
+
 if $USE_LUKS; then
     read -s -r -p "Enter passphrase for root LUKS: " ROOT_PASS; echo
     cryptsetup luksFormat "${PDEV["root"]}" <<< "$ROOT_PASS"$'\n'"$ROOT_PASS"
     cryptsetup open "${PDEV["root"]}" cryptroot <<< "$ROOT_PASS"
+    MOUNT_ROOT="/dev/mapper/cryptroot"
 
-    read -r -p "Encrypt home partition? [y/N]: " HOME_ENC_ANSWER
+    read -r -p "Encrypt home? [y/N]: " HOME_ENC_ANSWER
     if [[ "$HOME_ENC_ANSWER" =~ ^[yY]$ ]]; then
         read -s -r -p "Enter passphrase for home LUKS: " HOME_PASS; echo
         cryptsetup luksFormat "${PDEV["home"]}" <<< "$HOME_PASS"$'\n'"$HOME_PASS"
@@ -258,7 +230,6 @@ if $USE_LUKS; then
     else
         MOUNT_HOME="${PDEV["home"]}"
     fi
-    MOUNT_ROOT="/dev/mapper/cryptroot"
 else
     MOUNT_ROOT="${PDEV["root"]}"
     MOUNT_HOME="${PDEV["home"]}"
@@ -286,19 +257,14 @@ esac
 mount_root() {
     local root_dev="$1"
     local root_fs="$2"
-
     if [[ "$root_fs" == "btrfs" ]]; then
-        # Create subvolumes if not already existing
         mount "$root_dev" /mnt
         btrfs subvolume create /mnt/@ || true
         btrfs subvolume create /mnt/@home || true
         btrfs subvolume create /mnt/@snapshots || true
         umount /mnt
-
-        # Mount root subvolume
         mount -o subvol=@ "$root_dev" /mnt
     else
-        # ext4 root
         mount "$root_dev" /mnt
     fi
 }
@@ -306,7 +272,6 @@ mount_root() {
 mount_home() {
     local home_dev="$1"
     local home_fs="$2"
-
     mkdir -p /mnt/home
     if [[ "$home_fs" == "btrfs" ]]; then
         mount -o subvol=@home "$home_dev" /mnt/home
@@ -315,36 +280,13 @@ mount_home() {
     fi
 }
 
-# Determine devices to mount
-if $USE_LUKS; then
-    MOUNT_ROOT="/dev/mapper/cryptroot"
-    [[ "$HOME_ENC_ANSWER" =~ ^[yY]$ ]] && MOUNT_HOME="/dev/mapper/crypthome" || MOUNT_HOME="${PDEV["home"]}"
-else
-    MOUNT_ROOT="${PDEV["root"]}"
-    MOUNT_HOME="${PDEV["home"]}"
-fi
-
-# Mount root and home
 mount_root "$MOUNT_ROOT" "$ROOT_FS"
 mount_home "$MOUNT_HOME" "$HOME_FS"
-
-# Mount EFI
 mkdir -p /mnt/boot
 mount "${PDEV["boot"]}" /mnt/boot
 
-# Optional: show final layout
-echo
-echo "✅ Partitions mounted:"
-lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT
-#==========================
-# FINAL CHECK
-#==========================
-echo
-echo "✅ Partitioning, LUKS, and BTRFS subvolumes complete. Layout:"
+echo "Partitions mounted successfully."
 lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT "$DEV"
-
-confirm "Is this layout correct? Continue?" || exec "$0"
-
 
 clear
 echo
@@ -438,49 +380,44 @@ echo
 echo "Installing GRUB (UEFI + Secure Boot)..."
 
 EFI_PART="${PDEV["boot"]}"
-
-# Ensure EFI partition is mounted at /mnt/boot/efi
 mkdir -p /mnt/boot/efi
 mountpoint -q /mnt/boot/efi || mount "$EFI_PART" /mnt/boot/efi
 
-# Determine parent disk for efibootmgr
 EFI_DISK=$(lsblk -no PKNAME "$EFI_PART" 2>/dev/null || echo "$DEV")
 [[ -z "$EFI_DISK" ]] && EFI_DISK="$DEV"
 
-# Detect partition number reliably
 EFI_PART_NUM=$(lsblk -ln -o NAME "$DEV" | grep -n "$(basename $EFI_PART)" | cut -d: -f1)
-[[ -z "$EFI_PART_NUM" ]] && EFI_PART_NUM=1  # fallback
+[[ -z "$EFI_PART_NUM" ]] && EFI_PART_NUM=1
 
-# Install GRUB inside chroot
 arch-chroot /mnt grub-install \
-  --target=x86_64-efi \
-  --efi-directory=/boot/efi \
-  --bootloader-id=GRUB \
-  --recheck \
-  --no-nvram
+    --target=x86_64-efi \
+    --efi-directory=/boot/efi \
+    --bootloader-id=GRUB \
+    --recheck \
+    --no-nvram
 
-# Generate GRUB configuration
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
-# Secure Boot signing with sbctl if available
 if command -v sbctl >/dev/null 2>&1; then
-    echo "🔐 Signing GRUB for Secure Boot using sbctl..."
     arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
     arch-chroot /mnt sbctl enroll-keys --microsoft
     arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
     arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
 fi
 
-# Copy fallback EFI binary (BOOTX64.EFI)
 arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-# Remove stale Arch boot entries
+# Cleanup old boot entries
 for bootnum in $(efibootmgr -v | awk "/Arch Linux/ {print substr(\$1,5,4)}"); do
     efibootmgr -b "$bootnum" -B || true
 done
 
-# Create new EFI boot entry
 efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART_NUM" -L "Arch Linux" -l '\EFI\GRUB\grubx64.efi'
+
+echo "✅ Installation complete. EFI + GRUB + Secure Boot ready."
+efibootmgr -v || true
+
+
 
 echo "✅ Secure Boot GRUB installation complete."
 efibootmgr -v || true
