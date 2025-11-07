@@ -898,11 +898,11 @@ echo
 echo "-------------------------------------------"
 echo "🔐 LOGIN / DISPLAY MANAGER SELECTION"
 echo "-------------------------------------------"
-echo "1) GDM"
-echo "2) SDDM"
-echo "3) LightDM"
-echo "4) LXDM"
-echo "5) Ly (AUR)"
+echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
+echo "2) SDDM - If you installed: KDE, XFCE" 
+echo "3) LightDM - XFCE"
+echo "4) Ly (AUR) - Sway, Hyprland"
+echo "5) LXDM - XFCE"
 echo "6) Skip Display Manager"
 read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
 DM_CHOICE="${DM_CHOICE:-6}"
@@ -925,13 +925,13 @@ case "$DM_CHOICE" in
         DM_SERVICE="lightdm.service"
         ;;
     4)
-        DM_PKGS=(lxdm)
-        DM_SERVICE="lxdm.service"
-        ;;
-    5)
         DM_PKGS=(ly)
         DM_AUR_PKGS=(ly-themes-git)
         DM_SERVICE="ly.service"
+        ;;
+    5)
+        DM_PKGS=(lxdm)
+        DM_SERVICE="lxdm.service"
         ;;
     6|*)
         echo "Skipping display manager installation."
