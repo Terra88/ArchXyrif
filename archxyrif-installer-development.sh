@@ -1008,9 +1008,10 @@ echo "-------------------------------------------"
 read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+EXTRA_AUR_PKGS=() #Extra AUR PKG can be set here pre hand.
 
     # Merge WM + DM AUR packages with user input
-    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}")
+    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
         AUR_PKGS+=($EXTRA_AUR_INPUT)
     fi
