@@ -15,9 +15,6 @@ cd ArchXyrif <br>
 chmod +x archxyrif-installer.sh <br>
 ./archxyrif-installer.sh <br> <br>
 
-Versio 1.0 - Automated arch linux install script - archlinux-installer.sh
-https://github.com/Terra88/ArchXyrif/releases/tag/ver1.0
-
 <br>
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
 <br><br>
