@@ -4,7 +4,7 @@
 Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
-Aim of the project: Is to create a semi-automated script, that will help you install Arch Linux, semi automatically. The program will guide you through the installation and stop with prompts step by step. 1) Partition 2) Installing bare minimum build with pacstrap 3) Ask for user/host informations and set user/root pw set systemctl service on for network manager Optional: [y/n] options: 4) Guides you through GPU driver/Window manager/Login manager setup with simple "example: (1.Intel,2.Nvidia,3.AMD,4.All drivers,5.Skip) options" 5) asks if you want to install extra Pacman or AUR packages y/n and finishes the install.
+Aim of the project: Is to create a semi-automated script, that will help you install Arch Linux, semi automatically. The program will guide you through the installation and stop with prompts step by step. <br> 1) Partition 2) Installing bare minimum build with pacstrap 3) Ask for user/host informations and set user/root pw set systemctl service on for network manager Optional: [y/n] options: 4) Guides you through GPU driver/Window manager/Login manager setup with simple "example: (1.Intel,2.Nvidia,3.AMD,4.All drivers,5.Skip) options" 5) asks if you want to install extra Pacman or AUR packages y/n and finishes the install.
 <br><br>
 HOW TO USE: Create a USB Boot Stick with Balena Etcher & Iso file from: https://archlinux.org/download/ <br>
 Set USB Boot to 1st priority from startup menu f2/del and Restart to Boot Archlinux Bootable installer ISO(USB Media)<br>
