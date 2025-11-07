@@ -780,7 +780,8 @@ safe_aur_install() {
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
 
-
+sleep 1
+clear
 echo
 echo "#===================================================================================================#"
 echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                             "
