@@ -86,7 +86,11 @@ Ver1.0: Had issues with installing AUR PKG's
 -AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
 
 <br>
-1.3.1 - Minor tweaks to add correct user rights when logging into fresh system, also to set correct keyboard layout to x11 systems when you log in to the first time.<br><br>
+1.3.1 1.3.1 - Minor tweaks to add correct user rights when logging into fresh system, also to set correct keyboard layout to x11 systems when you log in to the first time.
+<br><br>
+
+-Created a table of contents to the start of the script and Interactive Headers that pop up, when next stage of installation starts to help the user with the installation progress. Makes the installation much more clear, when the new header pops and the old "garbage on the screen clears".<br>
+
 -Added Block 11: to install a custom hyprland theme from another project of mine "https://GitHub.com/Terra88/hyprland-setup"<br><br>
 -Block 11 will prompt if you install Hyprland and ask, if you want to add my custom theme to it y/N. If you answer yes, additional packages will be installed that the theme requires and .config files will be copied automatically from my other GitHub project.<br><br>
 -it will automatically give new user the rights to that folder. Also wallpaper engine will be added to /home as wallpaper.sh and a wallpaper folder that the engine rotates. hyprlock will have a lock button and a wallpaper set to it in /home/wallpaper folder called lock.jpg
