@@ -1022,16 +1022,16 @@ if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
         else
             echo "⚠️  Skipping invalid or missing package: $pkg"
         fi
-
-    #Merge EXTRA_PKGS with EXTRA_PKG_INPUT
-    EXTRA_PKG=("${EXTRA_PKGS[@]}" "${#VALID_PKGS[@]}")
-    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
-        EXTRA_PKG+=($EXTRA_PKG_INPUT)
-    fi
-    
     done
 
-    if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
+    # Merge validated list with user input
+    EXTRA_PKG=("${VALID_PKGS[@]}")
+    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
+    fi
+
+    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
     else
         echo "⚠️  No valid packages to install."
