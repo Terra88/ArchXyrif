@@ -925,7 +925,7 @@ case "$DM_CHOICE" in
         DM_SERVICE="lightdm.service"
         ;;
     4)
-        DM_PKGS=(lxdm lightdm)
+        DM_PKGS=(lxdm)
         DM_SERVICE="lxdm.service"
         ;;
     5)
