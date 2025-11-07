@@ -8,7 +8,7 @@ Aim of the project:<br>
 Is to create a semi-automated script, that will help you install Arch Linux, semi automatically. The program will guide you through the installation and stop with prompts step by step. 
 <br><br> 
 1) Partition 2) Installing bare minimum build with pacstrap 3) Ask for user/host informations and set user/root pw set systemctl service on for network manager on etc.
-2) <br>
+<br>
 Optional: [y/n] options: 4) Guides you through GPU driver/Window manager/Login manager setup with simple "example: (1.Intel,2.Nvidia,3.AMD,4.All drivers,5.Skip) options" 5) asks if you want to install extra Pacman or AUR packages y/n and finishes the install.
 <br><br>
 HOW TO USE: Create a USB Boot Stick with Balena Etcher & Iso file from: https://archlinux.org/download/ <br>
