@@ -75,298 +75,182 @@ echo
 #==========================
 # HELPERS
 #==========================
-
 confirm() {
-  local msg="${1:-Continue?}"
-  read -r -p "$msg [yes/NO]: " ans
-  case "$ans" in
-    [yY]|[yY][eE][sS]) return 0 ;;
-    *) return 1 ;;
-  esac
+    local msg="${1:-Continue?}"
+    read -r -p "$msg [yes/NO]: " ans
+    case "$ans" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+        *) return 1 ;;
+    esac
 }
 
 part_suffix() {
-  local dev="$1"
-  if [[ "$dev" =~ nvme|mmcblk ]]; then
-    echo "p"
-  else
-    echo ""
-  fi
+    local dev="$1"
+    [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
 
 die() {
-  echo "ERROR: $*" >&2
-  exit 1
+    echo "ERROR: $*" >&2
+    exit 1
 }
 
 #==========================
-# ASK FOR DEVICE
+# LIST DISKS & SELECT
 #==========================
+echo "Available block devices:"
+lsblk -d -o NAME,SIZE,MODEL,TYPE | grep disk
 
-echo "Available block devices (lsblk):"
-lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
+read -r -p "Enter the disk to use (e.g., /dev/sda or /dev/nvme0n1): " DEV
+[[ -b "$DEV" ]] || die "Device '$DEV' not found."
 
-read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-DEV="${DEV:-}"
+echo
+echo "Existing partitions on $DEV:"
+lsblk "$DEV" -o NAME,SIZE,FSTYPE,MOUNTPOINT
 
-[[ -b "$DEV" ]] || die "Device '$DEV' not found or not a block device."
-echo "You selected: $DEV"
-echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS, LVM, swap, etc)."
+echo
+echo "⚠️ This will DESTROY ALL DATA on $DEV"
 confirm "Are you absolutely sure?" || die "User cancelled."
 
 #==========================
-# UNMOUNT & SWAPOFF
+# UNMOUNT, SWAPOFF, LVM/LUKS CLEANUP
 #==========================
-
-mapfile -t MOUNTS < <(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!="" {print $1":"$2}')
-for m in "${MOUNTS[@]:-}"; do
-  name="${m%%:*}"
-  mnt="${m#*:}"
-  [[ -n "$mnt" ]] && echo "Unmounting /dev/$name from $mnt" && umount -l "/dev/$name" || true
+for mnt in $(lsblk -ln -o MOUNTPOINT "$DEV" | grep -v '^$'); do
+    echo "Unmounting $mnt"
+    umount -l "$mnt" || true
 done
 
 for sw in $(awk 'NR>1 {print $1}' /proc/swaps); do
-  [[ "$sw" == "$DEV"* ]] && echo "Turning off swap $sw" && swapoff "$sw" || true
+    [[ "$sw" == "$DEV"* ]] && { echo "Turning off swap $sw"; swapoff "$sw"; }
 done
 
-#==========================
-# CLEAR OLD PARTITION TABLES / LUKS / LVM SIGNATURES
-#==========================
+if command -v lvremove >/dev/null 2>&1; then
+    for vg in $(vgs --noheadings -o vg_name 2>/dev/null); do
+        if lvdisplay "/dev/$vg" | grep -q "$DEV"; then
+            echo "Removing LVM volume group $vg"
+            lvremove -ff "/dev/$vg" || true
+            vgremove -ff "$vg" || true
+        fi
+    done
+fi
 
-echo "Wiping partition table and signatures..."
-which sgdisk >/dev/null 2>&1 || die "sgdisk required."
-which wipefs >/dev/null 2>&1 || die "wipefs required."
-
-# Close any LUKS mappings
-echo "Closing any LUKS mappings..."
-for map in /dev/mapper/*; do
-  if [[ -L "$map" ]]; then
-    target=$(readlink -f "$map" || true)
-    if [[ "$target" == "$DEV"* ]]; then
-      name=$(basename "$map")
-      echo "  Closing mapper $name (points at $target)"
-      cryptsetup luksClose "$name" || true
+for part in $(lsblk -ln -o NAME "$DEV"); do
+    devpath="/dev/$part"
+    if cryptsetup isLuks "$devpath" >/dev/null 2>&1; then
+        echo "Wiping LUKS header on $devpath"
+        cryptsetup luksErase "$devpath" --force || true
     fi
-  fi
 done
 
-# Zap GPT/MBR, wipe signatures
+if command -v mdadm >/dev/null 2>&1; then
+    mdadm --zero-superblock --scan --force || true
+fi
+
 sgdisk --zap-all "$DEV" || true
 wipefs -a "$DEV" || true
-
-# Overwrite first 2MiB
-echo "Zeroing first 2MiB of $DEV..."
 dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
-
-# Overwrite last 1MiB if device supports
 devsize_bytes=$(blockdev --getsize64 "$DEV")
-if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-  dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
-fi
+[[ "$devsize_bytes" -gt 1048576 ]] && dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
 
 #==========================
 # SWAP PROMPT
 #==========================
-
 read -r -p "Do you want a swap partition? [y/N]: " SWAP_ANSWER
-SWAP_ANSWER="${SWAP_ANSWER:-n}"
 USE_SWAP=false
 [[ "$SWAP_ANSWER" =~ ^[yY]$ ]] && USE_SWAP=true
 
 #==========================
-# QUICK OR CUSTOM MODE
+# LUKS PROMPT
 #==========================
+read -r -p "Do you want to encrypt root and home partitions with LUKS? [y/N]: " ENCRYPT_ANSWER
+USE_LUKS=false
+[[ "$ENCRYPT_ANSWER" =~ ^[yY]$ ]] && USE_LUKS=true
 
-echo
-echo "Partitioning Mode:"
-echo "1) Quick Mode"
-echo "2) Custom Mode"
-read -r -p "Choose mode [1-2]: " MODE
+#==========================
+# QUICK PARTITIONING
+#==========================
+echo "Using Quick Mode partitioning..."
+EFI_SIZE=1024       # MiB
+ROOT_SIZE=102400    # MiB
 
-case "$MODE" in
-  1)
-    echo "Quick Mode selected."
-    echo "Filesystem Options:"
-    echo "1) EXT4   - Simple, reliable, widely used. Good all-around choice."
-    echo "2) BTRFS  - Modern, supports snapshots and flexible resizing, a bit more complex."
-    echo "3) BTRFS + EXT4 - Root on BTRFS (flexible), Home on EXT4 (stable for data)."
-    echo "4) Go back / Re-select partitioning mode"
-    read -r -p "Select FS [1-3]: " FS_CHOICE
+RAM_MIB=$(( ( $(awk '/MemTotal/ {print $2}' /proc/meminfo) + 1023 ) / 1024 ))
+SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
 
-    # Partition sizes
-    EFI_SIZE=1024
-    ROOT_SIZE=102400
-    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    ram_mib=$(( (ram_kb+1023)/1024 ))
-    if (( ram_mib <= 8192 )); then SWAP_SIZE=$((ram_mib*2)); else SWAP_SIZE=$ram_mib; fi
+parted -s "$DEV" mklabel gpt
+PSUFF=$(part_suffix "$DEV")
+declare -A PDEV
+CUR=1
 
-    CUR=1
-    P1_START=$CUR
-    P1_END=$((CUR+EFI_SIZE))
-    CUR=$P1_END
-    P2_START=$CUR
-    P2_END=$((CUR+ROOT_SIZE))
-    CUR=$P2_END
-    if $USE_SWAP; then
-      P3_START=$CUR
-      P3_END=$((CUR+SWAP_SIZE))
-      CUR=$P3_END
-      P4_START=$CUR
-      P4_END="100%"
-    else
-      P3_START=0; P3_END=0
-      P4_START=$CUR
-      P4_END="100%"
-    fi
+# Quick Mode partitions
+P1_START=$CUR; P1_END=$((CUR+EFI_SIZE)); CUR=$P1_END
+P2_START=$CUR; P2_END=$((CUR+ROOT_SIZE)); CUR=$P2_END
+$USE_SWAP && P3_START=$CUR; P3_END=$((CUR+SWAP_SIZE)); CUR=$P3_END
+P4_START=$CUR; P4_END="100%"
 
-    parted -s "$DEV" mklabel gpt
-    # Partition 1 EFI
-    parted -s "$DEV" mkpart primary fat32 "${P1_START}MiB" "${P1_END}MiB"
-    parted -s "$DEV" set 1 boot on
+# Partition creation
+parted -s "$DEV" mkpart primary fat32 "${P1_START}MiB" "${P1_END}MiB"
+parted -s "$DEV" set 1 boot on
+parted -s "$DEV" mkpart primary ext4 "${P2_START}MiB" "${P2_END}MiB"
+$USE_SWAP && parted -s "$DEV" mkpart primary linux-swap "${P3_START}MiB" "${P3_END}MiB"
+parted -s "$DEV" mkpart primary ext4 "${P4_START}MiB" "$P4_END"
 
-    # Partition 2 Root
-    case "$FS_CHOICE" in
-      1) ROOT_FS="ext4";;
-      2) ROOT_FS="btrfs";;
-      3) ROOT_FS="btrfs";;
-      4)
-          echo "Returning to partitioning mode selection..."
-          exec "$0"  # restart the script from the beginning
-          ;;
-      *)
-          echo "Invalid choice. Please select 1–4."
-          ;;
-    esac
-    parted -s "$DEV" mkpart primary "$ROOT_FS" "${P2_START}MiB" "${P2_END}MiB"
-
-    # Partition 3 Swap (optional)
-    $USE_SWAP && parted -s "$DEV" mkpart primary linux-swap "${P3_START}MiB" "${P3_END}MiB"
-
-    # Partition 4 Home
-    if [[ "$FS_CHOICE" == "3" ]]; then
-      HOME_FS="ext4"
-    else
-      HOME_FS="$ROOT_FS"
-    fi
-    parted -s "$DEV" mkpart primary "$HOME_FS" "${P4_START}MiB" "$P4_END"
-    ;;
-
-  2)
-    echo "Custom Mode selected."
-    echo "Enter partitions manually. Use 'done' when finished."
-    declare -A PARTS
-    PART_START=1
-    while true; do
-      read -r -p "Partition name (boot/root/home/swap) or 'done': " NAME
-      [[ "$NAME" == "done" ]] && break
-      read -r -p "Size in MiB (or 'rest'): " SIZE
-      PARTS["$NAME"]="$SIZE"
-    done
-
-    parted -s "$DEV" mklabel gpt
-    CUR=$PART_START
-    for NAME in "${!PARTS[@]}"; do
-      SIZE="${PARTS[$NAME]}"
-      END="$((CUR+SIZE))"
-      [[ "$SIZE" == "rest" ]] && END="100%"
-      case "$NAME" in
-        boot) FS="fat32";;
-        swap) FS="linux-swap";;
-        *) FS="ext4";;
-      esac
-      parted -s "$DEV" mkpart primary "$FS" "${CUR}MiB" "${END}MiB"
-      [[ "$NAME" == "boot" ]] && parted -s "$DEV" set 1 boot on
-      CUR=$(( CUR + SIZE ))
-    done
-    ;;
-
-  *)
-    die "Invalid mode."
-    ;;
-esac
+PDEV["boot"]="${DEV}${PSUFF}1"
+PDEV["root"]="${DEV}${PSUFF}2"
+$USE_SWAP && PDEV["swap"]="${DEV}${PSUFF}3" || PDEV["swap"]=""
+PDEV["home"]="${DEV}${PSUFF}4"
 
 partprobe "$DEV"
 sleep 1
 
 #==========================
-# Derive partition names
+# ENCRYPTION
 #==========================
+if $USE_LUKS; then
+    read -s -r -p "Enter passphrase for root LUKS: " ROOT_PASS
+    echo
+    cryptsetup luksFormat "${PDEV["root"]}" <<< "$ROOT_PASS"$'\n'"$ROOT_PASS"
+    cryptsetup open "${PDEV["root"]}" cryptroot <<< "$ROOT_PASS"
 
-PSUFF=$(part_suffix "$DEV")
-declare -A PDEV
-INDEX=1
-
-# Quick Mode PDEV assignment
-if [[ "$MODE" == "1" ]]; then
-  PDEV["boot"]="${DEV}${PSUFF}1"
-  PDEV["root"]="${DEV}${PSUFF}2"
-  [[ $USE_SWAP == true ]] && PDEV["swap"]="${DEV}${PSUFF}3" || PDEV["swap"]=""
-  if [[ "$FS_CHOICE" == "3" ]]; then
-    PDEV["home"]="${DEV}${PSUFF}4"
-  else
-    [[ $USE_SWAP == true ]] && PDEV["home"]="${DEV}${PSUFF}4" || PDEV["home"]="${DEV}${PSUFF}3"
-  fi
+    read -r -p "Encrypt home partition? [y/N]: " HOME_ENC_ANSWER
+    if [[ "$HOME_ENC_ANSWER" =~ ^[yY]$ ]]; then
+        read -s -r -p "Enter passphrase for home LUKS: " HOME_PASS
+        echo
+        cryptsetup luksFormat "${PDEV["home"]}" <<< "$HOME_PASS"$'\n'"$HOME_PASS"
+        cryptsetup open "${PDEV["home"]}" crypthome <<< "$HOME_PASS"
+        MOUNT_HOME="/dev/mapper/crypthome"
+    else
+        MOUNT_HOME="${PDEV["home"]}"
+    fi
+    MOUNT_ROOT="/dev/mapper/cryptroot"
 else
-  # Custom mode assignment
-  INDEX=1
-  for NAME in "${!PARTS[@]}"; do
-    PDEV["$NAME"]="${DEV}${PSUFF}${INDEX}"
-    INDEX=$((INDEX+1))
-  done
+    MOUNT_ROOT="${PDEV["root"]}"
+    MOUNT_HOME="${PDEV["home"]}"
 fi
 
 #==========================
-# Format partitions
+# FORMAT PARTITIONS
 #==========================
-
-for NAME in "${!PDEV[@]}"; do
-  PART="${PDEV[$NAME]}"
-  [[ -z "$PART" ]] && continue
-  case "$NAME" in
-    boot) mkfs.fat -F32 "$PART";;
-    swap) $USE_SWAP && { mkswap "$PART"; swapon "$PART"; };;
-    root|home)
-      if [[ "$MODE" == "1" && "$FS_CHOICE" == "2" && "$NAME" == "root" ]]; then
-        mkfs.btrfs -f "$PART"
-      elif [[ "$MODE" == "1" && "$FS_CHOICE" == "3" && "$NAME" == "root" ]]; then
-        mkfs.btrfs -f "$PART"
-      elif [[ "$MODE" == "1" && "$FS_CHOICE" == "3" && "$NAME" == "home" ]]; then
-        mkfs.ext4 -F "$PART"
-      else
-        mkfs.ext4 -F "$PART"
-      fi
-      ;;
-  esac
-done
+mkfs.fat -F32 "${PDEV["boot"]}"
+$USE_SWAP && { mkswap "${PDEV["swap"]}"; swapon "${PDEV["swap"]}"; }
+mkfs.ext4 -F "$MOUNT_ROOT"
+mkfs.ext4 -F "$MOUNT_HOME"
 
 #==========================
-# Mount partitions
+# MOUNT PARTITIONS
 #==========================
-
-for NAME in "${!PDEV[@]}"; do
-  PART="${PDEV[$NAME]}"
-  [[ -z "$PART" ]] && continue
-  case "$NAME" in
-    root) mount "$PART" /mnt;;
-    boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot;;
-    home) mkdir -p /mnt/home; mount "$PART" /mnt/home;;
-  esac
-done
+mount "$MOUNT_ROOT" /mnt
+mkdir -p /mnt/boot
+mount "${PDEV["boot"]}" /mnt/boot
+mkdir -p /mnt/home
+mount "$MOUNT_HOME" /mnt/home
 
 #==========================
-# Final lsblk & Restart Option
+# FINAL CHECK
 #==========================
-
 echo
-echo "Final Partition Layout:"
-lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+echo "✅ Partitioning & encryption complete. Layout:"
+lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT "$DEV"
 
-if ! confirm "Partitioning correct? Continue with installation?"; then
-  echo "Restarting partitioning..."
-  exec "$0"
-fi
-
-echo "Partitioning complete. Ready for installation..."
+confirm "Is this layout correct? Continue?" || exec "$0"
 
 
 clear
