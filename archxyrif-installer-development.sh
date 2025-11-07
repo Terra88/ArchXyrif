@@ -1014,12 +1014,6 @@ if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
     # Clean list: neofetch removed (deprecated)
     EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
 
-    #Merge EXTRA_PKGS with EXTRA_PKG_INPUT
-    EXTRA_PKG=("${EXTRA_PKGS[@]}" "${#VALID_PKGS[@]}")
-    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
-        EXTRA_PKG+=($EXTRA_PKG_INPUT)
-    fi
-
     # Filter out non-existent packages before installing
     VALID_PKGS=()
     for pkg in "${EXTRA_PKGS[@]}"; do
@@ -1028,6 +1022,13 @@ if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
         else
             echo "⚠️  Skipping invalid or missing package: $pkg"
         fi
+
+    #Merge EXTRA_PKGS with EXTRA_PKG_INPUT
+    EXTRA_PKG=("${EXTRA_PKGS[@]}" "${#VALID_PKGS[@]}")
+    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+        EXTRA_PKG+=($EXTRA_PKG_INPUT)
+    fi
+    
     done
 
     if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
