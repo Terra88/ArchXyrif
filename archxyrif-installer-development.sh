@@ -258,9 +258,7 @@ echo "Filesystem Partition Options"
 echo "-------------------------------------------"
 echo "1) EXT4"
 echo "2) BTRFS"
-echo "3) f2fs"
-echo "4) xfs"
-read -r -p "Select File System [1-4, default=1]: " DEV_CHOICE
+read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
 DEV_CHOICE="${DEV_CHOICE:-1}"
 
 case "$DEV_CHOICE" in
