@@ -237,24 +237,53 @@ p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
 
 p4_start=$p3_end                             # home start; end = 100%
 
+sleep 1
+clear
+echo "#===================================================================================================#"
+echo "# 1.3) SELECT FILESYSTEM                                                                             "
+echo "#===================================================================================================#"
+echo 
+
 # Rounded values to avoid fractional MiB
 echo "Partition table (MiB):"
 echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, ext4)"
+echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, root)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
-echo "  4) Home   : ${p4_start}MiB - 100% (ext4)"
+echo "  4) Home   : ${p4_start}MiB - 100% (home)"
 
-if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+# Partition option btrfs or ext4
+echo
+echo "-------------------------------------------"
+echo "Filesystem Partition Options"
+echo "-------------------------------------------"
+echo "1) BTRFS"
+echo "2) EXT4"
+read -r -p "Select File System [1-2, default=2]: " DEV_CHOICE
+DEV_CHOICE="${DEV_CHOICE:-2}]"
+
+case "$DEV_CHOICE" in
+    1)
+        echo "BTRFS"
+        ;;
+    2)
+        echo "EXT4" 
+        ;;
+esac
+
+if [[ " ${DEV_CHOICE} " =~ "1" ]]; then
+
 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-parted -s "$DEV" mkpart primary brtfs "${p2_start}MiB" "${p2_end}MiB"
+parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
 parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-parted -s "$DEV" mkpart primary brtfs "${p4_start}MiB" 100%
+parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
+
 else
-# Create partitions
+
 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
 parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
+
 fi
 
 # Set boot flag on partition 1 (UEFI)
@@ -282,7 +311,7 @@ if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
 fi
 
 #===================================================================================================#
-# 1.3) Mounting Created Partitions
+# 1.4) Mounting Created Partitions
 #===================================================================================================#
 
 # Filesystems
@@ -300,7 +329,7 @@ mkfs.ext4 -F "$P2"
 mkfs.ext4 -F "$P4"
 
 #===================================================================================================#
-# 1.4) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
+# 1.5) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
 #===================================================================================================#
 mkswap "$P3"
 swapon "$P3"
