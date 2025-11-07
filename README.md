@@ -16,8 +16,8 @@ Make sure you have internet connection turned on.<br>
 Type:<br>
 loadkeys fi or en etc. depending your keyboard language/layout.
 <br>
-git clone https://github.com/Terra88/ArchXyrif <br>
-cd ArchXyrif <br>
+git clone https://github.com/terra88/archXyrif <br>
+cd archxyrif <br>
 chmod +x archxyrif-installer.sh <br>
 ./archxyrif-installer.sh <br> <br>
 
