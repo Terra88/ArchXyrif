@@ -394,11 +394,13 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 
 clear
+sleep 1
 echo
 echo "#===================================================================================================#"
 echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)                      "
 echo "#===================================================================================================#"
 echo
+sleep 1
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
