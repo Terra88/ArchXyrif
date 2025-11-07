@@ -22,7 +22,6 @@ loadkeys fi
 timedatectl set-ntp true
 echo
 echo "#=====================================================================================================#"
-echo "#=====================================================================================================#"
 echo "                                                                                 "      
 echo "       d8888                 888      Y88b   d88P                  d8b  .d888    "        
 echo "      d88888                 888       Y88b d88P                   Y8P d88P      "
@@ -39,9 +38,8 @@ echo "        Automated and Interactive - Arch Linux Installer                  
 echo "                                                                                 "
 echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      "
 echo "#=====================================================================================================#"
-echo "#=====================================================================================================#"
-echo
 echo "Table of Contents:               "
+echo "---------------------------------"
 echo "1)Disk Selection & Format        "
 echo "2)Pacstrap:Installing Base system"
 echo "3)Generating fstab               "
