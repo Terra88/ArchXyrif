@@ -14,10 +14,7 @@ git clone https://github.com/Terra88/ArchXyrif <br>
 cd ArchXyrif <br>
 chmod +x archxyrif-installer.sh <br>
 ./archxyrif-installer.sh <br> <br>
-<br>
-1.3.1 - Minor tweaks to add correct user rights when logging in, also to set correct keyboard layout to x11 systems when you log in to the first time.<br>
--Added Block 11: to install a custom hyprland theme another project of mine, see release details 1.3.1
-<br>
+
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
 <br><br>
 1.0 - Version Feature Recall
@@ -82,3 +79,7 @@ Ver1.0: Had issues with installing AUR PKG's
 <br><br>
 -AUR_Additional packages are asked as manual prompt for now, i haven't added "Extra_AUR" to the code yet, because i wanted to make a Release with the changes that are working now. So any extra package works if u just know the pkg you want to install, like "Hyprland-git" for example.<br><br>
 
+<br>
+1.3.1 - Minor tweaks to add correct user rights when logging in, also to set correct keyboard layout to x11 systems when you log in to the first time.<br>
+-Added Block 11: to install a custom hyprland theme another project of mine, see release details 1.3.1
+<br>
