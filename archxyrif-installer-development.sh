@@ -75,14 +75,8 @@ echo
 set -euo pipefail
 shopt -s inherit_errexit  # Ensures subshell errors are caught
 
-#==========================
-# PREPARATION
-#==========================
-clear
-echo "🔹 Loading Finnish keymap and enabling NTP..."
-loadkeys fi
-timedatectl set-ntp true
-echo
+#!/usr/bin/env bash
+set -euo pipefail
 
 #==========================
 # HELPERS
@@ -96,18 +90,18 @@ confirm() {
     esac
 }
 
+die() {
+    echo "ERROR: $*" >&2
+    exit 1
+}
+
 part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
 
-die() {
-    echo "❌ ERROR: $*" >&2
-    exit 1
-}
-
 #==========================
-# DISK SELECTION
+# SELECT DISK
 #==========================
 echo "Available block devices:"
 lsblk -d -o NAME,SIZE,MODEL,TYPE | grep disk
@@ -120,27 +114,33 @@ echo "Existing partitions on $DEV:"
 lsblk "$DEV" -o NAME,SIZE,FSTYPE,MOUNTPOINT
 
 echo
-echo "⚠️ This will DESTROY ALL DATA on $DEV"
-confirm "Are you absolutely sure?" || die "User cancelled."
+echo "⚠️ WARNING: This will DESTROY ALL DATA on $DEV!"
+confirm "Are you absolutely sure?" || exit 1
 
-# Unmount and disable swap
+#==========================
+# UNMOUNT & CLEAN DISK
+#==========================
+# Unmount all mounts on this disk
 for mnt in $(lsblk -ln -o MOUNTPOINT "$DEV" | grep -v '^$'); do
     umount -l "$mnt" || true
 done
+
+# Disable swap on this disk
 for sw in $(awk 'NR>1 {print $1}' /proc/swaps); do
     [[ "$sw" == "$DEV"* ]] && swapoff "$sw"
 done
 
-# Remove LVM/LUKS/RAID remnants
+# Remove LVM, LUKS, RAID if present
 if command -v lvremove >/dev/null 2>&1; then
     for vg in $(vgs --noheadings -o vg_name 2>/dev/null); do
-        lvremove -ff "/dev/$vg" || true
-        vgremove -ff "$vg" || true
+        if lvdisplay "/dev/$vg" | grep -q "$DEV"; then
+            lvremove -ff "/dev/$vg" || true
+            vgremove -ff "$vg" || true
+        fi
     done
 fi
-if command -v mdadm >/dev/null 2>&1; then
-    mdadm --zero-superblock --scan --force || true
-fi
+
+# Remove any LUKS signatures
 for part in $(lsblk -ln -o NAME "$DEV"); do
     devpath="/dev/$part"
     if cryptsetup isLuks "$devpath" >/dev/null 2>&1; then
@@ -148,10 +148,12 @@ for part in $(lsblk -ln -o NAME "$DEV"); do
     fi
 done
 
-#==========================
-# WIPE DISK
-#==========================
-echo "🧹 Wiping disk..."
+# Remove RAID superblocks
+if command -v mdadm >/dev/null 2>&1; then
+    mdadm --zero-superblock --scan --force || true
+fi
+
+# Wipe disk completely
 sgdisk --zap-all "$DEV"
 wipefs -a "$DEV"
 dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none
@@ -159,10 +161,10 @@ partprobe "$DEV"
 sleep 2
 
 #==========================
-# PARTITION MODE
+# PARTITIONING MODE
 #==========================
 echo "Select partitioning mode:"
-echo "1) Quick (default sizes, btrfs root/home, FAT32 boot)"
+echo "1) Quick (default sizes: EFI 1GiB, root 120GiB, swap 2xRAM, home rest)"
 echo "2) Custom (choose sizes and filesystems)"
 read -r PART_MODE
 PART_MODE="${PART_MODE:-1}"
@@ -175,19 +177,16 @@ read -r -p "Do you want to encrypt root and home partitions with LUKS? [y/N]: " 
 USE_LUKS=false
 [[ "$ENCRYPT_ANSWER" =~ ^[yY]$ ]] && USE_LUKS=true
 
-#==========================
-# CREATE PARTITIONS
-#==========================
 parted -s "$DEV" mklabel gpt
 PSUFF=$(part_suffix "$DEV")
 CUR=1
 
 if [[ "$PART_MODE" == "1" ]]; then
-    # Quick mode sizes
+    # Quick mode
     EFI_SIZE=1024
-    ROOT_SIZE=102400
+    ROOT_SIZE=120000
     RAM_MIB=$(( ( $(awk '/MemTotal/ {print $2}' /proc/meminfo) + 1023 ) / 1024 ))
-    SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
+    [[ "$USE_SWAP" == true ]] && SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
 
     P1_START=$CUR; P1_END=$((CUR+EFI_SIZE)); CUR=$P1_END
     P2_START=$CUR; P2_END=$((CUR+ROOT_SIZE)); CUR=$P2_END
@@ -205,24 +204,24 @@ if [[ "$PART_MODE" == "1" ]]; then
 
 else
     # Custom mode
-    read -r -p "Size of EFI partition in MiB [1024]: " EFI_SIZE
+    read -r -p "EFI size in MiB [1024]: " EFI_SIZE
     EFI_SIZE="${EFI_SIZE:-1024}"
 
-    read -r -p "Size of root partition in MiB [120000]: " ROOT_SIZE
+    read -r -p "Root size in MiB [120000]: " ROOT_SIZE
     ROOT_SIZE="${ROOT_SIZE:-120000}"
 
     if $USE_SWAP; then
-        read -r -p "Size of swap partition in MiB (leave empty for 2x RAM): " SWAP_SIZE
+        read -r -p "Swap size in MiB (leave empty for 2xRAM): " SWAP_SIZE
         if [[ -z "$SWAP_SIZE" ]]; then
             RAM_MIB=$(( ( $(awk '/MemTotal/ {print $2}' /proc/meminfo) + 1023 ) / 1024 ))
             SWAP_SIZE=$(( RAM_MIB <= 8192 ? RAM_MIB*2 : RAM_MIB ))
         fi
     fi
 
-    read -r -p "Filesystem for root partition [btrfs/ext4, default=btrfs]: " ROOT_FS
+    read -r -p "Filesystem for root [btrfs/ext4, default=btrfs]: " ROOT_FS
     ROOT_FS="${ROOT_FS:-btrfs}"
 
-    read -r -p "Filesystem for home partition [btrfs/ext4, default=btrfs]: " HOME_FS
+    read -r -p "Filesystem for home [btrfs/ext4, default=btrfs]: " HOME_FS
     HOME_FS="${HOME_FS:-btrfs}"
 
     P1_START=$CUR; P1_END=$((CUR+EFI_SIZE)); CUR=$P1_END
@@ -241,7 +240,7 @@ partprobe "$DEV"
 sleep 2
 
 #==========================
-# DEVICES
+# ASSIGN DEVICES
 #==========================
 declare -A PDEV
 PDEV["boot"]="${DEV}${PSUFF}1"
@@ -275,7 +274,6 @@ fi
 #==========================
 # FORMAT PARTITIONS
 #==========================
-echo "Formatting partitions..."
 mkfs.fat -F32 "${PDEV["boot"]}"
 $USE_SWAP && { mkswap "${PDEV["swap"]}"; swapon "${PDEV["swap"]}"; }
 
@@ -290,44 +288,53 @@ case "$HOME_FS" in
 esac
 
 #==========================
-# MOUNT & SUBVOLUMES (BTRFS)
+# MOUNT ROOT + HOME + SUBVOLUMES
 #==========================
 mount_root() {
     local root_dev="$1"
     local root_fs="$2"
+
     if [[ "$root_fs" == "btrfs" ]]; then
-        mount "$root_dev" /mnt || die "Failed to mount $root_dev"
+        # Mount raw device temporarily
+        mount "$root_dev" /mnt || die "Cannot mount root device $root_dev"
+
+        # Create subvolumes if missing
         for sub in @ @home @snapshots; do
             if ! btrfs subvolume list /mnt | grep -q "$sub"; then
-                echo "Creating subvolume $sub..."
-                btrfs subvolume create /mnt/$sub || die "Failed to create $sub"
+                echo "Creating BTRFS subvolume $sub..."
+                btrfs subvolume create "/mnt/$sub" || die "Failed to create subvolume $sub"
             fi
         done
+
         umount /mnt
-        mount -o compress=zstd,subvol=@ "$root_dev" /mnt
+        # Mount root subvolume
+        mount -o compress=zstd,subvol=@ "$root_dev" /mnt || die "Failed to mount root subvolume @"
+
     else
-        mount "$root_dev" /mnt
+        mount "$root_dev" /mnt || die "Failed to mount ext4 root"
     fi
 }
 
 mount_home() {
     local home_dev="$1"
     local home_fs="$2"
+
     mkdir -p /mnt/home
     if [[ "$home_fs" == "btrfs" ]]; then
-        mount -o compress=zstd,subvol=@home "$home_dev" /mnt/home
+        mount -o compress=zstd,subvol=@home "$home_dev" /mnt/home || die "Failed to mount home subvolume @home"
     else
-        mount "$home_dev" /mnt/home
+        mount "$home_dev" /mnt/home || die "Failed to mount ext4 home"
     fi
 }
 
 mount_root "$MOUNT_ROOT" "$ROOT_FS"
 mount_home "$MOUNT_HOME" "$HOME_FS"
 
+# Mount EFI
 mkdir -p /mnt/boot
 mount "${PDEV["boot"]}" /mnt/boot
 
-echo "✅ Partitioning and subvolumes complete."
+echo "✅ Partitioning, subvolumes, and mounts completed successfully."
 lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT
 
 #==========================
