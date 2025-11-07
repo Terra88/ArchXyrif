@@ -281,15 +281,61 @@ case "$HOME_FS" in
 esac
 
 #==========================
-# MOUNT PARTITIONS
+# MOUNT PARTITIONS & BTRFS SUBVOLUMES
 #==========================
-mount "$MOUNT_ROOT" /mnt
-[[ "$ROOT_FS" == "btrfs" ]] && { btrfs subvolume create /mnt/@; btrfs subvolume create /mnt/@home; umount /mnt; mount -o subvol=@ "$MOUNT_ROOT" /mnt; }
+mount_root() {
+    local root_dev="$1"
+    local root_fs="$2"
+
+    if [[ "$root_fs" == "btrfs" ]]; then
+        # Create subvolumes if not already existing
+        mount "$root_dev" /mnt
+        btrfs subvolume create /mnt/@ || true
+        btrfs subvolume create /mnt/@home || true
+        btrfs subvolume create /mnt/@snapshots || true
+        umount /mnt
+
+        # Mount root subvolume
+        mount -o subvol=@ "$root_dev" /mnt
+    else
+        # ext4 root
+        mount "$root_dev" /mnt
+    fi
+}
+
+mount_home() {
+    local home_dev="$1"
+    local home_fs="$2"
+
+    mkdir -p /mnt/home
+    if [[ "$home_fs" == "btrfs" ]]; then
+        mount -o subvol=@home "$home_dev" /mnt/home
+    else
+        mount "$home_dev" /mnt/home
+    fi
+}
+
+# Determine devices to mount
+if $USE_LUKS; then
+    MOUNT_ROOT="/dev/mapper/cryptroot"
+    [[ "$HOME_ENC_ANSWER" =~ ^[yY]$ ]] && MOUNT_HOME="/dev/mapper/crypthome" || MOUNT_HOME="${PDEV["home"]}"
+else
+    MOUNT_ROOT="${PDEV["root"]}"
+    MOUNT_HOME="${PDEV["home"]}"
+fi
+
+# Mount root and home
+mount_root "$MOUNT_ROOT" "$ROOT_FS"
+mount_home "$MOUNT_HOME" "$HOME_FS"
+
+# Mount EFI
 mkdir -p /mnt/boot
 mount "${PDEV["boot"]}" /mnt/boot
-mkdir -p /mnt/home
-mount "$MOUNT_HOME" /mnt/home
 
+# Optional: show final layout
+echo
+echo "✅ Partitions mounted:"
+lsblk -p -o NAME,SIZE,FSTYPE,MOUNTPOINT
 #==========================
 # FINAL CHECK
 #==========================
@@ -386,34 +432,58 @@ sleep 1
 echo "Installing GRUB (UEFI)..."
 
 #==========================
-# GRUB INSTALL
+# 5) Installing GRUB for UEFI with Secure Boot
 #==========================
+echo
+echo "Installing GRUB (UEFI + Secure Boot)..."
+
 EFI_PART="${PDEV["boot"]}"
 
-# Determine partition number from path (works for NVMe/SATA)
-if [[ "$EFI_PART" =~ ([0-9]+)$ ]]; then
-    PARTNUM="${BASH_REMATCH[1]}"
-else
-    echo "❌ Cannot determine EFI partition number from $EFI_PART"; exit 1
-fi
+# Ensure EFI partition is mounted at /mnt/boot/efi
+mkdir -p /mnt/boot/efi
+mountpoint -q /mnt/boot/efi || mount "$EFI_PART" /mnt/boot/efi
 
-echo "Installing GRUB (UEFI)..."
+# Determine parent disk for efibootmgr
+EFI_DISK=$(lsblk -no PKNAME "$EFI_PART" 2>/dev/null || echo "$DEV")
+[[ -z "$EFI_DISK" ]] && EFI_DISK="$DEV"
+
+# Detect partition number reliably
+EFI_PART_NUM=$(lsblk -ln -o NAME "$DEV" | grep -n "$(basename $EFI_PART)" | cut -d: -f1)
+[[ -z "$EFI_PART_NUM" ]] && EFI_PART_NUM=1  # fallback
+
+# Install GRUB inside chroot
 arch-chroot /mnt grub-install \
   --target=x86_64-efi \
-  --efi-directory=/boot \
+  --efi-directory=/boot/efi \
   --bootloader-id=GRUB \
   --recheck \
   --no-nvram
 
-# Create fallback BOOTX64.EFI
-arch-chroot /mnt bash -c 'mkdir -p /boot/EFI/Boot && cp -f /boot/EFI/GRUB/grubx64.efi /boot/EFI/Boot/BOOTX64.EFI || true'
-
-# Create EFI boot entry
-efibootmgr -c -d "$DEV" -p "$PARTNUM" -L "Arch Linux" -l '\EFI\GRUB\grubx64.efi'
-
+# Generate GRUB configuration
 arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-echo "✅ GRUB installation complete."
 
+# Secure Boot signing with sbctl if available
+if command -v sbctl >/dev/null 2>&1; then
+    echo "🔐 Signing GRUB for Secure Boot using sbctl..."
+    arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+    arch-chroot /mnt sbctl enroll-keys --microsoft
+    arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+    arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+fi
+
+# Copy fallback EFI binary (BOOTX64.EFI)
+arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+# Remove stale Arch boot entries
+for bootnum in $(efibootmgr -v | awk "/Arch Linux/ {print substr(\$1,5,4)}"); do
+    efibootmgr -b "$bootnum" -B || true
+done
+
+# Create new EFI boot entry
+efibootmgr -c -d "/dev/$EFI_DISK" -p "$EFI_PART_NUM" -L "Arch Linux" -l '\EFI\GRUB\grubx64.efi'
+
+echo "✅ Secure Boot GRUB installation complete."
+efibootmgr -v || true
 clear
 echo
 echo "#===================================================================================================#"
