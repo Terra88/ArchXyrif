@@ -256,33 +256,33 @@ echo
 echo "-------------------------------------------"
 echo "Filesystem Partition Options"
 echo "-------------------------------------------"
-echo "1) BTRFS"
-echo "2) EXT4"
+echo "1) EXT4"
+echo "2) BTRFS"
 read -r -p "Select File System [1-2, default=2]: " DEV_CHOICE
 DEV_CHOICE="${DEV_CHOICE:-2}]"
 
 case "$DEV_CHOICE" in
     1)
-        echo "BTRFS"
+        echo "EXT4"
         ;;
     2)
-        echo "EXT4" 
+        echo "BTRFS" 
         ;;
 esac
 
-if [[ " ${DEV_CHOICE} " =~ "1" ]]; then
-
-parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
-
-else
+if [[ " ${DEV_CHOICE} " == "1" ]]; then
 
 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
 parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
+
+else
+
+parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
 
 fi
 
