@@ -376,7 +376,7 @@ PKGS=(
   openssh
   intel-ucode
   amd-ucode
-  btrfs-progs     # optional, keep or remove
+  btrfs-progs     
 )
 
 echo "Installing base system packages: ${PKGS[*]}"
