@@ -790,7 +790,7 @@ WM_AUR_PKGS=()
 case "$WM_CHOICE" in
     1)
         echo "→ Selected: Hyprland (Wayland)"
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar)
+        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar kitty kvantum rofi polkit-kde-agent nwg-look)
         WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
         ;;
     2)
@@ -897,14 +897,7 @@ echo "-------------------------------------------"
 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
     # Clean list: neofetch removed (deprecated)
-    EXTRA_PKGS=(
-        blueman bluez bluez-utils dolphin dolphin-plugins dunst grim htop hypridle hyprlock hyprpaper hyprshot kitty 
-        network-manager-applet polkit-kde-agent qt5-wayland qt6-wayland unzip uwm nftables waybar archlinux-xdg-menu
-        ark bemenu-wayland breeze brightnessctl btop cliphist cpupower discover evtest firefox flatpak goverlay gst-libav gst-plugin-pipewire
-        gst-plugins-bad gst-plugins-base gst-plugins-good gst-plugins-ugly iwd kate konsole kvantum libpulse linuxconsole nvtop nwg-displays nwg-look
-        otf-font-awesome pavucontrol pipewire pipewire-alsa pipewire-jack pipewire-pulse qt5ct smartmontools sway thermald ttf-hack vlc-plugin-ffmpeg 
-        vlc-plugins-all wireless_tools wireplumber wl-clipboard xdg-desktop-portal-wlr xdg-utils xorg-server xorg-xinit zram-generator base-devel
-    )
+    EXTRA_PKGS=( zram-generator )
 
     # Filter out non-existent packages before installing
     VALID_PKGS=()
