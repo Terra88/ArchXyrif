@@ -898,8 +898,8 @@ echo
 echo "-------------------------------------------"
 echo "🔐 LOGIN / DISPLAY MANAGER SELECTION"
 echo "-------------------------------------------"
-echo "1) GDM"
-echo "2) SDDM"
+echo "1) GDM - If you installed: Gnome, Hyprland"
+echo "2) SDDM - If you installed: KDE, Hyprland" 
 echo "3) LightDM"
 echo "4) LXDM"
 echo "5) Ly (AUR)"
@@ -925,7 +925,7 @@ case "$DM_CHOICE" in
         DM_SERVICE="lightdm.service"
         ;;
     4)
-        DM_PKGS=(lxdm)
+        DM_PKGS=(lxdm lightdm)
         DM_SERVICE="lxdm.service"
         ;;
     5)
