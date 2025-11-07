@@ -288,28 +288,28 @@ case "$HOME_FS" in
 esac
 
 #==========================
-# MOUNT ROOT + HOME + SUBVOLUMES
+# MOUNT ROOT + HOME + SUBVOLUMES (FIXED)
 #==========================
 mount_root() {
     local root_dev="$1"
     local root_fs="$2"
 
     if [[ "$root_fs" == "btrfs" ]]; then
-        # Mount raw device temporarily
-        mount "$root_dev" /mnt || die "Cannot mount root device $root_dev"
+        mkdir -p /mnt/tmproot
+        mount "$root_dev" /mnt/tmproot || die "Cannot mount root device $root_dev"
 
-        # Create subvolumes if missing
+        # Create subvolumes if they don't exist
         for sub in @ @home @snapshots; do
-            if ! btrfs subvolume list /mnt | grep -q "$sub"; then
+            if ! btrfs subvolume list /mnt/tmproot | grep -qw "$sub"; then
                 echo "Creating BTRFS subvolume $sub..."
-                btrfs subvolume create "/mnt/$sub" || die "Failed to create subvolume $sub"
+                btrfs subvolume create "/mnt/tmproot/$sub" || die "Failed to create subvolume $sub"
             fi
         done
 
-        umount /mnt
+        umount /mnt/tmproot
+
         # Mount root subvolume
         mount -o compress=zstd,subvol=@ "$root_dev" /mnt || die "Failed to mount root subvolume @"
-
     else
         mount "$root_dev" /mnt || die "Failed to mount ext4 root"
     fi
@@ -327,6 +327,7 @@ mount_home() {
     fi
 }
 
+# Determine devices to mount
 mount_root "$MOUNT_ROOT" "$ROOT_FS"
 mount_home "$MOUNT_HOME" "$HOME_FS"
 
