@@ -63,8 +63,8 @@ echo " archformat.sh                                                            
 echo " - shows lsblk and asks which device to use                                                         "
 echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
 echo " - partitions: EFI(1024MiB) | root(~120GiB) | swap(calculated from RAM) | home(rest)                "
-echo " - creates filesystems: FAT32 on EFI, ext4 on root/home, mkswap on swap                             "
-echo "                                                                                                    "
+echo " - filesystems: FAT32 on Boot/EFI                                                                   "
+echo " - filesystems: ext4, btrfs root/home, mkswap on swap                                                                                                     "
 echo " WARNING: destructive. Run as root. Double-check device before continuing.                          "
 echo "#==================================================================================================#"
 echo " 1) Disk Selection & Format                                                                         "
@@ -258,33 +258,43 @@ echo "Filesystem Partition Options"
 echo "-------------------------------------------"
 echo "1) EXT4"
 echo "2) BTRFS"
-read -r -p "Select File System [1-2, default=2]: " DEV_CHOICE
-DEV_CHOICE="${DEV_CHOICE:-2}]"
+echo "3) f2fs"
+echo "4) xfs"
+read -r -p "Select File System [1-4, default=1]: " DEV_CHOICE
+DEV_CHOICE="${DEV_CHOICE:-1}"
 
 case "$DEV_CHOICE" in
     1)
         echo "EXT4"
+        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+        parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+        parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
         ;;
+        
     2)
-        echo "BTRFS" 
+        echo "BTRFS"
+        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+        parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
         ;;
+        
+        echo "f2fs"
+    3)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+        parted -s "$DEV" mkpart primary f2fs "${p2_start}MiB" "${p2_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+        parted -s "$DEV" mkpart primary f2fs "${p4_start}MiB" 100%
+        ;;
+        
+        echo "xfs"
+    4)  parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+        parted -s "$DEV" mkpart primary xfs "${p2_start}MiB" "${p2_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+        parted -s "$DEV" mkpart primary xfs "${p4_start}MiB" 100%
+        ;;
+        
 esac
-
-if [[ " ${DEV_CHOICE} " == "1" ]]; then
-
-parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
-
-else
-
-parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
-
-fi
 
 # Set boot flag on partition 1 (UEFI)
 parted -s "$DEV" set 1 boot on
