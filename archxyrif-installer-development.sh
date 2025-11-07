@@ -244,11 +244,18 @@ echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, ext4)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
 echo "  4) Home   : ${p4_start}MiB - 100% (ext4)"
 
+if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+parted -s "$DEV" mkpart primary brtfs "${p2_start}MiB" "${p2_end}MiB"
+parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+parted -s "$DEV" mkpart primary brtfs "${p4_start}MiB" 100%
+else
 # Create partitions
 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
 parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
 parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
+fi
 
 # Set boot flag on partition 1 (UEFI)
 parted -s "$DEV" set 1 boot on
@@ -281,9 +288,9 @@ fi
 # Filesystems
 echo "Creating filesystems:"
 echo "  EFI -> $P1 (FAT32)"
-echo "  Root -> $P2 (ext4)"
+echo "  Root -> $P2 (/)"
 echo "  Swap -> $P3 (mkswap)"
-echo "  Home -> $P4 (ext4)"
+echo "  Home -> $P4 (/home)"
 
 # Format EFI
 mkfs.fat -F32 "$P1"
@@ -974,12 +981,12 @@ echo "-------------------------------------------"
 
 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
-    read -r -p "Enter any pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+    read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
     # Clean list: neofetch removed (deprecated)
     EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
 
     #Merge EXTRA_PKGS with EXTRA_PKG_INPUT
-    EXTRA_PKG=("${EXTRA_PKGS[@]}")
+    EXTRA_PKG=("${EXTRA_PKGS[@]}" "${#VALID_PKGS[@]}")
     if [[ -n "$EXTRA_PKG_INPUT" ]]; then
         EXTRA_PKG+=($EXTRA_PKG_INPUT)
     fi
@@ -995,7 +1002,7 @@ if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
     done
 
     if [[ ${#VALID_PKGS[@]} -gt 0 ]]; then
-        safe_pacman_install CHROOT_CMD[@] "${VALID_PKGS[@]}"
+        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
     else
         echo "⚠️  No valid packages to install."
     fi
