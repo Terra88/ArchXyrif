@@ -250,13 +250,27 @@ echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
 echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, root)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
 echo "  4) Home   : ${p4_start}MiB - 100% (home)"
-
 echo
 echo "-------------------------------------------"
 echo "Filesystem Partition Options"
 echo "-------------------------------------------"
 echo "1) EXT4"
+echo "   → The classic, reliable Linux filesystem."
+echo "     • Stable and widely supported"
+echo "     • Simple, fast, and easy to recover"
+echo "     • Recommended for most users"
+echo 
 echo "2) BTRFS"
+echo "   → A modern, advanced filesystem with extra features."
+echo "     • Built-in compression and snapshots"
+echo "     • Good for SSDs and frequent backups"
+echo "     • Slightly more complex; better for advanced users"
+echo
+echo "3) BTRFS(root)-EXT4(home)"
+echo "   → A balanced setup combining both worlds."
+echo "     • BTRFS for system (root) — allows snapshots & rollback"
+echo "     • EXT4 for home — simpler and very stable for data"
+echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
 DEV_CHOICE="${DEV_CHOICE:-1}"
 
@@ -274,7 +288,14 @@ case "$DEV_CHOICE" in
         parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
         parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
         parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
+        ;;  
+    3)  echo "→ Selected BTRFS (root) + EXT4 (home)"
+        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+        parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
         ;;
+        
 esac
 
 # Set boot flag on partition 1 (UEFI)
@@ -334,6 +355,48 @@ if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
     mkswap "$P3"
     swapon "$P3"
 
+
+elif
+
+    [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
+    echo "→ Formatting root (P2) as BTRFS..."
+    mkfs.btrfs -f "$P2"
+
+    echo "→ Formatting home (P4) as EXT4..."
+    mkfs.ext4 -F "$P4"
+
+    echo "→ Mounting root to create subvolumes..."
+    mount "$P2" /mnt
+    
+    btrfs subvolume create /mnt/@
+    btrfs subvolume create /mnt/@snapshots
+    btrfs subvolume create /mnt/@cache
+    btrfs subvolume create /mnt/@log
+    umount /mnt
+
+    echo "→ Mounting root subvolumes..."
+    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+    mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+    echo "→ Mounting separate home partition (EXT4)..."
+    mount "$P4" /mnt/home
+
+    # Swap
+    mkswap "$P3"
+    swapon "$P3"
+
+    echo "→ BTRFS root and home setup complete."
+
+    # EFI
+    mkfs.fat -F32 "$P1"
+    mkdir -p /mnt/boot
+    mount "$P1" /mnt/boot
+
+    echo "→ Mixed setup (BTRFS root + EXT4 home) complete."
+  
 else
     # EXT4 path
     echo "Formatting partitions as EXT4..."
