@@ -1046,17 +1046,54 @@ echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
 echo "-------------------------------------------"
 
 read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+install_aur="${install_aur:-N}"
+
 if [[ "$install_aur" =~ ^[Yy]$ ]]; then
     read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
-EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG can be set here pre hand.
+
+    # Predefined extra AUR packages
+    EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
 
     # Merge WM + DM AUR packages with user input
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-        AUR_PKGS+=($EXTRA_AUR_INPUT)
+        read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
+        AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
     fi
 
-    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
+    echo "🔧 Preparing for AUR installation..."
+
+    # Ensure home exists and is owned
+    mkdir -p /mnt/home/$NEWUSER
+    chown $NEWUSER:$NEWUSER /mnt/home/$NEWUSER
+
+    arch-chroot /mnt /bin/bash -e <<'EOF'
+NEWUSER="{{NEWUSER}}"
+HOME_DIR="/home/$NEWUSER"
+AUR_PKGS=(${AUR_PKGS[@]})
+
+# Install paru if missing
+if ! command -v paru &>/dev/null; then
+    echo "==> Installing paru..."
+    pacman -Sy --noconfirm base-devel git sudo
+    sudo -u $NEWUSER HOME=$HOME_DIR bash -c "
+        cd $HOME_DIR
+        git clone https://aur.archlinux.org/paru.git
+        cd paru
+        makepkg -si --noconfirm
+        cd ..
+        rm -rf paru
+    "
+fi
+
+# Install AUR packages safely
+for pkg in "${AUR_PKGS[@]}"; do
+    echo "==> Installing AUR package: $pkg"
+    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
+    echo "⚠️ Failed to install: $pkg"
+done
+EOF
+
 else
     echo "Skipping AUR installation."
 fi
@@ -1066,7 +1103,7 @@ sleep 1
 clear
 echo
 echo "#===================================================================================================#"
-echo "# 11) Hyprland Theme Setup (Optional) with .Config Backup                                            "
+echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                            "
 echo "#===================================================================================================#"
 echo
 sleep 1
@@ -1076,54 +1113,55 @@ echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
-read -rp "Install Hyprland theme? (y/N): " INSTALL_THEME
-if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
-    echo -e "\n\033[1;34m==> Setting up Hyprland theme...\033[0m"
+echo
+echo "-------------------------------------------"
+echo "🎨 Hyprland Theme Setup (Optional)"
+echo "-------------------------------------------"
 
-    # Copy theme zip files into chroot user home (if they exist)
+read -rp "Install Hyprland theme? (y/N): " INSTALL_THEME
+INSTALL_THEME="${INSTALL_THEME:-N}"
+
+if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
+    echo "==> Setting up Hyprland theme..."
+
+    # Ensure home exists
+    mkdir -p /mnt/home/$NEWUSER
+    chown $NEWUSER:$NEWUSER /mnt/home/$NEWUSER
+
+    # Copy zips into user's home if they exist
     [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/
     [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/
 
-    # Chroot block
     arch-chroot /mnt /bin/bash -e <<'EOF'
 NEWUSER="{{NEWUSER}}"
-CONFIG_DIR="/home/$NEWUSER/.config"
-THEME_ZIP="config.zip"
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+THEME_ZIP="$HOME_DIR/config.zip"
 
 # Ensure unzip is installed
 if ! pacman -Qi unzip &>/dev/null; then
-    echo "==> 'unzip' not found. Installing..."
     pacman -Sy --noconfirm unzip
 fi
 
-# Proceed only if config.zip exists
-if [[ -f /home/$NEWUSER/$THEME_ZIP ]]; then
+# Apply theme if config.zip exists
+if [[ -f "$THEME_ZIP" ]]; then
     echo "==> Extracting Hyprland theme..."
-    cd /home/$NEWUSER
-
-    # Backup existing config if it exists
+    # Backup existing config if not empty
     if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
         mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
         echo "==> Existing .config backed up."
     fi
-
-    unzip -o "$THEME_ZIP" -d /home/$NEWUSER/
-
-    # Move extracted 'config' to .config if exists
-    if [[ -d /home/$NEWUSER/config ]]; then
-        mv /home/$NEWUSER/config /home/$NEWUSER/.config
-    fi
-
-    chown -R $NEWUSER:$NEWUSER /home/$NEWUSER/.config
+    unzip -o "$THEME_ZIP" -d "$HOME_DIR/"
+    [[ -d "$HOME_DIR/config" ]] && mv "$HOME_DIR/config" "$CONFIG_DIR"
+    chown -R $NEWUSER:$NEWUSER "$CONFIG_DIR"
     echo "==> Hyprland theme applied successfully!"
 else
-    echo "==> No config.zip found, skipping theme setup."
+    echo "⚠️ config.zip not found, skipping theme setup."
 fi
 EOF
 
-echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
-    echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
+    echo "Skipping Hyprland theme setup."
 fi
 
 
