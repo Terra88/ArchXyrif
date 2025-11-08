@@ -1127,55 +1127,56 @@ echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
-echo
-echo "-------------------------------------------"
-echo "🎨 Hyprland Theme Setup (Optional)"
-echo "-------------------------------------------"
-
-read -rp "Install Hyprland theme? (y/N): " INSTALL_THEME
-INSTALL_THEME="${INSTALL_THEME:-N}"
-
+read -rp "Install Hyprland theme and required AUR packages? (y/N): " INSTALL_THEME
 if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
-    echo "==> Setting up Hyprland theme..."
+    echo -e "\n\033[1;34m==> Setting up Hyprland theme and required packages...\033[0m"
 
-    # Ensure home exists
-    mkdir -p /mnt/home/$NEWUSER
-    chown $NEWUSER:$NEWUSER /mnt/home/$NEWUSER
-
-    # Copy zips into user's home if they exist
+    # Copy theme zip files into chroot user home if they exist
     [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/
     [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/
 
+    # Ensure unzip is available
+    arch-chroot /mnt pacman -Sy --noconfirm unzip || true
+
+    # Define AUR packages needed for Hyprland theme
+    HYPR_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+
+    # Install required AUR packages safely
+    safe_aur_install CHROOT_CMD[@] "${HYPR_AUR_PKGS[@]}"
+
+    # Apply theme configuration
     arch-chroot /mnt /bin/bash -e <<'EOF'
 NEWUSER="{{NEWUSER}}"
-HOME_DIR="/home/$NEWUSER"
-CONFIG_DIR="$HOME_DIR/.config"
-THEME_ZIP="$HOME_DIR/config.zip"
+CONFIG_DIR="/home/$NEWUSER/.config"
+THEME_ZIP="/home/$NEWUSER/config.zip"
+WALLPAPER_ZIP="/home/$NEWUSER/wallpaper.zip"
 
-# Ensure unzip is installed
-if ! pacman -Qi unzip &>/dev/null; then
-    pacman -Sy --noconfirm unzip
+# Backup existing config if needed
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+    echo "==> Existing .config backed up."
 fi
 
-# Apply theme if config.zip exists
+# Extract theme zip if present
 if [[ -f "$THEME_ZIP" ]]; then
-    echo "==> Extracting Hyprland theme..."
-    # Backup existing config if not empty
-    if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-        mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-        echo "==> Existing .config backed up."
+    unzip -o "$THEME_ZIP" -d /home/$NEWUSER/
+    if [[ -d /home/$NEWUSER/config ]]; then
+        mv /home/$NEWUSER/config /home/$NEWUSER/.config
     fi
-    unzip -o "$THEME_ZIP" -d "$HOME_DIR/"
-    [[ -d "$HOME_DIR/config" ]] && mv "$HOME_DIR/config" "$CONFIG_DIR"
-    chown -R $NEWUSER:$NEWUSER "$CONFIG_DIR"
-    echo "==> Hyprland theme applied successfully!"
-else
-    echo "⚠️ config.zip not found, skipping theme setup."
 fi
+
+# Extract wallpaper zip if present
+if [[ -f "$WALLPAPER_ZIP" ]]; then
+    unzip -o "$WALLPAPER_ZIP" -d /home/$NEWUSER/
+fi
+
+chown -R $NEWUSER:$NEWUSER /home/$NEWUSER/.config
+echo "==> Hyprland theme applied successfully!"
 EOF
 
+    echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
-    echo "Skipping Hyprland theme setup."
+    echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
 fi
 
 
