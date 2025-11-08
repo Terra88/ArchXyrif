@@ -1076,65 +1076,56 @@ echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
-# BLOCK 11: Hyprland Theme Setup
 read -rp "Install Hyprland theme? (y/N): " INSTALL_THEME
 if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
     echo -e "\n\033[1;34m==> Setting up Hyprland theme...\033[0m"
 
     # Copy theme zip files into chroot user home (if they exist)
-    if [[ -f config.zip ]]; then
-        cp config.zip /mnt/home/$NEWUSER/
+    [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/
+    [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/
+
+    # Chroot block
+    arch-chroot /mnt /bin/bash -e <<'EOF'
+NEWUSER="{{NEWUSER}}"
+CONFIG_DIR="/home/$NEWUSER/.config"
+THEME_ZIP="config.zip"
+
+# Ensure unzip is installed
+if ! pacman -Qi unzip &>/dev/null; then
+    echo "==> 'unzip' not found. Installing..."
+    pacman -Sy --noconfirm unzip
+fi
+
+# Proceed only if config.zip exists
+if [[ -f /home/$NEWUSER/$THEME_ZIP ]]; then
+    echo "==> Extracting Hyprland theme..."
+    cd /home/$NEWUSER
+
+    # Backup existing config if it exists
+    if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+        mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+        echo "==> Existing .config backed up."
     fi
-    if [[ -f wallpaper.zip ]]; then
-        cp wallpaper.zip /mnt/home/$NEWUSER/
+
+    unzip -o "$THEME_ZIP" -d /home/$NEWUSER/
+
+    # Move extracted 'config' to .config if exists
+    if [[ -d /home/$NEWUSER/config ]]; then
+        mv /home/$NEWUSER/config /home/$NEWUSER/.config
     fi
 
-    arch-chroot /mnt /bin/bash -c "
-    set -e
-    NEWUSER=\"$NEWUSER\"
-    CONFIG_DIR=\"/home/\$NEWUSER/.config\"
-    THEME_ZIP=\"config.zip\"
+    chown -R $NEWUSER:$NEWUSER /home/$NEWUSER/.config
+    echo "==> Hyprland theme applied successfully!"
+else
+    echo "==> No config.zip found, skipping theme setup."
+fi
+EOF
 
-    echo '==> Checking dependencies...'
-    MISSING_PKGS=()
-    for PKG in unzip; do
-        if ! pacman -Qi \$PKG &>/dev/null; then
-            MISSING_PKGS+=(\$PKG)
-        fi
-    done
-
-    if [[ \${#MISSING_PKGS[@]} -gt 0 ]]; then
-        echo '==> Installing missing packages: \${MISSING_PKGS[*]}'
-        pacman -Sy --noconfirm \${MISSING_PKGS[@]}
-    fi
-
-    # Proceed only if config.zip exists
-    if [[ -f /home/\$NEWUSER/\$THEME_ZIP ]]; then
-        echo '==> Extracting Hyprland theme...'
-        cd /home/\$NEWUSER
-
-        # Backup existing config
-        if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-            mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-        fi
-
-        unzip -o \"\$THEME_ZIP\" -d /home/\$NEWUSER/
-
-        if [[ -d /home/\$NEWUSER/config ]]; then
-            mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
-        fi
-
-        chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER/.config
-        echo '==> Hyprland theme applied successfully!'
-    else
-        echo '==> No config.zip found, skipping theme setup.'
-    fi
-    "
-
-    echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
+echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
     echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
 fi
+
 
 sleep 2
 clear
