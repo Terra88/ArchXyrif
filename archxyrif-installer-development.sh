@@ -562,18 +562,16 @@ mkinitcpio -P
 # --------------------------
 # 6) Root + user passwords (interactive)
 # --------------------------
-
-set +e  # temporarily allow retries
-
+set +e  # allow retries
 MAX_RETRIES=3
 
-# Ensure user exists before setting password
+# Ensure user exists
 if ! id "$NEWUSER" &>/dev/null; then
     echo "Creating user '$NEWUSER'..."
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-# Set root password
+# Root password
 echo
 echo "============================"
 echo " Set ROOT password "
@@ -586,7 +584,7 @@ for i in $(seq 1 $MAX_RETRIES); do
     fi
 done
 
-# Set user password
+# User password
 echo
 echo "============================"
 echo " Set password for user '$NEWUSER' "
@@ -599,13 +597,12 @@ for i in $(seq 1 $MAX_RETRIES); do
     fi
 done
 
-# Give sudo rights to user
+# Give sudo rights
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 set -e  # restore strict error handling
-
 
 # --------------------------
 # 7) Home directory setup
@@ -630,13 +627,10 @@ EOF
 #===================================================================================================#
 
 # Replace placeholders with actual values (safe substitution)
-
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
-sed -i "s|{{ROOT_PASS}}|${ROOT_PASS}|g" /mnt/root/postinstall.sh
-sed -i "s|{{USER_PASS}}|${USER_PASS}|g" /mnt/root/postinstall.sh
 
 chmod +x /mnt/root/postinstall.sh
 
