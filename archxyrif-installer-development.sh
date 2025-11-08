@@ -1123,79 +1123,57 @@ echo "#=========================================================================
 echo
 sleep 1
 
-echo
-echo "-------------------------------------------"
-echo "🎨 Hyprland Theme Setup (Optional)"
-echo "-------------------------------------------"
+# This variable should be set earlier when user selects WM (e.g. HYPRLAND_SELECTED=true)
+if [[ "${WM_SELECTED:-}" == "hyprland" || "${WM_SELECTED:-}" == "Hyprland" ]]; then
+  echo "Hyprland window manager detected."
+  read -r -p "Would you like to install Hyprland theme & wallpapers from Terra88 repo? [y/N]: " INSTALL_THEME
+  case "$INSTALL_THEME" in
+    [yY]|[yY][eE][sS])
+      DOTFILES_REPO="https://github.com/terra88/hyprland-setup"
+      CONFIG_ZIP_URL="$DOTFILES_REPO/raw/main/config.zip"
+      WALLPAPER_ZIP_URL="$DOTFILES_REPO/raw/main/wallpaper.zip"
+      WALLPAPER_SH_URL="$DOTFILES_REPO/raw/main/wallpaper.sh"
 
-read -rp "Install Hyprland theme and required AUR packages? (y/N): " INSTALL_THEME
-if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
-    echo -e "\n\033[1;34m==> Setting up Hyprland theme and required packages...\033[0m"
+      USER_HOME="/mnt/home/${NEWUSER}"
+      CONFIG_DIR="${USER_HOME}/.config"
 
-    # Copy theme and wallpaper zips to NEWUSER home if they exist
-    [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/ || echo "⚠️ config.zip not found, skipping."
-    [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/ || echo "⚠️ wallpaper.zip not found, skipping."
+      echo "→ Creating directories..."
+      mkdir -p "$CONFIG_DIR"
 
-    # Ensure unzip is available
-    safe_pacman_install CHROOT_CMD[@] unzip
+      echo "→ Downloading config.zip and wallpaper.zip..."
+      curl -L "$CONFIG_ZIP_URL" -o /tmp/config.zip
+      curl -L "$WALLPAPER_ZIP_URL" -o /tmp/wallpaper.zip
+      curl -L "$WALLPAPER_SH_URL" -o /tmp/wallpaper.sh
 
-    # Define Hyprland AUR packages
-    HYPR_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+      echo "→ Extracting config.zip into $CONFIG_DIR..."
+      unzip -o /tmp/config.zip -d /tmp/config_unzip
+      if [[ -d /tmp/config_unzip/config ]]; then
+          rsync -aHAX /tmp/config_unzip/config/ "$CONFIG_DIR"/
+      else
+          rsync -aHAX /tmp/config_unzip/ "$CONFIG_DIR"/
+      fi
 
-    # Install required AUR packages safely
-    safe_aur_install CHROOT_CMD[@] "${HYPR_AUR_PKGS[@]}"
+      echo "→ Copying wallpaper files..."
+      cp /tmp/wallpaper.sh "$USER_HOME"/
+      unzip -o /tmp/wallpaper.zip -d "$USER_HOME"/
 
-    # Apply theme inside chroot as NEWUSER
-TMP_THEME_SCRIPT="/root/_hyprland_theme.sh"
+      echo "→ Fixing ownership..."
+      arch-chroot /mnt bash -c "
+          chown -R ${NEWUSER}:${NEWUSER} /home/${NEWUSER}
+          chmod -R 700 /home/${NEWUSER}/.config
+      "
 
-cat > /mnt${TMP_THEME_SCRIPT} <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+      echo "→ Cleaning up temporary files..."
+      rm -rf /tmp/config.zip /tmp/wallpaper.zip /tmp/config_unzip
 
-# Arguments: NEWUSER
-NEWUSER="$1"
-HOME_DIR="/home/${NEWUSER}"
-CONFIG_DIR="${HOME_DIR}/.config"
-THEME_ZIP="${HOME_DIR}/config.zip"
-WALLPAPER_ZIP="${HOME_DIR}/wallpaper.zip"
-
-# Ensure HOME is set for sudo commands
-export HOME="$HOME_DIR"
-
-# Backup existing .config if it exists and not empty
-if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-    echo "==> Existing .config backed up."
-fi
-
-# Extract theme zip
-if [[ -f "$THEME_ZIP" ]]; then
-    unzip -o "$THEME_ZIP" -d "$HOME_DIR"
-    if [[ -d "$HOME_DIR/config" ]]; then
-        mv "$HOME_DIR/config" "$CONFIG_DIR"
-    fi
-fi
-
-# Extract wallpaper zip
-[[ -f "$WALLPAPER_ZIP" ]] && unzip -o "$WALLPAPER_ZIP" -d "$HOME_DIR"
-
-# Set ownership correctly
-chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR" "$HOME_DIR"
-
-echo "==> Hyprland theme applied successfully!"
-EOF
-
-# Run inside chroot, passing NEWUSER as argument
-CHROOT_ENV=(arch-chroot /mnt)
-export NEWUSER
-"${CHROOT_ENV[@]}" bash "${TMP_THEME_SCRIPT}" "$NEWUSER"
-
-# Clean up
-"${CHROOT_ENV[@]}" rm -f "${TMP_THEME_SCRIPT}"
-
-    echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
+      echo "✅ Hyprland configuration and wallpapers installed successfully."
+      ;;
+    *)
+      echo "Skipped Hyprland theme installation."
+      ;;
+  esac
 else
-    echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
+  echo "Hyprland not selected as window manager. Skipping this step."
 fi
 
 
