@@ -766,48 +766,43 @@ safe_aur_install() {
     shift
     local AUR_PKGS=("$@")
 
-    # Skip if no packages
     [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
 
     echo
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
-    # Check if user exists before chown/sudo operations
-    if ! "${CHROOT_CMD[@]}" id "$NEWUSER" &>/dev/null; then
-        echo "⚠️  User $NEWUSER does not exist inside chroot. Skipping AUR installation."
-        return 1
-    fi
+    # Run everything inside chroot as NEWUSER
+    "${CHROOT_CMD[@]}" bash -c "
+NEWUSER='${NEWUSER}'
+HOME_DIR=\"/home/\$NEWUSER\"
 
-    "${CHROOT_CMD[@]}" mkdir -p "/home/$NEWUSER"
-    "${CHROOT_CMD[@]}" chown "$NEWUSER:$NEWUSER" "/home/$NEWUSER"
-
-    "${CHROOT_CMD[@]}" bash -e <<'EOF'
-NEWUSER="{{NEWUSER}}"
-HOME_DIR="/home/$NEWUSER"
-AUR_PKGS=(${AUR_PKGS[@]})
+# Ensure home exists (inside chroot)
+mkdir -p \$HOME_DIR
+chown \$NEWUSER:\$NEWUSER \$HOME_DIR || true
 
 # Install paru if missing
 if ! command -v paru &>/dev/null; then
     pacman -Sy --noconfirm base-devel git sudo || true
-    sudo -u $NEWUSER HOME=$HOME_DIR bash -c "
-        cd $HOME_DIR
+    sudo -u \$NEWUSER bash -c '
+        cd \$HOME_DIR
+        rm -rf paru
         git clone https://aur.archlinux.org/paru.git
         cd paru
-        makepkg -si --noconfirm
+        makepkg -si --noconfirm || true
         cd ..
         rm -rf paru
-    "
+    '
 fi
 
-# Loop through AUR packages safely
-for pkg in "${AUR_PKGS[@]}"; do
-    echo "==> Installing AUR package: $pkg"
-    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
-    echo "⚠️ Failed to install: $pkg (skipping)"
+# Install AUR packages safely
+for pkg in \"${AUR_PKGS[@]}\"; do
+    echo '==> Installing AUR package: '$pkg
+    sudo -u \$NEWUSER bash -c \"paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' $pkg\" || \
+    echo '⚠️ Failed to install: $pkg (skipping)'
 done
-EOF
 
-    echo "✅ AUR installation phase complete."
+echo '✅ Finished AUR installation inside chroot.'
+"
 }
 
 
@@ -1063,48 +1058,17 @@ if [[ "$install_aur" =~ ^[Yy]$ ]]; then
 
     # Merge WM + DM AUR packages with user input
     AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
+
     if [[ -n "$EXTRA_AUR_INPUT" ]]; then
         read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
         AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
     fi
 
-    echo "🔧 Preparing for AUR installation..."
-
-    # Ensure home exists and is owned
-    mkdir -p /mnt/home/$NEWUSER
-    chown $NEWUSER:$NEWUSER /mnt/home/$NEWUSER
-
-    arch-chroot /mnt /bin/bash -e <<'EOF'
-NEWUSER="{{NEWUSER}}"
-HOME_DIR="/home/$NEWUSER"
-AUR_PKGS=(${AUR_PKGS[@]})
-
-# Install paru if missing
-if ! command -v paru &>/dev/null; then
-    echo "==> Installing paru..."
-    pacman -Sy --noconfirm base-devel git sudo
-    sudo -u $NEWUSER HOME=$HOME_DIR bash -c "
-        cd $HOME_DIR
-        git clone https://aur.archlinux.org/paru.git
-        cd paru
-        makepkg -si --noconfirm
-        cd ..
-        rm -rf paru
-    "
-fi
-
-# Install AUR packages safely
-for pkg in "${AUR_PKGS[@]}"; do
-    echo "==> Installing AUR package: $pkg"
-    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
-    echo "⚠️ Failed to install: $pkg"
-done
-EOF
-
+    echo "🔧 Installing AUR packages inside chroot..."
+    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
 else
     echo "Skipping AUR installation."
 fi
-
 
 sleep 1
 clear
@@ -1124,12 +1088,12 @@ read -rp "Install Hyprland theme and required AUR packages? (y/N): " INSTALL_THE
 if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
     echo -e "\n\033[1;34m==> Setting up Hyprland theme and required packages...\033[0m"
 
-    # Copy theme zip files into chroot user home if they exist
+    # Copy theme and wallpaper zips if they exist
     [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/
     [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/
 
-    # Ensure unzip is available
-    arch-chroot /mnt pacman -Sy --noconfirm unzip || true
+    # Ensure unzip is available in chroot
+    safe_pacman_install CHROOT_CMD[@] unzip
 
     # Define AUR packages needed for Hyprland theme
     HYPR_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
@@ -1137,36 +1101,34 @@ if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
     # Install required AUR packages safely
     safe_aur_install CHROOT_CMD[@] "${HYPR_AUR_PKGS[@]}"
 
-    # Apply theme configuration
-    arch-chroot /mnt /bin/bash -e <<'EOF'
-NEWUSER="{{NEWUSER}}"
-CONFIG_DIR="/home/$NEWUSER/.config"
-THEME_ZIP="/home/$NEWUSER/config.zip"
-WALLPAPER_ZIP="/home/$NEWUSER/wallpaper.zip"
+    # Apply theme inside chroot as NEWUSER
+    arch-chroot /mnt /bin/bash -c "
+NEWUSER='${NEWUSER}'
+CONFIG_DIR=\"/home/\$NEWUSER/.config\"
+THEME_ZIP=\"/home/\$NEWUSER/config.zip\"
+WALLPAPER_ZIP=\"/home/\$NEWUSER/wallpaper.zip\"
 
 # Backup existing config if needed
-if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-    echo "==> Existing .config backed up."
+if [[ -d \$CONFIG_DIR && \$(ls -A \$CONFIG_DIR) ]]; then
+    mv \$CONFIG_DIR \${CONFIG_DIR}.backup.\$(date +%s)
+    echo '==> Existing .config backed up.'
 fi
 
-# Extract theme zip if present
-if [[ -f "$THEME_ZIP" ]]; then
-    unzip -o "$THEME_ZIP" -d /home/$NEWUSER/
-    if [[ -d /home/$NEWUSER/config ]]; then
-        mv /home/$NEWUSER/config /home/$NEWUSER/.config
+# Extract theme zip
+if [[ -f \$THEME_ZIP ]]; then
+    unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
+    if [[ -d /home/\$NEWUSER/config ]]; then
+        mv /home/\$NEWUSER/config \$CONFIG_DIR
     fi
 fi
 
-# Extract wallpaper zip if present
-if [[ -f "$WALLPAPER_ZIP" ]]; then
-    unzip -o "$WALLPAPER_ZIP" -d /home/$NEWUSER/
-fi
+# Extract wallpaper zip
+[[ -f \$WALLPAPER_ZIP ]] && unzip -o \$WALLPAPER_ZIP -d /home/\$NEWUSER/
 
-chown -R $NEWUSER:$NEWUSER /home/$NEWUSER/.config
-echo "==> Hyprland theme applied successfully!"
-EOF
-
+# Set ownership
+chown -R \$NEWUSER:\$NEWUSER \$CONFIG_DIR /home/\$NEWUSER
+echo '==> Hyprland theme applied successfully!'
+"
     echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
     echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
