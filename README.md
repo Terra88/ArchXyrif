@@ -50,8 +50,7 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -10. Asks for Timezone, Lang_Local, Hostname, username, root password, user password and sets user as sudoer to conf.
 
 -11. Installs extra pacman & aur packages, multilib is enabled for extra packages, but are totally optional and need to be modified manually to the file.
-
-Ver1.0: Had issues with installing AUR PKG's<br>
+<br>
 
 ### **Changes in Version 1.3**
 <br><br>
