@@ -1183,14 +1183,14 @@ echo "#=========================================================================
 echo
 sleep 1
 
-# Only proceed if Hyprland was selected
-if [[ "${WM_SELECTED}" != "hyprland" ]]; then
+# Only proceed if Hyprland was selected (WM_CHOICE == 1)
+if [[ "$WM_CHOICE" -ne 1 ]]; then
     echo "⚠️ Hyprland not selected, skipping theme/config setup."
 else
     # Install unzip in chroot to ensure theme extraction works
     echo "🔧 Installing unzip inside chroot to ensure theme extraction works..."
     arch-chroot /mnt pacman -S --needed --noconfirm unzip
-    
+
     read -rp "Do you want to install the Hyprland theme and dotfiles? [y/N]: " INSTALL_THEME
     INSTALL_THEME="${INSTALL_THEME:-N}"
 
@@ -1264,7 +1264,6 @@ EOF
         echo "→ Skipping Hyprland theme/dotfiles installation."
     fi
 fi
-
 
 sleep 2
 clear
