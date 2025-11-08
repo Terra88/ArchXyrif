@@ -65,7 +65,7 @@ echo " - shows lsblk and asks which device to use                               
 echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
 echo " - partitions: EFI(1024MiB) | root(~100GiB) | swap(2*ram if under 16 and 1* if above) | home(rest)  "
 echo " - filesystems: FAT32 on Boot/EFI                                                                   "
-echo " - filesystems: ext4: /root /home mkswap=swap | and @mnt @root @home swap                           "
+echo " - filesystems: ext4: /root /home mkswap=swap |btrfs@mnt @root @home swap|btrfs@root EXT4/home swap "
 echo " WARNING: destructive. Run as root. Double-check device before continuing.                          "
 echo "#==================================================================================================#"
 echo " 1) Disk Selection & Format                                                                         "
