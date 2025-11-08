@@ -57,7 +57,6 @@ echo "9)Extra Pacman & AUR PKG Install "
 echo "If Hyprland Selected As WM       "
 echo "10)Optional Theme install        "
 echo
-echo
 echo "#==================================================================================================#"
 echo " 0) Disk Format INFO                                                                                "
 echo "#==================================================================================================#"
