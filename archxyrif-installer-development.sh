@@ -1186,24 +1186,32 @@ sleep 1
 
 # Only proceed if Hyprland was selected (WM_CHOICE == 1)
 if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-    # Install unzip inside chroot to ensure theme extraction works
     echo "🔧 Installing unzip inside chroot to ensure theme extraction works..."
-    arch-chroot /mnt pacman -S --needed --noconfirm unzip
+    arch-chroot /mnt pacman -S --needed --noconfirm unzip git
 
     read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Running Hyprland theme setup inside chroot..."
-
+        echo "→ Cloning Hyprland theme repository..."
         arch-chroot /mnt /bin/bash -c "
 NEWUSER=\"$NEWUSER\"
 HOME_DIR=\"/home/\$NEWUSER\"
-CONFIG_DIR=\"\$HOME_DIR/.config\"
-THEME_ZIP=\"\$HOME_DIR/config.zip\"
 
 # Ensure home exists
 mkdir -p \"\$HOME_DIR\"
 chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-chmod 755 \"\$HOME_DIR\"
+
+# Clone repository temporarily
+TMP_DIR=\"\$HOME_DIR/hyprland-setup\"
+rm -rf \"\$TMP_DIR\"
+sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$TMP_DIR\"
+
+# Copy config.zip, wallpaper.zip, wallpaper.sh to home
+cp \"\$TMP_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || true
+cp \"\$TMP_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || true
+cp \"\$TMP_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || true
+
+CONFIG_DIR=\"\$HOME_DIR/.config\"
+mkdir -p \"\$CONFIG_DIR\"
 
 # Backup existing .config if it contains files
 if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
@@ -1213,9 +1221,9 @@ fi
 
 mkdir -p \"\$CONFIG_DIR\"  # Ensure .config exists
 
-# Extract config.zip so that 'config/' contents go directly into .config/
-if [[ -f \"\$THEME_ZIP\" ]]; then
-    unzip -o \"\$THEME_ZIP\" -d \"\$HOME_DIR/temp_unzip\"
+# Extract config.zip
+if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+    unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
     if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
         cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
         rm -rf \"\$HOME_DIR/temp_unzip\"
@@ -1227,23 +1235,17 @@ else
     echo '⚠️ config.zip not found, skipping.'
 fi
 
-# Extract wallpaper.zip to HOME_DIR
+# Extract wallpaper.zip
 [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
 
-# Copy wallpaper.sh to HOME_DIR (overwrite if exists)
-[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && cp -f \"\$HOME_DIR/wallpaper.sh\" \"\$HOME_DIR/\" && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied'
+# Copy wallpaper.sh and set executable
+[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied'
 
 # Fix ownership recursively
 chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
 
-# Secure permissions: directories 700, files 600 inside .config
-if [[ -d \"\$CONFIG_DIR\" ]]; then
-    find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
-    find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
-fi
-
-# Cleanup cloned repo if exists
-[[ -d \"\$HOME_DIR/hyprland-setup\" ]] && rm -rf \"\$HOME_DIR/hyprland-setup\"
+# Cleanup
+rm -rf \"\$TMP_DIR\"
 "
 
         echo "✅ Hyprland theme setup completed."
