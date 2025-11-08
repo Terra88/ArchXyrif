@@ -1185,84 +1185,70 @@ echo
 sleep 1
 
 # Only proceed if Hyprland was selected (WM_CHOICE == 1)
-if [[ "$WM_CHOICE" -ne 1 ]]; then
-    echo "⚠️ Hyprland not selected, skipping theme/config setup."
-else
-    # Install unzip in chroot to ensure theme extraction works
+if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+    # Install unzip inside chroot to ensure theme extraction works
     echo "🔧 Installing unzip inside chroot to ensure theme extraction works..."
     arch-chroot /mnt pacman -S --needed --noconfirm unzip
 
-    read -rp "Do you want to install the Hyprland theme and dotfiles? [y/N]: " INSTALL_THEME
-    INSTALL_THEME="${INSTALL_THEME:-N}"
+    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+        echo "→ Running Hyprland theme setup inside chroot..."
 
-    if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Setting up Hyprland theme and dotfiles..."
+        arch-chroot /mnt /bin/bash -c "
+NEWUSER=\"$NEWUSER\"
+HOME_DIR=\"/home/\$NEWUSER\"
+CONFIG_DIR=\"\$HOME_DIR/.config\"
+THEME_ZIP=\"\$HOME_DIR/config.zip\"
 
-        TMP_THEME_SCRIPT="/root/_hyprland_theme.sh"
+# Ensure home exists
+mkdir -p \"\$HOME_DIR\"
+chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+chmod 755 \"\$HOME_DIR\"
 
-        cat > /mnt${TMP_THEME_SCRIPT} <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-NEWUSER="$1"
-HOME_DIR="/home/${NEWUSER}"
-CONFIG_DIR="${HOME_DIR}/.config"
-THEME_ZIP="${HOME_DIR}/config.zip"
-WALLPAPER_ZIP="${HOME_DIR}/wallpaper.zip"
-WALLPAPER_SCRIPT="${HOME_DIR}/wallpaper.sh"
-
-# Ensure HOME exists
-mkdir -p "$HOME_DIR"
-chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
-chmod 755 "$HOME_DIR"
-
-# Backup existing .config if it exists
-if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-    echo "==> Existing .config backed up."
+# Backup existing .config if it contains files
+if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+    echo '==> Existing .config backed up.'
 fi
-mkdir -p "$CONFIG_DIR"
+
+mkdir -p \"\$CONFIG_DIR\"  # Ensure .config exists
 
 # Extract config.zip so that 'config/' contents go directly into .config/
-if [[ -f "$THEME_ZIP" ]]; then
-    unzip -o "$THEME_ZIP" -d "${HOME_DIR}/temp_unzip"
-    if [[ -d "${HOME_DIR}/temp_unzip/config" ]]; then
-        cp -r "${HOME_DIR}/temp_unzip/config/"* "$CONFIG_DIR/"
-        rm -rf "${HOME_DIR}/temp_unzip"
-        echo "==> config.zip extracted to .config"
+if [[ -f \"\$THEME_ZIP\" ]]; then
+    unzip -o \"\$THEME_ZIP\" -d \"\$HOME_DIR/temp_unzip\"
+    if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
+        cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
+        rm -rf \"\$HOME_DIR/temp_unzip\"
+        echo '==> config.zip contents copied to .config'
+    else
+        echo '⚠️ config/ folder not found inside zip, skipping.'
     fi
 else
-    echo "⚠️ config.zip not found, skipping."
+    echo '⚠️ config.zip not found, skipping.'
 fi
 
 # Extract wallpaper.zip to HOME_DIR
-if [[ -f "$WALLPAPER_ZIP" ]]; then
-    unzip -o "$WALLPAPER_ZIP" -d "$HOME_DIR"
-    echo "==> wallpaper.zip extracted to $HOME_DIR"
-else
-    echo "⚠️ wallpaper.zip not found, skipping."
-fi
+[[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
 
 # Copy wallpaper.sh to HOME_DIR (overwrite if exists)
-if [[ -f "$WALLPAPER_SCRIPT" ]]; then
-    cp -f "$WALLPAPER_SCRIPT" "$HOME_DIR/"
-    echo "==> wallpaper.sh copied to $HOME_DIR"
+[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && cp -f \"\$HOME_DIR/wallpaper.sh\" \"\$HOME_DIR/\" && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied'
+
+# Fix ownership recursively
+chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+
+# Secure permissions: directories 700, files 600 inside .config
+if [[ -d \"\$CONFIG_DIR\" ]]; then
+    find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
+    find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
 fi
 
-# Set ownership for all files in home
-chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
+# Cleanup cloned repo if exists
+[[ -d \"\$HOME_DIR/hyprland-setup\" ]] && rm -rf \"\$HOME_DIR/hyprland-setup\"
+"
 
-echo "✅ Hyprland theme and dotfiles setup complete!"
-EOF
-
-        # Run the theme script inside chroot
-        arch-chroot /mnt bash "${TMP_THEME_SCRIPT}" "$NEWUSER"
-
-        # Cleanup
-        arch-chroot /mnt rm -f "${TMP_THEME_SCRIPT}"
-
+        echo "✅ Hyprland theme setup completed."
     else
-        echo "→ Skipping Hyprland theme/dotfiles installation."
+        echo "Skipping Hyprland theme setup."
     fi
 fi
 
