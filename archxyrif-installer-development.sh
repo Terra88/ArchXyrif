@@ -244,14 +244,12 @@ echo "# 1.3) SELECT FILESYSTEM                                                  
 echo "#===================================================================================================#"
 echo 
 
-# Rounded values to avoid fractional MiB
 echo "Partition table (MiB):"
 echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
 echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~100GiB, root)"
 echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
 echo "  4) Home   : ${p4_start}MiB - 100% (home)"
 
-# Partition option btrfs or ext4
 echo
 echo "-------------------------------------------"
 echo "Filesystem Partition Options"
@@ -263,27 +261,23 @@ DEV_CHOICE="${DEV_CHOICE:-1}"
 
 case "$DEV_CHOICE" in
     1)
-        echo "EXT4"
+        echo "→ Selected EXT4"
         parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
         parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
         parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
         parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" 100%
         ;;
-        
     2)
-        echo "BTRFS"
+        echo "→ Selected BTRFS"
         parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
         parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
         parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
         parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" 100%
         ;;
-        
 esac
 
 # Set boot flag on partition 1 (UEFI)
 parted -s "$DEV" set 1 boot on
-
-# Inform kernel of new partitions
 partprobe "$DEV"
 sleep 1
 
@@ -294,59 +288,62 @@ P2="${DEV}${PSUFF}2"
 P3="${DEV}${PSUFF}3"
 P4="${DEV}${PSUFF}4"
 
-echo "Partitions created:"
-lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+#===================================================================================================#
+# 1.4) MOUNTING AND FORMATTING
+#===================================================================================================#
 
-# Wait a bit for device nodes to appear
-sleep 1
-if [[ ! -b "$P1" || ! -b "$P2" || ! -b "$P3" || ! -b "$P4" ]]; then
-  echo "Waiting for partition nodes..."
-  sleep 2
+if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
+    echo "Formatting root partition $P2 as BTRFS..."
+    mkfs.btrfs -f "$P2"
+
+    echo "Creating temporary mount to make subvolumes..."
+    mount "$P2" /mnt
+
+    echo "Creating BTRFS subvolumes: @ (root), @home, @snapshots, @cache, @log..."
+    btrfs subvolume create /mnt/@
+    btrfs subvolume create /mnt/@home
+    btrfs subvolume create /mnt/@snapshots
+    btrfs subvolume create /mnt/@cache
+    btrfs subvolume create /mnt/@log
+
+    umount /mnt
+
+    echo "Mounting BTRFS subvolumes..."
+    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@ "$P2" /mnt
+    mkdir -p /mnt/{home,.snapshots,var/cache,var/log}
+
+    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@home "$P2" /mnt/home
+    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@snapshots "$P2" /mnt/.snapshots
+    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@cache "$P2" /mnt/var/cache
+    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@log "$P2" /mnt/var/log
+
+    # EFI
+    mkfs.fat -F32 "$P1"
+    mkdir -p /mnt/boot
+    mount "$P1" /mnt/boot
+
+    # Swap
+    mkswap "$P3"
+    swapon "$P3"
+
+else
+    # EXT4 path
+    echo "Formatting partitions as EXT4..."
+    mkfs.ext4 -F "$P2"
+    mkfs.ext4 -F "$P4"
+    mkfs.fat -F32 "$P1"
+
+    mount "$P2" /mnt
+    mkdir -p /mnt/boot /mnt/home
+    mount "$P1" /mnt/boot
+    mount "$P4" /mnt/home
+
+    # Swap
+    mkswap "$P3"
+    swapon "$P3"
 fi
 
-#===================================================================================================#
-# 1.4) Mounting Created Partitions
-#===================================================================================================#
-
-# Filesystems
-echo "Creating filesystems:"
-echo "  EFI -> $P1 (FAT32)"
-echo "  Root -> $P2 (/)"
-echo "  Swap -> $P3 (mkswap)"
-echo "  Home -> $P4 (/home)"
-
-# Format EFI
-mkfs.fat -F32 "$P1"
-
-# Format root and home
-mkfs.ext4 -F "$P2"
-mkfs.ext4 -F "$P4"
-
-#===================================================================================================#
-# 1.5) Set up swap # Optionally set swap on (comment/uncomment swapon "$Partition" as needed) - might req tinkering
-#===================================================================================================#
-mkswap "$P3"
-swapon "$P3"
-
-# Sanity check: ensure partitions exist
-for p in "$P1" "$P2" "$P3" "$P4"; do
-  if [[ ! -b "$p" ]]; then
-    echo "ERROR: Partition $p not found. Aborting." >&2
-    exit 1
-  fi
-done
-
-#Mount root and other partitions
-echo "Mounting partitions..."
-mount "$P2" /mnt
-mkdir -p /mnt/boot
-mount "$P1" /mnt/boot
-mkdir -p /mnt/home
-mount "$P4" /mnt/home
-
-# Enable swap now (so pacstrap has more headroom if needed)
-echo "Enabling swap on $P3..."
-swapon "$P3" || echo "Warning: failed to enable swap (proceeding)"
+echo "Partitioning and filesystem setup complete."
 
 
 clear
