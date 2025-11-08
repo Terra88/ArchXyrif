@@ -508,11 +508,6 @@ echo "#=========================================================================
 echo
 # inline script for arch-chroot operations "postinstall.sh"
 # Ask for passwords before chroot (silent input)
-echo
-read -s -p "Enter ROOT password: " ROOT_PASS
-echo
-read -s -p "Enter password for user '$NEWUSER': " USER_PASS
-echo
 
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
@@ -565,32 +560,52 @@ localectl set-x11-keymap fi
 mkinitcpio -P
 
 # --------------------------
-# 6) Root + user passwords
+# 6) Root + user passwords (interactive)
 # --------------------------
-set +e
+
+set +e  # temporarily allow retries
+
 MAX_RETRIES=3
 
-echo "Set root password:"
-for i in $(seq 1 $MAX_RETRIES); do
-    passwd root && break
-    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-done
-
+# Ensure user exists before setting password
 if ! id "$NEWUSER" &>/dev/null; then
-    echo "Creating user $NEWUSER..."
+    echo "Creating user '$NEWUSER'..."
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-echo "Set password for user $NEWUSER:"
+# Set root password
+echo
+echo "============================"
+echo " Set ROOT password "
+echo "============================"
 for i in $(seq 1 $MAX_RETRIES); do
-    passwd "$NEWUSER" && break
-    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+    if passwd root; then
+        break
+    else
+        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+    fi
 done
 
+# Set user password
+echo
+echo "============================"
+echo " Set password for user '$NEWUSER' "
+echo "============================"
+for i in $(seq 1 $MAX_RETRIES); do
+    if passwd "$NEWUSER"; then
+        break
+    else
+        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+    fi
+done
+
+# Give sudo rights to user
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-set -e
+
+set -e  # restore strict error handling
+
 
 # --------------------------
 # 7) Home directory setup
