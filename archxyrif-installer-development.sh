@@ -804,8 +804,10 @@ safe_aur_install() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-NEWUSER="${NEWUSER}"
-AUR_PKGS=("${AUR_PKGS[@]}")
+# Ensure variables exist
+: "${NEWUSER:?NEWUSER not set}"
+: "${AUR_PKGS:?AUR_PKGS not set}"
+
 HOME_DIR="/home/${NEWUSER}"
 
 mkdir -p "$HOME_DIR"
@@ -814,26 +816,31 @@ chmod 755 "$HOME_DIR"
 
 pacman -Sy --noconfirm --needed git base-devel sudo
 
+# Give temporary sudo rights for NEWUSER
 if ! sudo -lU "$NEWUSER" &>/dev/null; then
     echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
     chmod 440 /etc/sudoers.d/"$NEWUSER"
 fi
 
+# Install paru if missing
 if ! command -v paru &>/dev/null; then
-    sudo -u "$NEWUSER" bash -c '
-        cd "$HOME_DIR" || exit
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        cd \"$HOME\" || exit
         rm -rf paru
         git clone https://aur.archlinux.org/paru.git
         cd paru
         makepkg -si --noconfirm
         cd ..
         rm -rf paru
-    '
+    "
 fi
 
+# Install AUR packages
 for pkg in "${AUR_PKGS[@]}"; do
-    sudo -u "$NEWUSER" paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
-        echo "⚠️ Failed to install $pkg"
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
+        echo \"⚠️ Failed to install $pkg\"
+    "
 done
 EOF
 
@@ -1141,12 +1148,13 @@ if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
     safe_aur_install CHROOT_CMD[@] "${HYPR_AUR_PKGS[@]}"
 
     # Apply theme inside chroot as NEWUSER
-    TMP_SCRIPT="/root/_hyprland_theme.sh"
-    cat > /mnt${TMP_SCRIPT} <<'EOF'
+TMP_SCRIPT="/root/_hyprland_theme.sh"
+cat > /mnt${TMP_SCRIPT} <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-NEWUSER="${NEWUSER}"
+: "${NEWUSER:?NEWUSER not set}"
+
 HOME_DIR="/home/${NEWUSER}"
 CONFIG_DIR="${HOME_DIR}/.config"
 THEME_ZIP="${HOME_DIR}/config.zip"
@@ -1160,14 +1168,20 @@ fi
 
 # Extract theme zip
 if [[ -f "$THEME_ZIP" ]]; then
-    unzip -o "$THEME_ZIP" -d "$HOME_DIR"
-    if [[ -d "$HOME_DIR/config" ]]; then
-        mv "$HOME_DIR/config" "$CONFIG_DIR"
-    fi
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        unzip -o \"$THEME_ZIP\" -d \"$HOME_DIR\"
+        if [[ -d \"$HOME_DIR/config\" ]]; then
+            mv \"$HOME_DIR/config\" \"$CONFIG_DIR\"
+        fi
+    "
 fi
 
 # Extract wallpaper zip
-[[ -f "$WALLPAPER_ZIP" ]] && unzip -o "$WALLPAPER_ZIP" -d "$HOME_DIR"
+if [[ -f "$WALLPAPER_ZIP" ]]; then
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        unzip -o \"$WALLPAPER_ZIP\" -d \"$HOME_DIR\"
+    "
+fi
 
 # Set ownership correctly
 chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR" "$HOME_DIR"
@@ -1175,13 +1189,11 @@ chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR" "$HOME_DIR"
 echo "==> Hyprland theme applied successfully!"
 EOF
 
-    # Run theme setup inside chroot
-    CHROOT_ENV=(arch-chroot /mnt)
-    export NEWUSER
-    "${CHROOT_ENV[@]}" bash "${TMP_SCRIPT}"
-
-    # Clean up
-    "${CHROOT_ENV[@]}" rm -f "${TMP_SCRIPT}"
+# Run inside chroot
+CHROOT_ENV=(arch-chroot /mnt)
+export NEWUSER
+"${CHROOT_ENV[@]}" bash "${TMP_SCRIPT}"
+"${CHROOT_ENV[@]}" rm -f "${TMP_SCRIPT}"
 
     echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
