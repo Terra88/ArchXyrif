@@ -106,9 +106,9 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -New Disk partition/filesystem options added:<br>
 -Quick partition section has now 3 options to it:<br><br>
 
-- 1)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) EXT4Root(100GB) and rest 100% goes to /home.<br>
-- 2)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to @home.<br>
-- 3)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to EXT4 /home.<br><br>
+- 1)Fat 32: Boot, swap calculated by ram(2 x ram if less than 16GB and 1 x ram if more than 16GB ram) EXT4Root(100GB) and rest 100% goes to /home.<br>
+- 2)Fat 32: Boot, swap calculated by ram(2 x ram if less than 16GB and 1 x ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to @home.<br>
+- 3)Fat 32: Boot, swap calculated by ram(2 x ram if less than 16GB and 1 x ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to EXT4 /home.<br><br>
 
 -This way you get snapshots features if you have BTRFS partitions.<br><br>
 
