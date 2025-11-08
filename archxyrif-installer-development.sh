@@ -1079,53 +1079,64 @@ echo "-------------------------------------------"
 echo "🎨 Hyprland Theme Setup (Optional)"
 echo "-------------------------------------------"
 
-if [[ "$WM_CHOICE" == "1" ]]; then
-    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Running Hyprland theme setup inside chroot..."
+# BLOCK 11: Hyprland Theme Setup
+read -rp "Install Hyprland theme? (y/N): " INSTALL_THEME
+if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
+    echo -e "\n\033[1;34m==> Setting up Hyprland theme...\033[0m"
 
-        arch-chroot /mnt /bin/bash -c "
-NEWUSER=\"$NEWUSER\"
-CONFIG_DIR=\"/home/\$NEWUSER/.config\"
-THEME_ZIP=\"config.zip\"
-
-cd /home/\$NEWUSER
-
-# Backup existing .config if it contains files
-if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-fi
-
-# Extract theme config
-if [[ -f \$THEME_ZIP ]]; then
-    unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
-    if [[ -d /home/\$NEWUSER/config ]]; then
-        mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
+    # Copy theme zip files into chroot user home (if they exist)
+    if [[ -f config.zip ]]; then
+        cp config.zip /mnt/home/$NEWUSER/
     fi
-fi
+    if [[ -f wallpaper.zip ]]; then
+        cp wallpaper.zip /mnt/home/$NEWUSER/
+    fi
 
-# Extract wallpapers
-[[ -f wallpaper.zip ]] && unzip -o wallpaper.zip -d /home/\$NEWUSER
+    arch-chroot /mnt /bin/bash -c "
+    set -e
+    NEWUSER=\"$NEWUSER\"
+    CONFIG_DIR=\"/home/\$NEWUSER/.config\"
+    THEME_ZIP=\"config.zip\"
 
-# Copy wallpaper script and make executable
-[[ -f wallpaper.sh ]] && cp -f wallpaper.sh /home/\$NEWUSER/ && chmod +x /home/\$NEWUSER/wallpaper.sh
+    echo '==> Checking dependencies...'
+    MISSING_PKGS=()
+    for PKG in unzip; do
+        if ! pacman -Qi \$PKG &>/dev/null; then
+            MISSING_PKGS+=(\$PKG)
+        fi
+    done
 
-# Fix ownership recursively
-chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER
+    if [[ \${#MISSING_PKGS[@]} -gt 0 ]]; then
+        echo '==> Installing missing packages: \${MISSING_PKGS[*]}'
+        pacman -Sy --noconfirm \${MISSING_PKGS[@]}
+    fi
 
-# Secure permissions: directories 700, files 600 inside .config
-find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
-find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
+    # Proceed only if config.zip exists
+    if [[ -f /home/\$NEWUSER/\$THEME_ZIP ]]; then
+        echo '==> Extracting Hyprland theme...'
+        cd /home/\$NEWUSER
 
-# Cleanup cloned repo
-rm -rf /home/\$NEWUSER/hyprland-setup
-"
-        echo "✅ Hyprland theme setup completed."
+        # Backup existing config
+        if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+            mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+        fi
+
+        unzip -o \"\$THEME_ZIP\" -d /home/\$NEWUSER/
+
+        if [[ -d /home/\$NEWUSER/config ]]; then
+            mv /home/\$NEWUSER/config /home/\$NEWUSER/.config
+        fi
+
+        chown -R \$NEWUSER:\$NEWUSER /home/\$NEWUSER/.config
+        echo '==> Hyprland theme applied successfully!'
     else
-        echo "Skipping Hyprland theme setup."
+        echo '==> No config.zip found, skipping theme setup.'
     fi
+    "
+
+    echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
-    echo "Skipping Hyprland theme setup (not using Hyprland)."
+    echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
 fi
 
 sleep 2
