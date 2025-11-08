@@ -791,7 +791,6 @@ safe_pacman_install() {
 # 7C) Helper Functions - For AUR (Paru)                                                              
 #===================================================================================================#
 
-
 safe_aur_install() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -804,9 +803,10 @@ safe_aur_install() {
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Ensure variables exist
-: "${NEWUSER:?NEWUSER not set}"
-: "${AUR_PKGS:?AUR_PKGS not set}"
+# Arguments: first = NEWUSER, remaining = AUR packages
+NEWUSER="${1:?NEWUSER not set}"
+shift
+AUR_PKGS=("$@")
 
 HOME_DIR="/home/${NEWUSER}"
 
@@ -844,12 +844,10 @@ for pkg in "${AUR_PKGS[@]}"; do
 done
 EOF
 
-    export NEWUSER
-    export AUR_PKGS
-    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}"
+    # Pass NEWUSER and the array as arguments
+    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
     "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
 }
-
 
 
 # define once to keep consistent call structure
@@ -1153,7 +1151,8 @@ cat > /mnt${TMP_SCRIPT} <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-: "${NEWUSER:?NEWUSER not set}"
+# Arguments: first = NEWUSER
+NEWUSER="${1:?NEWUSER not set}"
 
 HOME_DIR="/home/${NEWUSER}"
 CONFIG_DIR="${HOME_DIR}/.config"
@@ -1189,10 +1188,9 @@ chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR" "$HOME_DIR"
 echo "==> Hyprland theme applied successfully!"
 EOF
 
-# Run inside chroot
+# Run inside chroot passing NEWUSER as argument
 CHROOT_ENV=(arch-chroot /mnt)
-export NEWUSER
-"${CHROOT_ENV[@]}" bash "${TMP_SCRIPT}"
+"${CHROOT_ENV[@]}" bash "${TMP_SCRIPT}" "$NEWUSER"
 "${CHROOT_ENV[@]}" rm -f "${TMP_SCRIPT}"
 
     echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
