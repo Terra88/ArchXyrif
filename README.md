@@ -3,7 +3,7 @@
 
 
 
-Warning this script will reformat, re-part and reinstall your system to arch linux. <br>
+Warning this script will format, re-part and reinstall your system to arch linux. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
 Aim of the project:<br> 
