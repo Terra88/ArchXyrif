@@ -767,19 +767,20 @@ safe_aur_install() {
     local AUR_PKGS=("$@")
 
     # Skip if no packages
-    if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
-        echo "⚠️  No AUR packages specified — skipping safe_aur_install."
-        return 0
-    fi
+    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
 
     echo
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
-    # Ensure home exists in chroot
+    # Check if user exists before chown/sudo operations
+    if ! "${CHROOT_CMD[@]}" id "$NEWUSER" &>/dev/null; then
+        echo "⚠️  User $NEWUSER does not exist inside chroot. Skipping AUR installation."
+        return 1
+    fi
+
     "${CHROOT_CMD[@]}" mkdir -p "/home/$NEWUSER"
     "${CHROOT_CMD[@]}" chown "$NEWUSER:$NEWUSER" "/home/$NEWUSER"
 
-    # Run AUR operations in chroot
     "${CHROOT_CMD[@]}" bash -e <<'EOF'
 NEWUSER="{{NEWUSER}}"
 HOME_DIR="/home/$NEWUSER"
@@ -787,7 +788,6 @@ AUR_PKGS=(${AUR_PKGS[@]})
 
 # Install paru if missing
 if ! command -v paru &>/dev/null; then
-    echo "==> Installing paru..."
     pacman -Sy --noconfirm base-devel git sudo || true
     sudo -u $NEWUSER HOME=$HOME_DIR bash -c "
         cd $HOME_DIR
@@ -799,30 +799,17 @@ if ! command -v paru &>/dev/null; then
     "
 fi
 
-# Loop through AUR packages
+# Loop through AUR packages safely
 for pkg in "${AUR_PKGS[@]}"; do
     echo "==> Installing AUR package: $pkg"
-
-    # Check for conflicts
-    CONFLICTS=$(paru -Si "$pkg" 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-    if [[ -n "$CONFLICTS" ]]; then
-        echo "⚠️  Conflicts detected for $pkg: $CONFLICTS"
-        for C in $CONFLICTS; do
-            if pacman -Qq "$C" &>/dev/null; then
-                echo "→ Removing conflicting package: $C"
-                pacman -Rdd --noconfirm "$C" || true
-            fi
-        done
-    fi
-
-    # Attempt installation, skip if fails
-    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" \
-        || echo "⚠️ Failed to install AUR package: $pkg"
+    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
+    echo "⚠️ Failed to install: $pkg (skipping)"
 done
 EOF
 
     echo "✅ AUR installation phase complete."
 }
+
 
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
