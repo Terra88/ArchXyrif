@@ -271,6 +271,7 @@ echo "   → A balanced setup combining both worlds."
 echo "     • BTRFS for system (root) — allows snapshots & rollback"
 echo "     • EXT4 for home — simpler and very stable for data"
 echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
+echo
 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
 DEV_CHOICE="${DEV_CHOICE:-1}"
 
