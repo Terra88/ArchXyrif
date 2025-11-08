@@ -549,9 +549,9 @@ localectl set-x11-keymap fi
 mkinitcpio -P
 
 # --------------------------
-# 6) Root + user passwords (retry)
+# 6) Root + user passwords
 # --------------------------
-set +e  # disable exit-on-error for passwd
+set +e
 MAX_RETRIES=3
 
 echo "Set root password:"
@@ -560,8 +560,8 @@ for i in $(seq 1 $MAX_RETRIES); do
     echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
 done
 
-# Create user if it doesn't exist
 if ! id "$NEWUSER" &>/dev/null; then
+    echo "Creating user $NEWUSER..."
     useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
 fi
 
@@ -571,21 +571,34 @@ for i in $(seq 1 $MAX_RETRIES); do
     echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
 done
 
-# Ensure sudo rights
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-set -e  # re-enable exit-on-error
-
-# Ensure home exists and correct permissions
-if id "$NEWUSER" &>/dev/null; then
-    mkdir -p /home/$NEWUSER
-    chown "$NEWUSER:$NEWUSER" /home/$NEWUSER
-    chmod 755 /home/$NEWUSER
-fi
+set -e
 
 # --------------------------
-# 7) Enable basic services
+# 7) Home directory setup (EXT4/BTRFS aware)
+# --------------------------
+FS_TYPE=$(findmnt -no FSTYPE /mnt)
+HOME_DIR="/home/$NEWUSER"
+
+if [[ "$FS_TYPE" == "btrfs" ]]; then
+    # Create @home subvolume if missing
+    if [[ ! -d "/home" ]]; then
+        btrfs subvolume create /home
+    fi
+fi
+
+mkdir -p "$HOME_DIR"
+chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
+chmod 755 "$HOME_DIR"
+
+CONFIG_DIR="$HOME_DIR/.config"
+mkdir -p "$CONFIG_DIR"
+chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR"
+
+# --------------------------
+# 8) Enable basic services
 # --------------------------
 systemctl enable NetworkManager
 systemctl enable sshd
@@ -605,11 +618,10 @@ sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 
-# Make the script executable
 chmod +x /mnt/root/postinstall.sh
 
 # chroot and run postinstall.sh
-echo "Entering chroot to run configuration (this will prompt for root and user passwords)..."
+echo "Entering chroot to run postinstall.sh..." #asks pw etc.
 arch-chroot /mnt /root/postinstall.sh
 
 
@@ -714,47 +726,49 @@ install_with_retry() {
 }
 
 # Conflict-preventing, retry-aware installer
+install_with_retry() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local CMD=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
+        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
+            echo "✅ Installation succeeded"
+            return 0
+        else
+            echo "⚠️ Failed attempt $i"
+            if (( i < MAX_RETRIES )); then
+                "${CHROOT_CMD[@]}" bash -c '
+                    pacman-key --init
+                    pacman-key --populate archlinux
+                    pacman -Sy --noconfirm archlinux-keyring
+                '
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+
+    echo "❌ Installation failed after $MAX_RETRIES attempts."
+    return 1
+}
+
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
     shift
     local PKGS=("$@")
 
-    echo
-    echo "🔍 Checking for potential conflicts before installation..."
-
-    # --- FIRST LOOP: detect and remove conflicts ---
     for PKG in "${PKGS[@]}"; do
-        echo "→ Analyzing: $PKG"
-        local INFO
-        if ! INFO=$("${CHROOT_CMD[@]}" pacman -Si "$PKG" 2>/dev/null); then
-            echo "⚠️  Could not retrieve info for $PKG (skip conflict check)"
-            continue
-        fi
-
-        local CONFLICTS
-        CONFLICTS=$(echo "$INFO" | grep -E "^Conflicts With" | cut -d ':' -f2 | tr -d ' ')
-        if [[ -n "$CONFLICTS" ]]; then
-            echo "⚠️  $PKG conflicts with: $CONFLICTS"
-            for C in $CONFLICTS; do
-                if "${CHROOT_CMD[@]}" pacman -Qq "$C" &>/dev/null; then
-                    echo "→ Removing conflicting package: $C"
-                    "${CHROOT_CMD[@]}" pacman -Rdd --noconfirm "$C" || true
-                fi
-            done
-        fi
-    done
-
-    echo
-    echo "📦 Installing packages safely (will skip failed ones)..."
-
-    # --- SECOND LOOP: install each package safely ---
-    for PKG in "${PKGS[@]}"; do
-        echo "→ Installing: $PKG"
-        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" \
-            || echo "⚠️ Skipping failed package: $PKG"
+        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
+            echo "⚠️ Skipping $PKG"
     done
 }
-
 
 #===================================================================================================#
 # 7C) Helper Functions - For AUR (Paru)                                                              
@@ -768,36 +782,29 @@ safe_aur_install() {
 
     [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
 
-    echo
-    echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
-
-    # Write temporary chroot script for AUR
     local TMP_SCRIPT="/root/_aur_install.sh"
     cat > /mnt${TMP_SCRIPT} <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Variables passed via environment
 NEWUSER="${NEWUSER}"
 AUR_PKGS=("${AUR_PKGS[@]}")
+HOME_DIR="/home/${NEWUSER}"
 
-# Ensure user home exists
-mkdir -p /home/"$NEWUSER"
-chown "$NEWUSER:$NEWUSER" /home/"$NEWUSER"
+mkdir -p "$HOME_DIR"
+chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
+chmod 755 "$HOME_DIR"
 
-# Install git, base-devel, and sudo if missing
 pacman -Sy --noconfirm --needed git base-devel sudo
 
-# Make sure sudo works for NEWUSER
 if ! sudo -lU "$NEWUSER" &>/dev/null; then
     echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
     chmod 440 /etc/sudoers.d/"$NEWUSER"
 fi
 
-# Install paru if missing
 if ! command -v paru &>/dev/null; then
     sudo -u "$NEWUSER" bash -c '
-        cd /home/"$NEWUSER"
+        cd "$HOME_DIR" || exit
         rm -rf paru
         git clone https://aur.archlinux.org/paru.git
         cd paru
@@ -807,25 +814,18 @@ if ! command -v paru &>/dev/null; then
     '
 fi
 
-# Install requested AUR packages
 for pkg in "${AUR_PKGS[@]}"; do
-    echo "==> Installing AUR package: $pkg"
     sudo -u "$NEWUSER" paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
-        echo "⚠️ Failed to install $pkg, skipping."
+        echo "⚠️ Failed to install $pkg"
 done
-
-echo "✅ Finished AUR installation."
 EOF
 
-    # Copy environment variables and execute
     export NEWUSER
     export AUR_PKGS
-
     "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}"
-
-    # Clean up
     "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
 }
+
 
 
 # define once to keep consistent call structure
