@@ -98,3 +98,26 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -Block 11 will prompt if you install Hyprland and ask, if you want to add my custom theme to it y/N. If you answer yes, additional packages will be installed that the theme requires and .config files will be copied automatically from my other GitHub project.<br><br>
 -it will automatically give new user the rights to that folder. Also wallpaper engine will be added to /home as wallpaper.sh and a wallpaper folder that the engine rotates. hyprlock will have a lock button and a wallpaper set to it in /home/wallpaper folder called lock.jpg
 <br>
+
+### **Features added to ver. 1.3.6**
+
+-Created interactive guidance throughout the install process, with headlines of what is the current stage of the install process. Also added tips of what options to choose from, headlined prompts for when the program wants you to set passwords etc.
+
+-New Disk partition/filesystem options added:<br>
+-Quick partition section has now 3 options to it:<br><br>
+
+- 1)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) EXT4Root(100GB) and rest 100% goes to /home.<br>
+- 2)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to @home.<br>
+- 3)Fat 32: Boot, swap calculated by ram(2*ram if less than 16GB and 1*ram if more than 16GB ram) BTRFS @Root(100GB) and rest 100% goes to EXT4 /home.<br><br>
+
+-This way you get snapshots features if you have BTRFS partitions.<br><br>
+
+-Made minor tweaks to how the user/root information is handled when running chroot & mkinitcpio setup.<br><br>
+
+-Did Error handling, if set passwords don't match or you enter wrong password, you will be informed to set pw or try again + inform about how many times you can retry, so the script doesn't fail to typos along the way. <br><br>
+
+-All and all should be very smooth install process.<br> <br>
+
+-Features i'm currently planning on implementing later: Custom partition scheme - set values manually and filesystem.<br><br>
+
+known bugs: well it's not really a bug, but the unmount process at the start of the script only unmounts LUKS LV's and clears encryptions, if you format with btrfs, you will have to unmount the drive manually or reboot your system to re-format, if you have to run the script again for any reason. Will fix that later.
