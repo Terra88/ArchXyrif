@@ -226,11 +226,11 @@ echo "#=========================================================================
             EFI_SIZE_MIB=1024
             
             while true; do
-            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-Max=150GiB to avoid overflow"
+            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
             # Validate input: positive integer
-            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > 150)); then
+            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
                 echo "Invalid input! Enter a positive integer in GiB."
                 continue
             fi
