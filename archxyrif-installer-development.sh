@@ -512,10 +512,13 @@ cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-TZ="{{TIMEZONE}}"
-LANG_LOCALE="{{LANG_LOCALE}}"
-HOSTNAME="{{HOSTNAME}}"
-NEWUSER="{{NEWUSER}}"
+# Variables passed from outer script
+TZ="${TIMEZONE}"
+LANG_LOCALE="${LANG_LOCALE}"
+HOSTNAME="${HOSTNAME}"
+NEWUSER="${NEWUSER}"
+ROOT_PASS="${ROOT_PASS}"
+USER_PASS="${USER_PASS}"
 
 # --------------------------
 # 1) Timezone & hardware clock
@@ -556,45 +559,27 @@ localectl set-x11-keymap fi
 mkinitcpio -P
 
 # --------------------------
-# 6) Root + user passwords
+# 6) Root + user passwords (non-interactive)
 # --------------------------
-set +e
-MAX_RETRIES=3
-
-echo "Set root password:"
-for i in $(seq 1 $MAX_RETRIES); do
-    passwd root && break
-    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-done
+echo "Setting root password..."
+echo "root:${ROOT_PASS}" | chpasswd
 
 if ! id "$NEWUSER" &>/dev/null; then
     echo "Creating user $NEWUSER..."
-    useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
+    useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-echo "Set password for user $NEWUSER:"
-for i in $(seq 1 $MAX_RETRIES); do
-    passwd "$NEWUSER" && break
-    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-done
+echo "Setting password for user $NEWUSER..."
+echo "${NEWUSER}:${USER_PASS}" | chpasswd
 
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-set -e
 
 # --------------------------
 # 7) Home directory setup (EXT4/BTRFS aware)
 # --------------------------
-FS_TYPE=$(findmnt -no FSTYPE /mnt)
 HOME_DIR="/home/$NEWUSER"
-
-if [[ "$FS_TYPE" == "btrfs" ]]; then
-    # Create @home subvolume if missing
-    if [[ ! -d "/home" ]]; then
-        btrfs subvolume create /home
-    fi
-fi
 
 mkdir -p "$HOME_DIR"
 chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
@@ -604,13 +589,15 @@ CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR"
 
+# Skip @home subvolume creation since /home is a separate partition
+
 # --------------------------
 # 8) Enable basic services
 # --------------------------
 systemctl enable NetworkManager
 systemctl enable sshd
 
-echo "Postinstall inside chroot finished."
+echo "✅ Postinstall inside chroot finished successfully."
 EOF
 
 
