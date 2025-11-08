@@ -507,18 +507,24 @@ echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, 
 echo "#===================================================================================================#"
 echo
 # inline script for arch-chroot operations "postinstall.sh"
+# Ask for passwords before chroot (silent input)
+echo
+read -s -p "Enter ROOT password: " ROOT_PASS
+echo
+read -s -p "Enter password for user '$NEWUSER': " USER_PASS
+echo
 
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Variables passed from outer script
-TZ="${TIMEZONE}"
-LANG_LOCALE="${LANG_LOCALE}"
-HOSTNAME="${HOSTNAME}"
-NEWUSER="${NEWUSER}"
-ROOT_PASS="${ROOT_PASS}"
-USER_PASS="${USER_PASS}"
+# --------------------------
+# Variables injected by main installer
+# --------------------------
+TZ="{{TIMEZONE}}"
+LANG_LOCALE="{{LANG_LOCALE}}"
+HOSTNAME="{{HOSTNAME}}"
+NEWUSER="{{NEWUSER}}"
 
 # --------------------------
 # 1) Timezone & hardware clock
@@ -559,37 +565,40 @@ localectl set-x11-keymap fi
 mkinitcpio -P
 
 # --------------------------
-# 6) Root + user passwords (non-interactive)
+# 6) Root + user passwords
 # --------------------------
-echo "Setting root password..."
-echo "root:${ROOT_PASS}" | chpasswd
+set +e
+MAX_RETRIES=3
+
+echo "Set root password:"
+for i in $(seq 1 $MAX_RETRIES); do
+    passwd root && break
+    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+done
 
 if ! id "$NEWUSER" &>/dev/null; then
     echo "Creating user $NEWUSER..."
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-echo "Setting password for user $NEWUSER..."
-echo "${NEWUSER}:${USER_PASS}" | chpasswd
+echo "Set password for user $NEWUSER:"
+for i in $(seq 1 $MAX_RETRIES); do
+    passwd "$NEWUSER" && break
+    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+done
 
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+set -e
 
 # --------------------------
-# 7) Home directory setup (EXT4/BTRFS aware)
+# 7) Home directory setup
 # --------------------------
 HOME_DIR="/home/$NEWUSER"
-
-mkdir -p "$HOME_DIR"
-chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
-chmod 755 "$HOME_DIR"
-
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
-chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR"
-
-# Skip @home subvolume creation since /home is a separate partition
+chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 
 # --------------------------
 # 8) Enable basic services
@@ -597,7 +606,7 @@ chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR"
 systemctl enable NetworkManager
 systemctl enable sshd
 
-echo "✅ Postinstall inside chroot finished successfully."
+echo "Postinstall inside chroot finished."
 EOF
 
 
@@ -611,14 +620,19 @@ sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+sed -i "s|{{ROOT_PASS}}|${ROOT_PASS}|g" /mnt/root/postinstall.sh
+sed -i "s|{{USER_PASS}}|${USER_PASS}|g" /mnt/root/postinstall.sh
 
 chmod +x /mnt/root/postinstall.sh
 
 # chroot and run postinstall.sh
-echo "Entering chroot to run postinstall.sh..." #asks pw etc.
+echo "Entering chroot to run postinstall.sh..."
 arch-chroot /mnt /root/postinstall.sh
 
+# Remove postinstall.sh after execution
+rm -f /mnt/root/postinstall.sh
 
+echo "✅ Chroot configuration complete."
 clear
 echo
 echo "#===================================================================================================#"
