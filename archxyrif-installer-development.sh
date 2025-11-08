@@ -1258,7 +1258,7 @@ sleep 2
 clear
 echo
 echo "#===================================================================================================#"
-echo "# 12 Cleanup postinstall script & Final Messages & Instructions                                      "
+echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                      "
 echo "#===================================================================================================#"
 echo
 
