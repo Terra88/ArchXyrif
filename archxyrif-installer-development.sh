@@ -760,7 +760,7 @@ safe_aur_install() {
     shift
     local AUR_PKGS=("$@")
 
-    # skip if no packages
+    # Skip if no packages
     if [[ ${#AUR_PKGS[@]} -eq 0 ]]; then
         echo "⚠️  No AUR packages specified — skipping safe_aur_install."
         return 0
@@ -769,39 +769,53 @@ safe_aur_install() {
     echo
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
-    "${CHROOT_CMD[@]}" bash -c "
-        pacman -S --needed --noconfirm base-devel git || true
+    # Ensure home exists in chroot
+    "${CHROOT_CMD[@]}" mkdir -p "/home/$NEWUSER"
+    "${CHROOT_CMD[@]}" chown "$NEWUSER:$NEWUSER" "/home/$NEWUSER"
 
-        # ensure paru exists
-        if ! command -v paru &>/dev/null; then
-            cd /home/$NEWUSER
-            sudo -u $NEWUSER git clone https://aur.archlinux.org/paru.git
-            cd paru && sudo -u $NEWUSER makepkg -si --noconfirm
-            cd .. && rm -rf paru
-        fi
+    # Run AUR operations in chroot
+    "${CHROOT_CMD[@]}" bash -e <<'EOF'
+NEWUSER="{{NEWUSER}}"
+HOME_DIR="/home/$NEWUSER"
+AUR_PKGS=(${AUR_PKGS[@]})
 
-        for pkg in ${AUR_PKGS[*]}; do
-            echo
-            echo '→ Checking AUR package:' \$pkg
-
-            # detect conflicting packages (e.g. foo vs foo-git)
-            CONFLICTS=\$(paru -Si \$pkg 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
-            if [[ -n \"\$CONFLICTS\" ]]; then
-                echo '⚠️  Conflicts detected for' \$pkg ': '\$CONFLICTS
-                for C in \$CONFLICTS; do
-                    if pacman -Qq \$C &>/dev/null; then
-                        echo '→ Removing conflicting package:' \$C
-                        pacman -Rdd --noconfirm \$C || true
-                    fi
-                done
-            fi
-
-            # install package safely, skip failed ones
-            echo '📦 Installing:' \$pkg
-            sudo -u $NEWUSER paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' \$pkg \
-            || echo '⚠️  Failed to install:' \$pkg
-        done
+# Install paru if missing
+if ! command -v paru &>/dev/null; then
+    echo "==> Installing paru..."
+    pacman -Sy --noconfirm base-devel git sudo || true
+    sudo -u $NEWUSER HOME=$HOME_DIR bash -c "
+        cd $HOME_DIR
+        git clone https://aur.archlinux.org/paru.git
+        cd paru
+        makepkg -si --noconfirm
+        cd ..
+        rm -rf paru
     "
+fi
+
+# Loop through AUR packages
+for pkg in "${AUR_PKGS[@]}"; do
+    echo "==> Installing AUR package: $pkg"
+
+    # Check for conflicts
+    CONFLICTS=$(paru -Si "$pkg" 2>/dev/null | grep -E '^Conflicts With' | cut -d ':' -f2 | tr -d ' ')
+    if [[ -n "$CONFLICTS" ]]; then
+        echo "⚠️  Conflicts detected for $pkg: $CONFLICTS"
+        for C in $CONFLICTS; do
+            if pacman -Qq "$C" &>/dev/null; then
+                echo "→ Removing conflicting package: $C"
+                pacman -Rdd --noconfirm "$C" || true
+            fi
+        done
+    fi
+
+    # Attempt installation, skip if fails
+    sudo -u $NEWUSER HOME=$HOME_DIR paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" \
+        || echo "⚠️ Failed to install AUR package: $pkg"
+done
+EOF
+
+    echo "✅ AUR installation phase complete."
 }
 
 # define once to keep consistent call structure
