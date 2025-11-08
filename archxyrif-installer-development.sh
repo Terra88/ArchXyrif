@@ -20,6 +20,7 @@ set -euo pipefail
 clear
 loadkeys fi
 timedatectl set-ntp true
+
 echo "|The Great Monolith: Of Installing Arch Linux|"
 echo "#=====================================================================================================#"
 echo "                                                                                 "      
