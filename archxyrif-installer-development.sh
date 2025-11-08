@@ -505,7 +505,6 @@ cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Variables injected from outer script
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 HOSTNAME="{{HOSTNAME}}"
@@ -545,44 +544,51 @@ localectl set-keymap fi
 localectl set-x11-keymap fi
 
 # --------------------------
-# 5) Initramfs for all kernels
+# 5) Initramfs
 # --------------------------
 mkinitcpio -P
 
 # --------------------------
-# 6) Root password
+# 6) Root + user passwords (retry)
 # --------------------------
-echo "Set root password:"
-passwd
+set +e  # disable exit-on-error for passwd
+MAX_RETRIES=3
 
-# --------------------------
-# 7) Create user, set password, enable sudo
-# --------------------------
+echo "Set root password:"
+for i in $(seq 1 $MAX_RETRIES); do
+    passwd root && break
+    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+done
+
+# Create user if it doesn't exist
 if ! id "$NEWUSER" &>/dev/null; then
-    useradd -m -G wheel -s /bin/bash "$NEWUSER"
-    echo "Set password for user $NEWUSER:"
-    passwd "$NEWUSER"
+    useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
 fi
+
+echo "Set password for user $NEWUSER:"
+for i in $(seq 1 $MAX_RETRIES); do
+    passwd "$NEWUSER" && break
+    echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+done
 
 # Ensure sudo rights
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+set -e  # re-enable exit-on-error
 
-# Ensure home directory and permissions are correct
-mkdir -p /home/$NEWUSER
-chown "$NEWUSER:$NEWUSER" /home/$NEWUSER
-chmod 755 /home/$NEWUSER
+# Ensure home exists and correct permissions
+if id "$NEWUSER" &>/dev/null; then
+    mkdir -p /home/$NEWUSER
+    chown "$NEWUSER:$NEWUSER" /home/$NEWUSER
+    chmod 755 /home/$NEWUSER
+fi
 
 # --------------------------
-# 8) Enable basic services
+# 7) Enable basic services
 # --------------------------
 systemctl enable NetworkManager
 systemctl enable sshd
-
-# --------------------------
-# 9) Done
-# --------------------------
 
 echo "Postinstall inside chroot finished."
 EOF
