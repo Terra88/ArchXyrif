@@ -356,9 +356,7 @@ if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
     swapon "$P3"
 
 
-elif
-
-    [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
+elif[[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
     echo "→ Formatting root (P2) as BTRFS..."
     mkfs.btrfs -f "$P2"
 
