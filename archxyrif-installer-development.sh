@@ -771,38 +771,60 @@ safe_aur_install() {
     echo
     echo "🌐 Starting safe AUR installation for: ${AUR_PKGS[*]}"
 
-    # Run everything inside chroot as NEWUSER
-    "${CHROOT_CMD[@]}" bash -c "
-NEWUSER='${NEWUSER}'
-HOME_DIR=\"/home/\$NEWUSER\"
+    # Write temporary chroot script for AUR
+    local TMP_SCRIPT="/root/_aur_install.sh"
+    cat > /mnt${TMP_SCRIPT} <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Ensure home exists (inside chroot)
-mkdir -p \$HOME_DIR
-chown \$NEWUSER:\$NEWUSER \$HOME_DIR || true
+# Variables passed via environment
+NEWUSER="${NEWUSER}"
+AUR_PKGS=("${AUR_PKGS[@]}")
+
+# Ensure user home exists
+mkdir -p /home/"$NEWUSER"
+chown "$NEWUSER:$NEWUSER" /home/"$NEWUSER"
+
+# Install git, base-devel, and sudo if missing
+pacman -Sy --noconfirm --needed git base-devel sudo
+
+# Make sure sudo works for NEWUSER
+if ! sudo -lU "$NEWUSER" &>/dev/null; then
+    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
+    chmod 440 /etc/sudoers.d/"$NEWUSER"
+fi
 
 # Install paru if missing
 if ! command -v paru &>/dev/null; then
-    pacman -Sy --noconfirm base-devel git sudo || true
-    sudo -u \$NEWUSER bash -c '
-        cd \$HOME_DIR
+    sudo -u "$NEWUSER" bash -c '
+        cd /home/"$NEWUSER"
         rm -rf paru
         git clone https://aur.archlinux.org/paru.git
         cd paru
-        makepkg -si --noconfirm || true
+        makepkg -si --noconfirm
         cd ..
         rm -rf paru
     '
 fi
 
-# Install AUR packages safely
-for pkg in \"${AUR_PKGS[@]}\"; do
-    echo '==> Installing AUR package: '$pkg
-    sudo -u \$NEWUSER bash -c \"paru -S --noconfirm --skipreview --removemake --needed --overwrite='*' $pkg\" || \
-    echo '⚠️ Failed to install: $pkg (skipping)'
+# Install requested AUR packages
+for pkg in "${AUR_PKGS[@]}"; do
+    echo "==> Installing AUR package: $pkg"
+    sudo -u "$NEWUSER" paru -S --noconfirm --skipreview --removemake --needed --overwrite="*" "$pkg" || \
+        echo "⚠️ Failed to install $pkg, skipping."
 done
 
-echo '✅ Finished AUR installation inside chroot.'
-"
+echo "✅ Finished AUR installation."
+EOF
+
+    # Copy environment variables and execute
+    export NEWUSER
+    export AUR_PKGS
+
+    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}"
+
+    # Clean up
+    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
 }
 
 
@@ -1088,47 +1110,62 @@ read -rp "Install Hyprland theme and required AUR packages? (y/N): " INSTALL_THE
 if [[ "$INSTALL_THEME" =~ ^[Yy]$ ]]; then
     echo -e "\n\033[1;34m==> Setting up Hyprland theme and required packages...\033[0m"
 
-    # Copy theme and wallpaper zips if they exist
-    [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/
-    [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/
+    # Copy theme and wallpaper zips to NEWUSER home if they exist
+    [[ -f config.zip ]] && cp config.zip /mnt/home/$NEWUSER/ || echo "⚠️ config.zip not found, skipping."
+    [[ -f wallpaper.zip ]] && cp wallpaper.zip /mnt/home/$NEWUSER/ || echo "⚠️ wallpaper.zip not found, skipping."
 
-    # Ensure unzip is available in chroot
+    # Ensure unzip is available
     safe_pacman_install CHROOT_CMD[@] unzip
 
-    # Define AUR packages needed for Hyprland theme
+    # Define Hyprland AUR packages
     HYPR_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
 
     # Install required AUR packages safely
     safe_aur_install CHROOT_CMD[@] "${HYPR_AUR_PKGS[@]}"
 
     # Apply theme inside chroot as NEWUSER
-    arch-chroot /mnt /bin/bash -c "
-NEWUSER='${NEWUSER}'
-CONFIG_DIR=\"/home/\$NEWUSER/.config\"
-THEME_ZIP=\"/home/\$NEWUSER/config.zip\"
-WALLPAPER_ZIP=\"/home/\$NEWUSER/wallpaper.zip\"
+    TMP_SCRIPT="/root/_hyprland_theme.sh"
+    cat > /mnt${TMP_SCRIPT} <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
 
-# Backup existing config if needed
-if [[ -d \$CONFIG_DIR && \$(ls -A \$CONFIG_DIR) ]]; then
-    mv \$CONFIG_DIR \${CONFIG_DIR}.backup.\$(date +%s)
-    echo '==> Existing .config backed up.'
+NEWUSER="${NEWUSER}"
+HOME_DIR="/home/${NEWUSER}"
+CONFIG_DIR="${HOME_DIR}/.config"
+THEME_ZIP="${HOME_DIR}/config.zip"
+WALLPAPER_ZIP="${HOME_DIR}/wallpaper.zip"
+
+# Backup existing .config if not empty
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+    echo "==> Existing .config backed up."
 fi
 
 # Extract theme zip
-if [[ -f \$THEME_ZIP ]]; then
-    unzip -o \$THEME_ZIP -d /home/\$NEWUSER/
-    if [[ -d /home/\$NEWUSER/config ]]; then
-        mv /home/\$NEWUSER/config \$CONFIG_DIR
+if [[ -f "$THEME_ZIP" ]]; then
+    unzip -o "$THEME_ZIP" -d "$HOME_DIR"
+    if [[ -d "$HOME_DIR/config" ]]; then
+        mv "$HOME_DIR/config" "$CONFIG_DIR"
     fi
 fi
 
 # Extract wallpaper zip
-[[ -f \$WALLPAPER_ZIP ]] && unzip -o \$WALLPAPER_ZIP -d /home/\$NEWUSER/
+[[ -f "$WALLPAPER_ZIP" ]] && unzip -o "$WALLPAPER_ZIP" -d "$HOME_DIR"
 
-# Set ownership
-chown -R \$NEWUSER:\$NEWUSER \$CONFIG_DIR /home/\$NEWUSER
-echo '==> Hyprland theme applied successfully!'
-"
+# Set ownership correctly
+chown -R "$NEWUSER:$NEWUSER" "$CONFIG_DIR" "$HOME_DIR"
+
+echo "==> Hyprland theme applied successfully!"
+EOF
+
+    # Run theme setup inside chroot
+    CHROOT_ENV=(arch-chroot /mnt)
+    export NEWUSER
+    "${CHROOT_ENV[@]}" bash "${TMP_SCRIPT}"
+
+    # Clean up
+    "${CHROOT_ENV[@]}" rm -f "${TMP_SCRIPT}"
+
     echo -e "\033[1;32m==> Hyprland theme setup complete!\033[0m"
 else
     echo -e "\033[0;33m==> Skipping Hyprland theme setup.\033[0m"
