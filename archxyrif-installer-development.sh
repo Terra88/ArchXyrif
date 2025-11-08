@@ -293,29 +293,36 @@ P4="${DEV}${PSUFF}4"
 #===================================================================================================#
 
 if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
-    echo "Formatting root partition $P2 as BTRFS..."
+
+    echo "→ Formatting root (P2) as BTRFS..."
     mkfs.btrfs -f "$P2"
 
-    echo "Creating temporary mount to make subvolumes..."
+    echo "→ Formatting home (P4) as BTRFS..."
+    mkfs.btrfs -f "$P4"
+
+    echo "→ Mounting root to create subvolumes..."
     mount "$P2" /mnt
 
-    echo "Creating BTRFS subvolumes: @ (root), @home, @snapshots, @cache, @log..."
+  echo "→ Creating BTRFS subvolumes on root..."
     btrfs subvolume create /mnt/@
-    btrfs subvolume create /mnt/@home
     btrfs subvolume create /mnt/@snapshots
     btrfs subvolume create /mnt/@cache
     btrfs subvolume create /mnt/@log
 
     umount /mnt
 
-    echo "Mounting BTRFS subvolumes..."
-    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@ "$P2" /mnt
-    mkdir -p /mnt/{home,.snapshots,var/cache,var/log}
+    echo "→ Mounting root subvolumes..."
+    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+    mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
 
-    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@home "$P2" /mnt/home
-    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@snapshots "$P2" /mnt/.snapshots
-    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@cache "$P2" /mnt/var/cache
-    mount -o noatime,compress=zstd,space_cache=v2,ssd,subvol=@log "$P2" /mnt/var/log
+    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+    echo "→ Mounting separate home partition..."
+    mount "$P4" /mnt/home
+
+    echo "→ BTRFS root and home setup complete."
 
     # EFI
     mkfs.fat -F32 "$P1"
