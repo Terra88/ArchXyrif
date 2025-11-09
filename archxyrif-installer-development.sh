@@ -99,26 +99,69 @@ set -euo pipefail
     echo "ERROR: $*" >&2
     exit 1
     }
+    
+#========BTRFS VOLUME UNLOADER IF RELOAD REQUIRED=============================================
+    unmount_btrfs_and_swap() {
+    local dev="$1"
+
+    echo "→ Attempting to unmount all BTRFS subvolumes and swap on $dev..."
+
+    # Turn off swap on this device
+    swapon --show=NAME --noheadings | grep -q "$dev" && {
+        echo "→ Turning off swap on $dev..."
+        swapoff "$dev"* || true
+    }
+
+    # Unmount all mountpoints on this device, deepest first
+    mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
+    for mnt in "${MOUNTS[@]}"; do
+        echo "→ Unmounting $mnt ..."
+        umount -l "$mnt" 2>/dev/null || true
+    done
+
+    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
+    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
+    for bm in "${BTRFS_MOUNTS[@]}"; do
+        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
+            echo "→ Unmounting BTRFS subvolume $bm ..."
+            umount -l "$bm" 2>/dev/null || true
+        fi
+    done
+
+    # Clean up /mnt
+    if mountpoint -q /mnt; then
+        echo "→ Cleaning /mnt ..."
+        umount -l /mnt 2>/dev/null || true
+        rm -rf /mnt/* 2>/dev/null || true
+    fi
+
+    echo "→ Unmounting completed for $dev."
+}
+#============================================================================================
 
     # Show devices
     echo "Available block devices (lsblk):"
     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
 
-    # Ask device
+  # Ask device
     read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
     DEV="${DEV:-}"
 
     if [[ -z "$DEV" ]]; then
-    die "No device given. Exiting."
+    exec "$0" "No device given. Exiting."
     fi
 
     if [[ ! -b "$DEV" ]]; then
-    die "Device '$DEV' not found or not a block device."
+    exec "$0" "Device '$DEV' not found or not a block device."
     fi
 
     echo
     echo "You selected: $DEV"
     echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
+
+    # Unmount everything on the device before partitioning
+    unmount_btrfs_and_swap "$DEV"
+
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
     exec "$0"
     fi
@@ -182,9 +225,6 @@ set -euo pipefail
 
 quick_partition_swap_on() 
 {
-                
-
-
                 
                 partprobe "$DEV" || true
 
@@ -461,7 +501,289 @@ quick_partition_swap_on()
                 fi
                 
 }           
-                echo "Partitioning and filesystem setup complete."
+echo "Partitioning and filesystem setup complete."
+
+
+quick_partition_swap_on_root()
+{
+
+                partprobe "$DEV" || true
+
+                # Get total disk size in MiB
+                DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
+                DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+
+                # Compute sizes
+                # EFI: 1024 MiB
+                EFI_SIZE_MIB=1024
+                
+                while true; do
+                echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+
+                # Validate input: positive integer
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                    echo "Invalid input! Enter a positive integer in GiB."
+                    continue
+                fi
+
+                # Convert to MiB
+                ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+
+                # Check if it fits on disk
+                MIN_REQUIRED_MIB=$(( ROOT_SIZE_MIB + EFI_SIZE_MIB ))
+                if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
+                    echo "Error: Requested root size + EFI ($MIN_REQUIRED_MIB MiB) exceeds disk size ($DISK_SIZE_MIB MiB)."
+                    echo "Please enter a smaller value."
+                    continue
+                fi
+
+                # Valid input fits on disk
+                break
+            done
+
+                # Detect RAM in MiB
+                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+                if [[ -z "$ram_kb" ]]; then
+                die "Failed to read RAM from /proc/meminfo"
+                fi
+                ram_mib=$(( (ram_kb + 1023) / 1024 ))
+
+                # Swap sizing policy:
+                # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
+                # - Otherwise swap = RAM (1:1)
+                if (( ram_mib <= 8192 )); then
+                SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+                else
+                SWAP_SIZE_MIB=$(( ram_mib ))
+                fi
+
+                echo
+                echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
+                echo "Swap will be set to ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+                echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~$ROOT_SIZE_GIB GiB)."
+                echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
+                echo
+
+                if ! confirm "Proceed to partition $DEV with the sizes above?"; then
+                echo "User Cancel"
+                exec "$0"
+    
+                fi
+
+                # Partitioning with parted (using MiB units)
+            which parted >/dev/null 2>&1 || die "parted required but not found."
+
+                echo "Creating GPT label and partitions..."
+            parted -s "$DEV" mklabel gpt
+
+                # Calculate partition boundaries (MiB)
+                p1_start=1
+                p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..1024MiB
+
+                p2_start=$p1_end                             # root start
+                p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
+
+                p3_start=$p2_end                             # swap start
+                p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
+
+                p4_start=$p3_end                             # home start; end = 100%
+
+                sleep 1
+                clear
+                echo "#===================================================================================================#"
+                echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                echo "#===================================================================================================#"
+                echo 
+
+                echo "Partition table (MiB):"
+                echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
+                echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
+                echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
+                echo
+                echo "-------------------------------------------"
+                echo "Filesystem Partition Options"
+                echo "-------------------------------------------"
+                echo "1) EXT4"
+                echo "   → The classic, reliable Linux filesystem."
+                echo "     • Stable and widely supported"
+                echo "     • Simple, fast, and easy to recover"
+                echo "     • Recommended for most users"
+                echo 
+                echo "2) BTRFS"
+                echo "   → A modern, advanced filesystem with extra features."
+                echo "     • Built-in compression and snapshots"
+                echo "     • Good for SSDs and frequent backups"
+                echo "     • Slightly more complex; better for advanced users"
+                echo
+                echo "3) BTRFS(root)-EXT4(home)"
+                echo "   → A balanced setup combining both worlds."
+                echo "     • BTRFS for system (root) — allows snapshots & rollback"
+                echo "     • EXT4 for home — simpler and very stable for data"
+                echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
+                echo
+                echo "4) Back to start"
+                echo
+                read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
+                DEV_CHOICE="${DEV_CHOICE:-1}"
+
+                case "$DEV_CHOICE" in
+                    1)
+                        echo "→ Selected EXT4"
+                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                        parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                        ;;
+
+                    2)
+                        echo "→ Selected BTRFS"
+                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                        ;;  
+
+                    3)  
+                        echo "→ Selected BTRFS (root) + EXT4 (home)"
+                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                        ;;
+
+                    4)
+                        echo "Restarting..."
+                        exec "$0"
+                        ;;
+
+                    *)
+                        cleanup_and_restart
+                        echo "Invalid choice.";
+                        exec "$0"
+                        ;;
+
+                esac  
+                
+
+                # Set boot flag on partition 1 (UEFI)
+                parted -s "$DEV" set 1 boot on
+                partprobe "$DEV"
+                sleep 1
+
+                # Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+                PSUFF=$(part_suffix "$DEV")
+                P1="${DEV}${PSUFF}1"
+                P2="${DEV}${PSUFF}2"
+                P3="${DEV}${PSUFF}3"
+
+                #===================================================================================================#
+                # 1.6) Mounting and formatting
+                #===================================================================================================#
+
+                if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
+
+                    echo "→ Formatting root (P2) as BTRFS..."
+                    mkfs.btrfs -f "$P2"
+
+                    echo "→ Mounting root to create subvolumes..."
+                    mount "$P2" /mnt
+
+                echo "→ Creating BTRFS subvolumes on root..."
+                    btrfs subvolume create /mnt/@
+                    btrfs subvolume create /mnt/@home
+                    btrfs subvolume create /mnt/@snapshots
+                    btrfs subvolume create /mnt/@cache
+                    btrfs subvolume create /mnt/@log
+
+                    umount /mnt
+
+                    echo "→ Mounting root subvolumes..."
+                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+                    mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+
+
+                    echo "→ BTRFS root and home setup complete."
+
+                    # EFI
+                    mkfs.fat -F32 "$P1"
+                    mkdir -p /mnt/boot
+                    mount "$P1" /mnt/boot
+
+                    # Swap
+                    mkswap "$P3"
+                    swapon "$P3"
+
+
+                elif [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
+                    echo "→ Formatting root (P2) as BTRFS..."
+                    mkfs.btrfs -f "$P2"
+
+                    echo "→ Mounting root to create subvolumes..."
+                    mount "$P2" /mnt
+                        
+                    btrfs subvolume create /mnt/@
+                    btrfs subvolume create /mnt/@home
+                    btrfs subvolume create /mnt/@snapshots
+                    btrfs subvolume create /mnt/@cache
+                    btrfs subvolume create /mnt/@log
+
+                    umount /mnt
+
+                    echo "→ Mounting root subvolumes..."
+                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+                    mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+                    # Swap
+                    mkswap "$P3"
+                    swapon "$P3"
+
+                    echo "→ BTRFS root and home setup complete."
+
+                    # EFI
+                    mkfs.fat -F32 "$P1"
+                    mkdir -p /mnt/boot
+                    mount "$P1" /mnt/boot
+
+                    echo "→ Mixed setup (BTRFS root + EXT4 home) complete."
+                    
+                else
+                    # EXT4 path
+                    echo "Formatting partitions as EXT4..."
+                    mkfs.ext4 -F "$P2"
+                    mkfs.fat -F32 "$P1"
+
+                    mount "$P2" /mnt
+                    mkdir -p /mnt/boot /mnt/home
+                    mount "$P1" /mnt/boot
+                    mount "$P2" /mnt/home
+
+                    # Swap
+                    mkswap "$P3"
+                    swapon "$P3"
+                fi
+
+
+
+
+
+
+
+
+
+
+
+
+}
+echo "Partitioning and filesystem setup complete."
+
+
 
 
 quick_partition_swap_off() 
@@ -706,8 +1028,256 @@ quick_partition_swap_off()
                             fi
                             
 }           
-                            echo "Partitioning and filesystem setup complete."
+echo "Partitioning and filesystem setup complete."
+
+
+
+
+
                             
+quick_partition_swap_off_root() 
+{
+                            partprobe "$DEV" || true
+
+                            # Get total disk size in MiB
+                            DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
+                            DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+
+                            # Compute sizes
+                            # EFI: 1024 MiB
+                            EFI_SIZE_MIB=1024
+                            
+                            while true; do
+                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                            read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                            
+                            # Validate input: positive integer
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                                echo "Invalid input! Enter a positive integer in GiB."
+                                continue
+                            fi
+
+                            # Convert to MiB
+                            ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+
+                            # Check if it fits on disk
+                            MIN_REQUIRED_MIB=$(( ROOT_SIZE_MIB + EFI_SIZE_MIB ))
+                            if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
+                                echo "Error: Requested root size + EFI ($MIN_REQUIRED_MIB MiB) exceeds disk size ($DISK_SIZE_MIB MiB)."
+                                echo "Please enter a smaller value."
+                                continue
+                            fi
+
+                            # Valid input fits on disk
+                            break
+                        done
+
+
+                            echo
+                            echo "Root will be set to ${ROOT_SIZE_MIB} MiB (~$ROOT_SIZE_GIB GiB)."
+                            echo "EFI will be ${EFI_SIZE_MIB} MiB (1024 MiB)."
+                            echo
+
+                            if ! confirm "Proceed to partition $DEV with the sizes above?"; then
+                            echo "User Cancel"
+                            exec "$0"
+                             
+                            fi
+
+                            # Partitioning with parted (using MiB units)
+                        which parted >/dev/null 2>&1 || die "parted required but not found."
+
+                            echo "Creating GPT label and partitions..."
+                        parted -s "$DEV" mklabel gpt
+
+                            # Calculate partition boundaries (MiB)
+                            p1_start=1
+                            p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..1024MiB
+
+                            p2_start=$p1_end                             # root start
+                            p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
+
+                            p3_start=$p2_end                             
+                            p3_end="100%"                                # home start; end = 100% of remaining disk
+
+
+                            sleep 1
+                            clear
+                            echo "#===================================================================================================#"
+                            echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                            echo "#===================================================================================================#"
+                            echo 
+
+                            echo "Partition table (MiB):"
+                            echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
+                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
+                            echo "  3) Home   : ${p3_start}MiB - - 100% (home)"
+                            echo
+                            echo "-------------------------------------------"
+                            echo "Filesystem Partition Options"
+                            echo "-------------------------------------------"
+                            echo "1) EXT4"
+                            echo "   → The classic, reliable Linux filesystem."
+                            echo "     • Stable and widely supported"
+                            echo "     • Simple, fast, and easy to recover"
+                            echo "     • Recommended for most users"
+                            echo 
+                            echo "2) BTRFS"
+                            echo "   → A modern, advanced filesystem with extra features."
+                            echo "     • Built-in compression and snapshots"
+                            echo "     • Good for SSDs and frequent backups"
+                            echo "     • Slightly more complex; better for advanced users"
+                            echo
+                            echo "3) BTRFS(root)-EXT4(home)"
+                            echo "   → A balanced setup combining both worlds."
+                            echo "     • BTRFS for system (root) — allows snapshots & rollback"
+                            echo "     • EXT4 for home — simpler and very stable for data"
+                            echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
+                            echo
+                            echo "4) Back to start"
+                            echo
+                            read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
+                            DEV_CHOICE="${DEV_CHOICE:-1}"
+
+                            case "$DEV_CHOICE" in
+                                1)
+                                    echo "→ Selected EXT4"
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" "${p2_end}MiB"
+                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
+                                    ;;
+                                2)
+                                    echo "→ Selected BTRFS"
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                    parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" 100%
+                                    ;;  
+                                3)  
+                                    echo "→ Selected BTRFS (root) + EXT4 (home)"
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
+                                    ;;
+
+                                4)
+                                    echo "Restarting..."
+                                    exec "$0"
+                                    ;;
+                                *)
+                    
+                                    echo "Invalid choice." 
+                                    exec "$0"
+                                    ;;
+
+                             esac        
+                            
+
+                            # Set boot flag on partition 1 (UEFI)
+                            parted -s "$DEV" set 1 boot on
+                            partprobe "$DEV"
+                            sleep 1
+
+                            # Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+                            PSUFF=$(part_suffix "$DEV")
+                            P1="${DEV}${PSUFF}1"
+                            P2="${DEV}${PSUFF}2"
+                            P4="${DEV}${PSUFF}3"
+
+                            #===================================================================================================#
+                            # 1.6) Mounting and formatting
+                            #===================================================================================================#
+
+                            if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
+
+                                echo "→ Formatting root (P2) as BTRFS..."
+                                mkfs.btrfs -f "$P2"
+
+                                echo "→ Mounting root to create subvolumes..."
+                                mount "$P2" /mnt
+                                    
+                                btrfs subvolume create /mnt/@
+                                btrfs subvolume create /mnt/@home
+                                btrfs subvolume create /mnt/@snapshots
+                                btrfs subvolume create /mnt/@cache
+                                btrfs subvolume create /mnt/@log
+            
+                                umount /mnt
+            
+                                echo "→ Mounting root subvolumes..."
+                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+                                mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+                                mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+                                mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+                                mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+
+                                echo "→ BTRFS root and home setup complete."
+
+                                # EFI
+                                mkfs.fat -F32 "$P1"
+                                mkdir -p /mnt/boot
+                                mount "$P1" /mnt/boot
+
+
+                            elif [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
+                                echo "→ Formatting root (P2) as BTRFS..."
+                                mkfs.btrfs -f "$P2"
+
+                                echo "→ Mounting root to create subvolumes..."
+                                mount "$P2" /mnt
+                                    
+                                btrfs subvolume create /mnt/@
+                                btrfs subvolume create /mnt/@home
+                                btrfs subvolume create /mnt/@snapshots
+                                btrfs subvolume create /mnt/@cache
+                                btrfs subvolume create /mnt/@log
+            
+                                umount /mnt
+            
+                                echo "→ Mounting root subvolumes..."
+                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+                                mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+                                mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+                                mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+                                mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+
+
+                                echo "→ BTRFS root and home setup complete."
+
+                                # EFI
+                                mkfs.fat -F32 "$P1"
+                                mkdir -p /mnt/boot
+                                mount "$P1" /mnt/boot
+
+                                echo "→ Mixed setup (BTRFS root + EXT4 home) complete."
+                                
+                            else
+                                # EXT4 path
+                                echo "Formatting partitions as EXT4..."
+                                mkfs.ext4 -F "$P2"
+                                mkfs.fat -F32 "$P1"
+
+                                mount "$P2" /mnt
+                                mkdir -p /mnt/boot /mnt/home
+                                mount "$P1" /mnt/boot
+                                mount "$P2" /mnt/home
+
+                            fi
+
+
+
+
+
+}
+echo "Partitioning and filesystem setup complete."
+
+
+
+
+
+
 quick_partition()
 {
 echo "#===================================================================================================#"
@@ -716,18 +1286,34 @@ echo "#=========================================================================
 
 
             echo "-------------------------------------------"
-            echo "Swap Space Option"
+            echo "Separate /Home directory and Swap Space Option"
             echo "-------------------------------------------"
             echo "Swap is disk space used as 'extra RAM' when your memory is full."
+            echo "Swap: 2 x amount of physical ram < 16GB and 1 x amount of physical ram > 16GB"
             echo "It helps prevent slowdowns and allows hibernation."
             echo 
-            echo "1) Swap ON"
+            echo " Option1: Either 1&2 SWAP ON 3&4 SWAP OFF"
+            echo " Option2: chooce if you want /home directly under root or on separate partition"
+            echo 
+            echo "1) Separate partition for home & swap enabled-(DEFAULT OPTION)"
             echo "   → Safer choice for most users (especially <16GB RAM)."
+            echo "   → example:/boot(sda1) /root(sda2) /home(sda3) own partition layout"
             echo 
-            echo "2) Swap OFF"
-            echo "   → Advanced users with lots of RAM or no hibernation." 
+            echo "2) Home folder on same device as /root & swap enabled"
+            echo "   → Safer choice for most users (especially <16GB RAM)."
+            echo "   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root"
+            echo
+            echo "3) Separate partition for home & swap disabled"
+            echo "   → Advanced users with lots of RAM or no hibernation."
+            echo "   → Disk Layout:/boot(sdx1)/root(sdx2)/home(sdx3) "
+            echo "   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root"
             echo 
-            echo "3) Back to start"
+            echo 
+            echo "4) Home folder on same device as /root & swap disabled "
+            echo "   → Advanced users with lots of RAM or no hibernation."
+            echo "   → Disk Layout:/boot(sdx1)/root & /home(sdx2)"
+            echo
+            echo "5) Back to start"
             echo          
             read -r -p "Select File System [1-2, default=1]: " SWAP_CHOICE        
             SWAP_CHOICE="${SWAP_CHOICE:-1}"
@@ -736,8 +1322,13 @@ echo "#=========================================================================
                     1)
                         quick_partition_swap_on  ;; 
                     2)
-                        quick_partition_swap_off  ;; 
-                    3)
+                        quick_partition_swap_on_root  ;; 
+                        
+                    3)  quick_partition_swap_off  ;; 
+                        
+                    4)  quick_partition_swap_off_root ;;
+
+                    5)
                         echo "Restarting..."
                         exec "$0"
                         ;;
