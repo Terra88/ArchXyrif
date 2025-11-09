@@ -75,15 +75,27 @@ echo
 set -euo pipefail
 
     # Helpers
+
     confirm() {
-    # ask Yes/No, return 0 if yes
-    local msg="${1:-Continue?}"
-    read -r -p "$msg [yes/NO]: " ans
-    case "$ans" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-        *) return 1 ;;
-    esac
+    # $1 is the prompt message
+    read -p "$1 [Y/n] " response
+    response=${response:-Y}   # Default to Y if empty
+    if [[ "$response" =~ ^[Yy]$ ]]; then
+        return 0    # success / yes
+    else
+        return 1    # no
+    fi
     }
+
+    #confirm() {
+    # ask Yes/No, return 0 if yes
+    #local msg="${1:-Continue?}"
+    #read -r -p "$msg [yes/NO]: " ans
+    #case "$ans" in
+    #    [yY]|[yY][eE][sS]) return 0 ;;
+    #    *) return 1 ;;
+    #esac
+    #}
 
     part_suffix() {
     # given /dev/sdX or /dev/nvme0n1, print partition suffix ('' or 'p')
