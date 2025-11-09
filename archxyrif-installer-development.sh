@@ -232,6 +232,7 @@ quick_partition_swap_on()
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                 DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")  # round to nearest integer
 
                 # Compute sizes
                 # EFI: 1024 MiB
@@ -239,12 +240,13 @@ quick_partition_swap_on()
                 
                 while true; do
                 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
+                echo "Maximum available disk size: ${DISK_GIB} GiB  
+                echo "Take into consideration = /home will require space later too"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                 # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
                     echo "Invalid input! Enter a positive integer in GiB."
                     continue
                 fi
