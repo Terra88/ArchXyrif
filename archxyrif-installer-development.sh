@@ -249,6 +249,7 @@ quick_partition_swap_on()
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                 DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                 DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
+                AVAILABLE_GIB=$((DISK_GIB_INT - 5))
 
                 # Compute sizes
                 # EFI: 1024 MiB
@@ -256,10 +257,10 @@ quick_partition_swap_on()
                 
                     while true; do
                     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
-                    echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
+                    echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
                     echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                     echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
-                    # Reserve 2 GiB for safety (adjust as needed)
+                    echo "Reserve 5 GiB for safety (adjust as needed)"
                     MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
                     read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
 
@@ -532,27 +533,29 @@ quick_partition_swap_on_root()
                             SWAP_SIZE_MIB=$(( ram_mib ))
                             fi
                 
-                            # Get total disk size in MiB
-                            DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
-                            DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
-                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=${DISK_GIB%.*}
-                            
-                            # Compute sizes
-                            # EFI: 1024 MiB
-                            EFI_SIZE_MIB=1024
-                            
-                            while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
-                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
-                            echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-                             MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
-                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+                    DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
+                    DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+                    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                    DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
+                    AVAILABLE_GIB=$((DISK_GIB_INT - 5))
 
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                            echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
-                            continue
-                            fi
+                    # Compute sizes
+                    # EFI: 1024 MiB
+                    EFI_SIZE_MIB=1024
+                
+                    while true; do
+                    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
+                    echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                    echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+                    echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
+                    echo "Reserve 5 GiB for safety (adjust as needed)"
+                    MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                    read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+
+                    if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                    echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
+                    continue
+                    fi
                 
 
                 # Convert to MiB
@@ -765,18 +768,21 @@ quick_partition_swap_off()
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
-                            
+                            AVAILABLE_GIB=$((DISK_GIB_INT - 5))
+        
                             # Compute sizes
                             # EFI: 1024 MiB
                             EFI_SIZE_MIB=1024
-                            
+                        
                             while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB - Take into consideration that /home will require space later too"
-                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
+                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                            echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
+                            echo "Reserve 5 GiB for safety (adjust as needed)"
                             MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-
+        
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
                             echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
                             continue
@@ -1012,26 +1018,29 @@ quick_partition_swap_off_root()
 {
                             partprobe "$DEV" || true
 
-                            # Get total disk size in MiB
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=${DISK_GIB%.*}
-                            
+                            DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
+                            AVAILABLE_GIB=$((DISK_GIB_INT - 5))
+        
                             # Compute sizes
                             # EFI: 1024 MiB
                             EFI_SIZE_MIB=1024
-                            
+                        
                             while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB"  
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
+                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                            echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
+                            echo "Reserve 5 GiB for safety (adjust as needed)"
                             MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-
+        
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
                             echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
                             continue
-                            fi
+                            fi    
 
                             # Convert to MiB
                             ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
