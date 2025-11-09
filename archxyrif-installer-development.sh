@@ -791,13 +791,6 @@ echo
                 esac
 
 
-read -rp "Proceed to package installation? [Y/n]: " CONFIRM
-CONFIRM="${CONFIRM:-Y}"  # default to Yes if empty
-[[ ! "$CONFIRM" =~ ^[Yy]$ ]] 
-
-
-
-
 clear
 echo
 echo "#===================================================================================================#"
