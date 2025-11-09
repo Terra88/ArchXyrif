@@ -249,7 +249,8 @@ quick_partition_swap_on()
                 echo
 
                 if ! confirm "Proceed to partition $DEV with the sizes above?"; then
-                die "User cancelled."
+                echo "User Cancel"
+                exec "$0" 
                 fi
 
                 # Partitioning with parted (using MiB units)
@@ -507,7 +508,8 @@ quick_partition_swap_off()
                             echo
 
                             if ! confirm "Proceed to partition $DEV with the sizes above?"; then
-                            die "User cancelled."
+                            echo "User Cancel"
+                            exec "$0" 
                             fi
 
                             # Partitioning with parted (using MiB units)
