@@ -237,7 +237,9 @@ quick_partition_swap_on()
                 EFI_SIZE_MIB=1024
                 
                 while true; do
-                lsblk -b -dn -o SIZE "$DEV"
+                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                echo "Maximum available disk size: ${DISK_GIB} GiB"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -519,7 +521,9 @@ quick_partition_swap_on_root()
                 EFI_SIZE_MIB=1024
                 
                 while true; do
-                lsblk -b -dn -o SIZE "$DEV"
+                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                echo "Maximum available disk size: ${DISK_GIB} GiB"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -802,7 +806,8 @@ quick_partition_swap_off()
                             EFI_SIZE_MIB=1024
                             
                             while true; do
-                            lsblk -b -dn -o SIZE "$DEV"
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -1051,7 +1056,8 @@ quick_partition_swap_off_root()
                             EFI_SIZE_MIB=1024
                             
                             while true; do
-                            lsblk -b -dn -o SIZE "$DEV"
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
