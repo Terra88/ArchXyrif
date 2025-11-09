@@ -19,26 +19,27 @@
 printf "\033c"
 loadkeys fi
 timedatectl set-ntp true
-echo "▄▖▌     ▄▖      ▗   ▖  ▖      ▜ ▘▗ ▌    "
-echo "▐ ▛▌█▌  ▌ ▛▘█▌▀▌▜▘  ▛▖▞▌▛▌▛▌▛▌▐ ▌▜▘▛▌▖  "
-echo "▐ ▌▌▙▖  ▙▌▌ ▙▖█▌▐▖  ▌▝ ▌▙▌▌▌▙▌▐▖▌▐▖▌▌▖  "
-echo "#=====================================================================================================#"
-echo "                                                                                 "      
-echo "       d8888                 888      Y88b   d88P                  d8b  .d888    "        
-echo "      d88888                 888       Y88b d88P                   Y8P d88P      "
-echo "     d88P888                 888        Y88o88P                        888       "
-echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888    "
-echo "   d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888       "
-echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888       "
-echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888       "
-echo "d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888       "
-echo "                                                       888                       "        
-echo "                                                  Y8b d88P                       "                    
-echo "                                                    Y88P                         "  
-echo "        Semi-Automated / Interactive - Arch Linux Installer                      "
-echo "                                                                                 "
-echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      "
-echo "#=====================================================================================================#"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+echo "▄▖▌     ▄▖      ▗   ▖  ▖      ▜ ▘▗ ▌                                                                ¤"
+echo "▐ ▛▌█▌  ▌ ▛▘█▌▀▌▜▘  ▛▖▞▌▛▌▛▌▛▌▐ ▌▜▘▛▌▖                                                              ¤"
+echo "▐ ▌▌▙▖  ▙▌▌ ▙▖█▌▐▖  ▌▝ ▌▙▌▌▌▙▌▐▖▌▐▖▌▌▖                                                              ¤"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+echo "                                                                                                    ¤"      
+echo "       d8888                 888      Y88b   d88P                  d8b  .d888                       ¤"        
+echo "      d88888                 888       Y88b d88P                   Y8P d88P                         ¤"
+echo "     d88P888                 888        Y88o88P                        888                          ¤"
+echo "    d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888                       ¤"
+echo "   d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888                          ¤"
+echo "  d88P   888 888    888      888  888   d88888b   888  888 888     888 888                          ¤"
+echo " d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888                          ¤"
+echo "d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888                          ¤"
+echo "                                                       888                                          ¤"        
+echo "                                                  Y8b d88P                                          ¤"                    
+echo "                                                    Y88P                                            ¤"  
+echo "        Semi-Automated / Interactive - Arch Linux Installer                                         ¤"
+echo "                                                                                                    ¤"
+echo "        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88                         ¤"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 echo "Table of Contents:               "
 echo "---------------------------------"
 echo "1)Disk Selection & Format        "
@@ -222,7 +223,7 @@ set -euo pipefail
             # Clean up /mnt (optional)
             rm -rf /mnt/* 2>/dev/null || true
 
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 quick_partition_swap_on() 
 {
                 partprobe "$DEV" || true
@@ -305,39 +306,38 @@ quick_partition_swap_on()
                 sleep 1
                 printf "\033c"
                 echo "#===================================================================================================#"
-                echo "# 1.5)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                    "
+                echo "# 1.5)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                   #"
                 echo "#===================================================================================================#"
-                echo 
-
-                echo "Partition table (MiB):"
-                echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB} GiB)"
-                echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~$((SWAP_SIZE_MIB/1024)) GiB)"
-                echo "  4) Home   : ${p4_start}MiB - ${p4_end}MiB (~${HOME_SIZE_GIB} GiB)"
-                echo
-                echo "-------------------------------------------"
-                echo "Filesystem Partition Options"
-                echo "-------------------------------------------"
-                echo "1) EXT4"
-                echo "   → The classic, reliable Linux filesystem."
-                echo "     • Stable and widely supported"
-                echo "     • Simple, fast, and easy to recover"
-                echo "     • Recommended for most users"
-                echo 
-                echo "2) BTRFS"
-                echo "   → A modern, advanced filesystem with extra features."
-                echo "     • Built-in compression and snapshots"
-                echo "     • Good for SSDs and frequent backups"
-                echo "     • Slightly more complex; better for advanced users"
-                echo
-                echo "3) BTRFS(root)-EXT4(home)"
-                echo "   → A balanced setup combining both worlds."
-                echo "     • BTRFS for system (root) — allows snapshots & rollback"
-                echo "     • EXT4 for home — simpler and very stable for data"
-                echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
-                echo
-                echo "4) Back to start"
-                echo
+                echo "¤                                     Table Of Contents:                                            ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤Partition table (MiB):                                                                             ¤"
+                echo "¤  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          ¤"
+                echo "¤  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB} GiB)                                ¤"
+                echo "¤  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~$((SWAP_SIZE_MIB/1024)) GiB)                         ¤"
+                echo "¤  4) Home   : ${p4_start}MiB - ${p4_end}MiB (~${HOME_SIZE_GIB} GiB)                                ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤Filesystem Partition Options                                                                       ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤1) EXT4                                                                                            ¤"
+                echo "¤   → The classic, reliable Linux filesystem.                                                       ¤"
+                echo "¤     • Stable and widely supported                                                                 ¤"
+                echo "¤     • Simple, fast, and easy to recover                                                           ¤"
+                echo "¤     • Recommended for most users                                                                  ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤2) BTRFS                                                                                           ¤"
+                echo "¤   → A modern, advanced filesystem with extra features.                                            ¤"
+                echo "¤     • Built-in compression and snapshots                                                          ¤"
+                echo "¤     • Good for SSDs and frequent backups                                                          ¤"
+                echo "¤     • Slightly more complex; better for advanced users                                            ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤3) BTRFS(root)-EXT4(home)                                                                          ¤"
+                echo "¤   → A balanced setup combining both worlds.                                                       ¤"
+                echo "¤     • BTRFS for system (root) — allows snapshots & rollback                                       ¤"
+                echo "¤     • EXT4 for home — simpler and very stable for data                                            ¤"
+                echo "¤     • Recommended if you want snapshots but prefer EXT4 for personal files                        ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤4) Back to start                                                                                   ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
                 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                 DEV_CHOICE="${DEV_CHOICE:-1}"
 
@@ -438,7 +438,7 @@ quick_partition_swap_on()
                             ;;
                     esac
 }
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 quick_partition_swap_on_root()
 {
 
@@ -487,33 +487,31 @@ quick_partition_swap_on_root()
                 sleep 1
                 printf "\033c"
                 echo "#===================================================================================================#"
-                echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                         "
+                echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                        #"
                 echo "#===================================================================================================#"
-                echo 
-
-                echo "Partition table (MiB):"
-                echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                echo "  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${SWAP_SIZE_MIB} MiB)"
-                echo "  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${ROOT_SIZE_GIB}, root)"
-                echo
-                echo "-------------------------------------------"
-                echo "Filesystem Partition Options"
-                echo "-------------------------------------------"
-                echo "1) EXT4"
-                echo "   → The classic, reliable Linux filesystem."
-                echo "     • Stable and widely supported"
-                echo "     • Simple, fast, and easy to recover"
-                echo "     • Recommended for most users"
-                echo 
-                echo "2) BTRFS"
-                echo "   → A modern, advanced filesystem with extra features."
-                echo "     • Built-in compression and snapshots"
-                echo "     • Good for SSDs and frequent backups"
-                echo "     • Slightly more complex; better for advanced users"
-                echo
-                echo
-                echo "3) Back to start"
-                echo
+                echo "¤                                     Table of Contents:                                            ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤Partition table (MiB):                                                                             ¤"
+                echo "¤  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          ¤"
+                echo "¤  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${SWAP_SIZE_MIB} MiB)                                ¤"
+                echo "¤  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${ROOT_SIZE_GIB}, root)                              ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤Filesystem Partition Options                                                                       ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤1) EXT4                                                                                            ¤"
+                echo "¤   → The classic, reliable Linux filesystem.                                                       ¤"
+                echo "¤     • Stable and widely supported                                                                 ¤"
+                echo "¤     • Simple, fast, and easy to recover                                                           ¤"
+                echo "¤     • Recommended for most users                                                                  ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "¤2) BTRFS                                                                                           ¤"
+                echo "¤   → A modern, advanced filesystem with extra features.                                            ¤"
+                echo "¤     • Built-in compression and snapshots                                                          ¤"
+                echo "¤     • Good for SSDs and frequent backups                                                          ¤"
+                echo "¤     • Slightly more complex; better for advanced users                                            ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                echo "3) Back to start                                                                                    ¤"
+                echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
                 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                 FS_CHOICE="${FS_CHOICE:-1}"
                 
@@ -575,9 +573,7 @@ quick_partition_swap_on_root()
 }
 
 echo "Partitioning and filesystem setup complete."
-
-
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 quick_partition_swap_off() 
 {
 
@@ -614,45 +610,41 @@ quick_partition_swap_off()
                             p2_end=$((p2_start+ROOT_SIZE_MIB))
                             p3_start=$p2_end
                             p3_end=$((p3_start+HOME_SIZE_MIB))
-
-
-
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
                             sleep 1
                             printf "\033c"
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                        "
+                            echo "# 1.5)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                       #"
                             echo "#===================================================================================================#"
-                            echo 
-
-                            echo "Partition table (MiB):"
-                            echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
-                            echo "  3) Home   : ${p3_start}MiB - ${p3_end}MiB (~${HOME_SIZE_MIB}, home)"
-                            echo
-                            echo "-------------------------------------------"
-                            echo "Filesystem Partition Options"
-                            echo "-------------------------------------------"
-                            echo "1) EXT4"
-                            echo "   → The classic, reliable Linux filesystem."
-                            echo "     • Stable and widely supported"
-                            echo "     • Simple, fast, and easy to recover"
-                            echo "     • Recommended for most users"
-                            echo 
-                            echo "2) BTRFS"
-                            echo "   → A modern, advanced filesystem with extra features."
-                            echo "     • Built-in compression and snapshots"
-                            echo "     • Good for SSDs and frequent backups"
-                            echo "     • Slightly more complex; better for advanced users"
-                            echo
-                            echo "3) BTRFS(root)-EXT4(home)"
-                            echo "   → A balanced setup combining both worlds."
-                            echo "     • BTRFS for system (root) — allows snapshots & rollback"
-                            echo "     • EXT4 for home — simpler and very stable for data"
-                            echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
-                            echo
-                            echo "4) Back to start"
-                            echo
+                            echo "¤                                    Table Of Contents:                                             ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤Partition table (MiB):                                                                             ¤"
+                            echo "¤  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          ¤"
+                            echo "¤  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)                              ¤"
+                            echo "¤  3) Home   : ${p3_start}MiB - ${p3_end}MiB (~${HOME_SIZE_MIB}, home)                              ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤Filesystem Partition Options                                                                       ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤1) EXT4                                                                                            ¤"
+                            echo "¤   → The classic, reliable Linux filesystem.                                                       ¤"
+                            echo "¤     • Stable and widely supported                                                                 ¤"
+                            echo "¤     • Simple, fast, and easy to recover                                                           ¤"
+                            echo "¤     • Recommended for most users                                                                  ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤2) BTRFS                                                                                           ¤"
+                            echo "¤   → A modern, advanced filesystem with extra features.                                            ¤"
+                            echo "¤     • Built-in compression and snapshots                                                          ¤"
+                            echo "¤     • Good for SSDs and frequent backups                                                          ¤"
+                            echo "¤     • Slightly more complex; better for advanced users                                            ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤3) BTRFS(root)-EXT4(home)                                                                          ¤"
+                            echo "¤   → A balanced setup combining both worlds.                                                       ¤"
+                            echo "¤     • BTRFS for system (root) — allows snapshots & rollback                                       ¤"
+                            echo "¤     • EXT4 for home — simpler and very stable for data                                            ¤"
+                            echo "¤     • Recommended if you want snapshots but prefer EXT4 for personal files                        ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+                            echo "¤4) Back to start                                                                                   ¤"
+                            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
                             read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                             DEV_CHOICE="${DEV_CHOICE:-1}"
 
@@ -757,38 +749,38 @@ quick_partition_swap_off_root()
                             done
                         
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
-
-
-                            sleep 1
-                            printf "\033c"
-                            echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  "
-                            echo "#===================================================================================================#"
-                            echo 
-
-                            echo "Partition table (MiB):"
-                            echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB"
-                            echo
-                            echo "-------------------------------------------"
-                            echo "Filesystem Partition Options"
-                            echo "-------------------------------------------"
-                            echo "1) EXT4"
-                            echo "   → The classic, reliable Linux filesystem."
-                            echo "     • Stable and widely supported"
-                            echo "     • Simple, fast, and easy to recover"
-                            echo "     • Recommended for most users"
-                            echo 
-                            echo "2) BTRFS"
-                            echo "   → A modern, advanced filesystem with extra features."
-                            echo "     • Built-in compression and snapshots"
-                            echo "     • Good for SSDs and frequent backups"
-                            echo "     • Slightly more complex; better for advanced users"
-                            echo
-                            echo "3) Back to start"
-                            echo
-                            read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                            DEV_CHOICE="${DEV_CHOICE:-1}"
+ 
+printf "\033c"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo "#===================================================================================================#¤"
+echo "# 1.5)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  ¤"
+echo "#===================================================================================================#¤"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        echo "¤                  Table Of Contents:                     ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        echo "Partition table (MiB):                                    ¤"
+                        echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot) ¤"
+                        echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB               ¤"
+                        echo "                                                          ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤ ¤" 
+                        echo "Filesystem Partition Options                              ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        echo "1) EXT4                                                   ¤"
+                        echo "   → The classic, reliable Linux filesystem.              ¤"
+                        echo "     • Stable and widely supported                        ¤"
+                        echo "     • Simple, fast, and easy to recover                  ¤"
+                        echo "     • Recommended for most users                         ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        echo "2) BTRFS                                                  ¤"
+                        echo "   → A modern, advanced filesystem with extra features.   ¤"
+                        echo "     • Built-in compression and snapshots                 ¤"
+                        echo "     • Good for SSDs and frequent backups                 ¤"
+                        echo "     • Slightly more complex; better for advanced users   ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        echo "3) Back to start                                          ¤"
+                        echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+                        read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
+                        DEV_CHOICE="${DEV_CHOICE:-1}"
 
                                case "$DEV_CHOICE" in
                                 1)
@@ -839,50 +831,45 @@ quick_partition_swap_off_root()
                         }
 echo "Partitioning and filesystem setup complete."
 
-
-
-
-
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 quick_partition()
 {
-
 sleep 1
 printf "\033c"
-echo "#===================================================================================================#"
-echo "# 1.4 Quick-Partition Mode:                                                                         "
-echo "#===================================================================================================#"
-
-
-            echo "-------------------------------------------"
-            echo "Separate /Home directory and Swap Space Option"
-            echo "-------------------------------------------"
-            echo "Swap is disk space used as 'extra RAM' when your memory is full."
-            echo "Swap: 2 x amount of physical ram < 16GB and 1 x amount of physical ram > 16GB"
-            echo "It helps prevent slowdowns and allows hibernation."
-            echo 
-            echo " Option1: Either 1&2 SWAP ON 3&4 SWAP OFF"
-            echo " Option2: chooce if you want /home directly under root or on separate partition"
-            echo 
-            echo "1) Separate partition for home & swap enabled-(DEFAULT OPTION)"
-            echo "   → Safer choice for most users (especially <16GB RAM)."
-            echo "   → example:/boot(sda1) /root(sda2) /home(sda3) own partition layout"
-            echo 
-            echo "2) Home folder on same device as /root & swap enabled"
-            echo "   → Safer choice for most users (especially <16GB RAM)."
-            echo "   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root"
-            echo
-            echo "3) Separate partition for home & swap disabled"
-            echo "   → Advanced users with lots of RAM or no hibernation."
-            echo "   → Disk Layout:/boot(sdx1)/root(sdx2)/home(sdx3) "
-            echo "   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root"
-            echo 
-            echo "4) Home folder on same device as /root & swap disabled "
-            echo "   → Advanced users with lots of RAM or no hibernation."
-            echo "   → Disk Layout:/boot(sdx1)/root & /home(sdx2)"
-            echo
-            echo "5) Back to start"
-            echo          
+echo "#####################################################################################################"
+echo "# 1.4 Quick-Partition Mode:                                                                          "
+echo "#####################################################################################################"
+            echo "¤                            Table Of Contents:                                    ¤" 
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤ Option1: Either 1&2 SWAP ON 3&4 SWAP OFF                                         ¤"
+            echo "¤ Option2: chooce if you want /home directly under root or on separate partition   ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤Swap is disk space used as 'extra RAM' when your memory is full.                  ¤"
+            echo "¤Swap: 2 x amount of physical ram < 16GB and 1 x amount of physical ram > 16GB     ¤"
+            echo "¤It helps prevent slowdowns and allows hibernation.                                ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤Option1: Either 1&2 SWAP ON 3&4 SWAP OFF                                         ¤"
+            echo "¤Option2: chooce if you want /home directly under root or on separate partition   ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤1) Separate partition for home & swap enabled-(DEFAULT OPTION)                   ¤"
+            echo "¤   → Safer choice for most users (especially <16GB RAM).                         ¤"
+            echo "¤   → example:/boot(sda1) /root(sda2) /home(sda3) own partition layout            ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+            echo "¤2) Home folder on same device as /root & swap enabled                            ¤"
+            echo "¤   → Safer choice for most users (especially <16GB RAM).                         ¤"
+            echo "¤   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root         ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤3) Separate partition for home & swap disabled                                   ¤"
+            echo "¤   → Advanced users with lots of RAM or no hibernation.                          ¤"
+            echo "¤   → Disk Layout:/boot(sdx1)/root(sdx2)/home(sdx3)                               ¤"
+            echo "¤   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root         ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+            echo "¤4) Home folder on same device as /root & swap disabled                           ¤"
+            echo "¤   → Advanced users with lots of RAM or no hibernation.                          ¤"
+            echo "¤   → Disk Layout:/boot(sdx1)/root & /home(sdx2)                                  ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+            echo "¤5) Back to start                                                                 ¤"
+            echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"          
             read -r -p "Select File System [1-2, default=1]: " SWAP_CHOICE        
             SWAP_CHOICE="${SWAP_CHOICE:-1}"
 
@@ -904,20 +891,18 @@ echo "#=========================================================================
                         echo "Invalid choice."
                         exec "$0"
                         ;;
-                esac
-
-                          
-                        
+                esac                        
 }
-
-custom_partition()
-{
 sleep 1
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 printf "\033c"
 echo "#===================================================================================================#"
 echo "# 1.7) Custom Partition Mode: Selected Drive $DEV                                                   "
 echo "#===================================================================================================#"
-
+echo
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
+custom_partition()
+{
         custom_partition_block() {
             partprobe "$DEV" || true
         
@@ -1096,19 +1081,19 @@ echo "#=========================================================================
                 [[ -n "$HOME_FS" ]] && mount -o noatime,compress=zstd "$P3" /mnt/home
                 mount "$P1" /mnt/boot
             fi
-        
             echo "→ Custom block partitioning complete."
         }
-
-
 }
 sleep 1
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 1.3 Choose Partitioning Mode                                                                     #"
 echo "#===================================================================================================#"
 echo
+echo
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
             echo "Select partitioning method for $DEV:"
             echo "1) Quick Partitioning  (automated, recommended)"
             echo "2) Custom Partitioning (manual, using cfdisk)"
@@ -1132,17 +1117,16 @@ echo
                         exec "$0"
                         ;;
                 esac
-
-
 sleep 1
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
 echo "#===================================================================================================#"
 echo
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 # You can modify the package list below as needed.
-
 PKGS=(
   base
   base-devel
@@ -1164,10 +1148,9 @@ PKGS=(
   amd-ucode
   btrfs-progs     
 )
-
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤"
 printf "\033c"
 sleep 1
 echo
@@ -1181,8 +1164,6 @@ echo "Generating /etc/fstab..."
 genfstab -U /mnt >> /mnt/etc/fstab
 echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
-
-
 
 sleep 1
 printf "\033c"
@@ -1207,8 +1188,6 @@ HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-
-
 
 printf "\033c"
 sleep 1
@@ -1275,14 +1254,6 @@ echo
 echo "Verifying EFI boot entries..."
 efibootmgr -v || true
 
-
-# Grub Troubleshoot if needed - commands are here after install - you can run:
-# efibootmgr -v
-# ls /boot/efi/EFI/
-#-Should Show:
-# /boot/efi/EFI/GRUB/grubx64.efi
-# /boot/efi/EFI/Boot/BOOTX64.EFI
-
 sleep 1
 printf "\033c"
 echo
@@ -1297,32 +1268,32 @@ cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # Variables injected by main installer
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 1) Timezone & hardware clock
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 2) Locale
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 3) Hostname & /etc/hosts
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
@@ -1330,22 +1301,22 @@ cat > /etc/hosts <<HOSTS
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 4) Keyboard layout
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 echo "KEYMAP=fi" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap fi
 localectl set-x11-keymap fi
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 5) Initramfs
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 mkinitcpio -P
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 6) Root + user passwords (interactive)
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 set +e  # allow retries
 MAX_RETRIES=3
 
@@ -1359,9 +1330,9 @@ fi
 printf "\033c"
 # Root password
 echo
-echo "============================"
-echo " Set ROOT password "
-echo "============================"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo " Set ROOT password                "
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 for i in $(seq 1 $MAX_RETRIES); do
     if passwd root; then
         break
@@ -1372,9 +1343,9 @@ done
 
 # User password
 echo
-echo "============================"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 echo " Set password for user '$NEWUSER' "
-echo "============================"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 for i in $(seq 1 $MAX_RETRIES); do
     if passwd "$NEWUSER"; then
         break
@@ -1390,17 +1361,17 @@ sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 set -e  # restore strict error handling
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 7) Home directory setup
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 # 8) Enable basic services
-# --------------------------
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 systemctl enable NetworkManager
 systemctl enable sshd
 
@@ -1449,10 +1420,10 @@ echo "Choose your country or region for faster package downloads."
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
 }
-
-echo "===================================================================================================="
-echo "===================================================================================================="
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤-MIRROR SELECTION-¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -1653,9 +1624,9 @@ echo "#=========================================================================
 echo
 
 echo
-echo "-------------------------------------------"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 echo "🎮 GPU DRIVER INSTALLATION"
-echo "-------------------------------------------"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
 echo "1) Intel"
 echo "2) NVIDIA"
 echo "3) AMD"
@@ -1697,131 +1668,129 @@ echo "#=========================================================================
 echo
 
 echo
-echo "-------------------------------------------"
-echo "🖥️  WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION"
-echo "-------------------------------------------"
-echo "1) Hyprland (Wayland)"
-echo "2) Sway (Wayland)"
-echo "3) XFCE (X11)"
-echo "4) KDE Plasma (X11/Wayland)"
-echo "5) GNOME (X11/Wayland)"
-echo "6) Skip WM/DE installation"
-read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-WM_CHOICE="${WM_CHOICE:-6}"
-
-WM_PKGS=()
-WM_AUR_PKGS=()
-
-case "$WM_CHOICE" in
-    1)
-        echo "→ Selected: Hyprland (Wayland)"
-        WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-    2)
-        echo "→ Selected: Sway (Wayland)"
-        WM_PKGS=(sway swaybg swaylock waybar wofi)
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-    3)
-        echo "→ Selected: XFCE"
-        WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-    4)
-        echo "→ Selected: KDE Plasma"
-        WM_PKGS=(plasma-desktop kde-applications sddm)
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-    5)
-        echo "→ Selected: GNOME"
-        WM_PKGS=(gnome gdm)
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-    6|*)
-        echo "Skipping window manager installation."
-        WM_PKGS=()
-        WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-        ;;
-esac
-
-# Install WM packages
-if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
-fi
-
-# Install AUR packages (safe, conflict-handling)
-safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
-
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo "Windof Manager / Desktop Selection"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+    echo "1) Hyprland (Wayland)"
+    echo "2) Sway (Wayland)"
+    echo "3) XFCE (X11)"
+    echo "4) KDE Plasma (X11/Wayland)"
+    echo "5) GNOME (X11/Wayland)"
+    echo "6) Skip WM/DE installation"
+    read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
+    WM_CHOICE="${WM_CHOICE:-6}"
+    
+    WM_PKGS=()
+    WM_AUR_PKGS=()
+    
+    case "$WM_CHOICE" in
+        1)
+            echo "→ Selected: Hyprland (Wayland)"
+            WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+        2)
+            echo "→ Selected: Sway (Wayland)"
+            WM_PKGS=(sway swaybg swaylock waybar wofi)
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+        3)
+            echo "→ Selected: XFCE"
+            WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+        4)
+            echo "→ Selected: KDE Plasma"
+            WM_PKGS=(plasma-desktop kde-applications sddm)
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+        5)
+            echo "→ Selected: GNOME"
+            WM_PKGS=(gnome gdm)
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+        6|*)
+            echo "Skipping window manager installation."
+            WM_PKGS=()
+            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+            ;;
+    esac
+    
+    # Install WM packages
+    if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+    fi
+    # Install AUR packages (safe, conflict-handling)
+    safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
 sleep 1
 printf "\033c"
 echo
 echo "#===================================================================================================#"
-echo "# 8C) LOGIN / DISPLAY MANAGER SELECTION                                                              "
+echo "# 8C) LM/DM                                                                                          "
 echo "#===================================================================================================#"
 echo
 
 echo
-echo "-------------------------------------------"
-echo "🔐 LOGIN / DISPLAY MANAGER SELECTION"
-echo "-------------------------------------------"
-echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
-echo "2) SDDM - If you installed: KDE, XFCE" 
-echo "3) LightDM - XFCE"
-echo "4) Ly (AUR) - Sway, Hyprland"
-echo "5) LXDM - XFCE"
-echo "6) Skip Display Manager"
-read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
-DM_CHOICE="${DM_CHOICE:-6}"
-
-DM_PKGS=()
-DM_AUR_PKGS=()
-DM_SERVICE=""
-
-case "$DM_CHOICE" in
-    1)
-        DM_PKGS=(gdm)
-        DM_SERVICE="gdm.service"
-        ;;
-    2)
-        DM_PKGS=(sddm)
-        DM_SERVICE="sddm.service"
-        ;;
-    3)
-        DM_PKGS=(lightdm lightdm-gtk-greeter)
-        DM_SERVICE="lightdm.service"
-        ;;
-    4)
-        DM_PKGS=(ly)
-        DM_AUR_PKGS=(ly-themes-git)
-        DM_SERVICE="ly.service"
-        ;;
-    5)
-        DM_PKGS=(lxdm)
-        DM_SERVICE="lxdm.service"
-        ;;
-    6|*)
-        echo "Skipping display manager installation."
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+echo " Login Manager / Display Manager Selection"
+echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
+        echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
+        echo "2) SDDM - If you installed: KDE, XFCE" 
+        echo "3) LightDM - XFCE"
+        echo "4) Ly (AUR) - Sway, Hyprland"
+        echo "5) LXDM - XFCE"
+        echo "6) Skip Display Manager"
+        read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
+        DM_CHOICE="${DM_CHOICE:-6}"
+        
         DM_PKGS=()
-        ;;
-esac
-
-# Install display manager packages
-if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-    safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
-fi
-
-# Install AUR display manager packages (safe)
-safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
-
-# Enable chosen service
-if [[ -n "$DM_SERVICE" ]]; then
-    "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-    echo "✅ Display manager service enabled: $DM_SERVICE"
-fi
-
+        DM_AUR_PKGS=()
+        DM_SERVICE=""
+        
+        case "$DM_CHOICE" in
+            1)
+                DM_PKGS=(gdm)
+                DM_SERVICE="gdm.service"
+                ;;
+            2)
+                DM_PKGS=(sddm)
+                DM_SERVICE="sddm.service"
+                ;;
+            3)
+                DM_PKGS=(lightdm lightdm-gtk-greeter)
+                DM_SERVICE="lightdm.service"
+                ;;
+            4)
+                DM_PKGS=(ly)
+                DM_AUR_PKGS=(ly-themes-git)
+                DM_SERVICE="ly.service"
+                ;;
+            5)
+                DM_PKGS=(lxdm)
+                DM_SERVICE="lxdm.service"
+                ;;
+            6|*)
+                echo "Skipping display manager installation."
+                DM_PKGS=()
+                ;;
+        esac
+        
+        # Install display manager packages
+        if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+            safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+        fi
+        
+        # Install AUR display manager packages (safe)
+        safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
+        
+        # Enable chosen service
+        if [[ -n "$DM_SERVICE" ]]; then
+            "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+            echo "✅ Display manager service enabled: $DM_SERVICE"
+        fi
+        
 
 sleep 1
 printf "\033c"
@@ -1831,42 +1800,37 @@ echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                
 echo "#===================================================================================================#"
 echo
 
-echo
-echo "-------------------------------------------"
-echo "📦 EXTRA SYSTEM PACKAGE INSTALLATION"
-echo "-------------------------------------------"
-
-read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
-if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
-    read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
-    # Clean list: neofetch removed (deprecated)
-    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
-
-    # Filter out non-existent packages before installing
-    VALID_PKGS=()
-    for pkg in "${EXTRA_PKGS[@]}"; do
-        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
-            VALID_PKGS+=("$pkg")
-        else
-            echo "⚠️  Skipping invalid or missing package: $pkg"
-        fi
-    done
-
-    # Merge validated list with user input
-    EXTRA_PKG=("${VALID_PKGS[@]}")
-    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
-        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
-        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
-    fi
-
-    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
-        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
-    else
-        echo "⚠️  No valid packages to install."
-    fi
-else
-    echo "Skipping extra pacman packages."
-fi
+            read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+            if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+                read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                # Clean list: neofetch removed (deprecated)
+                EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+            
+                # Filter out non-existent packages before installing
+                VALID_PKGS=()
+                for pkg in "${EXTRA_PKGS[@]}"; do
+                    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+                        VALID_PKGS+=("$pkg")
+                    else
+                        echo "⚠️  Skipping invalid or missing package: $pkg"
+                    fi
+                done
+            
+                # Merge validated list with user input
+                EXTRA_PKG=("${VALID_PKGS[@]}")
+                if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+                    read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+                    EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
+                fi
+            
+                if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
+                    safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
+                else
+                    echo "⚠️  No valid packages to install."
+                fi
+            else
+                echo "Skipping extra pacman packages."
+            fi
 
 
 sleep 1
@@ -1877,33 +1841,28 @@ echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)          
 echo "#===================================================================================================#"
 echo
 
-echo
-echo "-------------------------------------------"
-echo "🌐 OPTIONAL AUR PACKAGE INSTALLATION"
-echo "-------------------------------------------"
-
-read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
-install_aur="${install_aur:-N}"
-
-if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
-
-    # Predefined extra AUR packages
-    EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-
-    # Merge WM + DM AUR packages with user input
-    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
-
-    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-        read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
-        AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
-    fi
-
-    echo "🔧 Installing AUR packages inside chroot..."
-    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
-else
-    echo "Skipping AUR installation."
-fi
+                read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+                install_aur="${install_aur:-N}"
+                
+                if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+                    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+                
+                    # Predefined extra AUR packages
+                    EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+                
+                    # Merge WM + DM AUR packages with user input
+                    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
+                
+                    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+                        read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
+                        AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
+                    fi
+                
+                    echo "🔧 Installing AUR packages inside chroot..."
+                    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
+                else
+                    echo "Skipping AUR installation."
+                fi
 
 sleep 1
 printf "\033c"
@@ -1914,76 +1873,76 @@ echo "#=========================================================================
 echo
 sleep 1
 
-# Only proceed if Hyprland was selected (WM_CHOICE == 1)
-if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-    echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-    arch-chroot /mnt pacman -S --needed --noconfirm unzip git
-
-    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Running Hyprland theme setup inside chroot..."
-
-        arch-chroot /mnt /bin/bash -c "
-NEWUSER=\"$NEWUSER\"
-HOME_DIR=\"/home/\$NEWUSER\"
-CONFIG_DIR=\"\$HOME_DIR/.config\"
-REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
-
-# Ensure home exists
-mkdir -p \"\$HOME_DIR\"
-chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-chmod 755 \"\$HOME_DIR\"
-
-# Clone theme repo
-if [[ -d \"\$REPO_DIR\" ]]; then
-    rm -rf \"\$REPO_DIR\"
-fi
-sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
-
-# Copy files to home directory
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
-
-# Backup existing .config if not empty
-if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-    echo '==> Existing .config backed up.'
-fi
-mkdir -p \"\$CONFIG_DIR\"
-
-# Extract config.zip into .config
-if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-    unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
-    if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
-        cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
-        rm -rf \"\$HOME_DIR/temp_unzip\"
-        echo '==> config.zip contents copied to .config'
-    else
-        echo '⚠️ config/ folder not found inside zip, skipping.'
-    fi
-else
-    echo '⚠️ config.zip not found, skipping.'
-fi
-
-# Extract wallpaper.zip to HOME_DIR
-[[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
-
-# Copy wallpaper.sh and make executable
-[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
-
-# Fix ownership
-chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-
-# Cleanup cloned repo
-rm -rf \"\$REPO_DIR\"
-"
-
-        echo "✅ Hyprland theme setup completed."
-    else
-        echo "Skipping Hyprland theme setup."
-    fi
-fi
+                    # Only proceed if Hyprland was selected (WM_CHOICE == 1)
+                    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+                        echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+                        arch-chroot /mnt pacman -S --needed --noconfirm unzip git
+                    
+                        read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+                        if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+                            echo "→ Running Hyprland theme setup inside chroot..."
+                    
+                            arch-chroot /mnt /bin/bash -c "
+                    NEWUSER=\"$NEWUSER\"
+                    HOME_DIR=\"/home/\$NEWUSER\"
+                    CONFIG_DIR=\"\$HOME_DIR/.config\"
+                    REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+                    
+                    # Ensure home exists
+                    mkdir -p \"\$HOME_DIR\"
+                    chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                    chmod 755 \"\$HOME_DIR\"
+                    
+                    # Clone theme repo
+                    if [[ -d \"\$REPO_DIR\" ]]; then
+                        rm -rf \"\$REPO_DIR\"
+                    fi
+                    sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+                    
+                    # Copy files to home directory
+                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
+                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+                    
+                    # Backup existing .config if not empty
+                    if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+                        mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+                        echo '==> Existing .config backed up.'
+                    fi
+                    mkdir -p \"\$CONFIG_DIR\"
+                    
+                    # Extract config.zip into .config
+                    if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+                        unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
+                        if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
+                            cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
+                            rm -rf \"\$HOME_DIR/temp_unzip\"
+                            echo '==> config.zip contents copied to .config'
+                        else
+                            echo '⚠️ config/ folder not found inside zip, skipping.'
+                        fi
+                    else
+                        echo '⚠️ config.zip not found, skipping.'
+                    fi
+                    
+                    # Extract wallpaper.zip to HOME_DIR
+                    [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
+                    
+                    # Copy wallpaper.sh and make executable
+                    [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
+                    
+                    # Fix ownership
+                    chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                    
+                    # Cleanup cloned repo
+                    rm -rf \"\$REPO_DIR\"
+                    "
+                    
+                            echo "Hyprland theme setup completed."
+                        else
+                            echo "Skipping Hyprland theme setup."
+                        fi
+                    fi
 
 sleep 1
 printf "\033c"
@@ -1998,23 +1957,16 @@ echo "Custom package installation phase complete."
 echo "You can later add more software manually or extend these lists:"
 echo "  - EXTRA_PKGS[] for pacman packages"
 echo "  - AUR_PKGS[] for AUR software"
-echo " -------------------------------------------------------------------------------------------------------------------"
-echo "Full base + extras installation is complete."
+echo " ----------------------------------------------------------------------------------------------------"
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
 echo "  reboot"
-
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
-
 #Final messages & instructions
 echo
 echo "Installation base and basic configuration finished."
-echo "Suggested next steps:"
-echo "  - If you mounted extra disks, add them to /etc/fstab inside the new system."
-echo "  - Install any additional packages (e.g. desktop environment, display manager)."
-echo
 echo "To reboot into your new system:"
 echo "  umount -R /mnt"
 echo "  swapoff ${P3} || true"
