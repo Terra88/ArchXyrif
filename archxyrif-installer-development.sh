@@ -61,10 +61,10 @@ echo " 0) Disk Format INFO                                                      
 echo "#==================================================================================================#"
 echo " archformat.sh                                                                                      "
 echo " - shows lsblk and asks which device to use                                                         "
-echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors)                             "
-echo " - partitions: EFI(1024MiB) | root(~100GiB) | swap(2*ram if under 16 and 1* if above) | home(rest)  "
-echo " - filesystems: FAT32 on Boot/EFI                                                                   "
-echo " - filesystems: ext4: /root /home mkswap=swap |btrfs@mnt @root @home swap|btrfs@root EXT4/home swap "
+echo " - wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors should unmount disks etc)    "
+echo " - Partitions: BOOT/EFI(1024MiB)||root(User Selected)||Opt.swap(2*ram<=16GB||1*>=16GB) /home(rest)  "
+echo " - Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS on /ROOT || /HOME                                  "
+echo "                                                                                                    "
 echo " WARNING: destructive. Run as root. Double-check device before continuing.                          "
 echo "#==================================================================================================#"
 echo " 1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                                                                        "
@@ -669,8 +669,8 @@ quick_partition_swap_on_root()
                 # Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
                 PSUFF=$(part_suffix "$DEV")
                 P1="${DEV}${PSUFF}1"
-                P3="${DEV}${PSUFF}2"
-                P2="${DEV}${PSUFF}3"
+                P2="${DEV}${PSUFF}2"
+                P3="${DEV}${PSUFF}3"
 
                 #===================================================================================================#
                 # 1.6) Mounting and formatting
@@ -679,10 +679,10 @@ quick_partition_swap_on_root()
                 if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
 
                     echo "→ Formatting root (P2) as BTRFS..."
-                    mkfs.btrfs -f "$P2"
+                    mkfs.btrfs -f "$P3"
 
                     echo "→ Mounting root to create subvolumes..."
-                    mount "$P2" /mnt
+                    mount "$P3" /mnt
 
                 echo "→ Creating BTRFS subvolumes on root..."
                     btrfs subvolume create /mnt/@
@@ -711,16 +711,16 @@ quick_partition_swap_on_root()
                     mount "$P1" /mnt/boot
 
                     # Swap
-                    mkswap "$P3"
-                    swapon "$P3"
+                    mkswap "$P2"
+                    swapon "$P2"
 
 
                 elif [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
                     echo "→ Formatting root (P2) as BTRFS..."
-                    mkfs.btrfs -f "$P2"
+                    mkfs.btrfs -f "$P3"
 
                     echo "→ Mounting root to create subvolumes..."
-                    mount "$P2" /mnt
+                    mount "$P3" /mnt
                         
                     btrfs subvolume create /mnt/@
                     btrfs subvolume create /mnt/@home
@@ -731,16 +731,16 @@ quick_partition_swap_on_root()
                     umount /mnt
 
                     echo "→ Mounting root subvolumes..."
-                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
                     mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
-                    mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+                    mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
+                    mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
+                    mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/var/cache
+                    mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/var/log
 
                     # Swap
-                    mkswap "$P3"
-                    swapon "$P3"
+                    mkswap "$P2"
+                    swapon "$P2"
 
                     echo "→ BTRFS root and home setup complete."
 
@@ -754,17 +754,17 @@ quick_partition_swap_on_root()
                 else
                     # EXT4 path
                     echo "Formatting partitions as EXT4..."
-                    mkfs.ext4 -F "$P2"
+                    mkfs.ext4 -F "$P3"
                     mkfs.fat -F32 "$P1"
 
-                    mount "$P2" /mnt
+                    mount "$P3" /mnt
                     mkdir -p /mnt/boot /mnt/home
                     mount "$P1" /mnt/boot
-                    mount "$P2" /mnt/home
+                    mount "$P3" /mnt/home
 
                     # Swap
-                    mkswap "$P3"
-                    swapon "$P3"
+                    mkswap "$P2"
+                    swapon "$P2"
                 fi
 
 
@@ -793,6 +793,7 @@ quick_partition_swap_off()
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")  # round to nearest integer
                             
                             # Compute sizes
                             # EFI: 1024 MiB
@@ -805,7 +806,7 @@ quick_partition_swap_off()
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
                                 echo "Invalid input! Enter a positive integer in GiB."
                                 continue
                             fi
@@ -897,19 +898,19 @@ quick_partition_swap_off()
                                     echo "→ Selected EXT4"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
                                     parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" "${p3_end}MiB"
                                     ;;
                                 2)
                                     echo "→ Selected BTRFS"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
                                     parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" "${p3_end}MiB"
                                     ;;  
                                 3)  
                                     echo "→ Selected BTRFS (root) + EXT4 (home)"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
                                     parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" "${p3_end}MiB"
                                     ;;
 
                                 4)
@@ -934,7 +935,7 @@ quick_partition_swap_off()
                             PSUFF=$(part_suffix "$DEV")
                             P1="${DEV}${PSUFF}1"
                             P2="${DEV}${PSUFF}2"
-                            P4="${DEV}${PSUFF}3"
+                            P3="${DEV}${PSUFF}3"
 
                             #===================================================================================================#
                             # 1.6) Mounting and formatting
@@ -946,7 +947,7 @@ quick_partition_swap_off()
                                 mkfs.btrfs -f "$P2"
 
                                 echo "→ Formatting home (P4) as BTRFS..."
-                                mkfs.btrfs -f "$P4"
+                                mkfs.btrfs -f "$P3"
 
                                 echo "→ Mounting root to create subvolumes..."
                                 mount "$P2" /mnt
@@ -968,7 +969,7 @@ quick_partition_swap_off()
                                 mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
 
                                 echo "→ Mounting separate home partition..."
-                                mount "$P4" /mnt/home
+                                mount "$P3" /mnt/home
 
                                 echo "→ BTRFS root and home setup complete."
 
@@ -983,7 +984,7 @@ quick_partition_swap_off()
                                 mkfs.btrfs -f "$P2"
 
                                 echo "→ Formatting home (P4) as EXT4..."
-                                mkfs.ext4 -F "$P4"
+                                mkfs.ext4 -F "$P3"
 
                                 echo "→ Mounting root to create subvolumes..."
                                 mount "$P2" /mnt
@@ -1002,7 +1003,7 @@ quick_partition_swap_off()
                                 mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
 
                                 echo "→ Mounting separate home partition (EXT4)..."
-                                mount "$P4" /mnt/home
+                                mount "$P3" /mnt/home
 
 
                                 echo "→ BTRFS root and home setup complete."
@@ -1018,13 +1019,13 @@ quick_partition_swap_off()
                                 # EXT4 path
                                 echo "Formatting partitions as EXT4..."
                                 mkfs.ext4 -F "$P2"
-                                mkfs.ext4 -F "$P4"
+                                mkfs.ext4 -F "$P3"
                                 mkfs.fat -F32 "$P1"
 
                                 mount "$P2" /mnt
                                 mkdir -p /mnt/boot /mnt/home
                                 mount "$P1" /mnt/boot
-                                mount "$P4" /mnt/home
+                                mount "$P3" /mnt/home
 
                             fi
                             
@@ -1114,7 +1115,7 @@ quick_partition_swap_off_root()
 
                             echo "Partition table (MiB):"
                             echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB 100%"
+                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB"
                             echo
                             echo "-------------------------------------------"
                             echo "Filesystem Partition Options"
@@ -1140,12 +1141,12 @@ quick_partition_swap_off_root()
                                 1)
                                     echo "→ Selected EXT4"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB 100%"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
                                     ;;
                                 2)
                                     echo "→ Selected BTRFS"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB 100%"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
                                     ;;  
 
                                 3)
