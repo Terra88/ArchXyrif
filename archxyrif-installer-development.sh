@@ -228,9 +228,10 @@ quick_partition_swap_on()
                 
                 partprobe "$DEV" || true
 
-                # Get total disk size in MiB
+                # Get total disk size in MiB / GiB
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
 
                 # Compute sizes
                 # EFI: 1024 MiB
@@ -238,13 +239,12 @@ quick_partition_swap_on()
                 
                 while true; do
                 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                echo "Maximum available disk size: ${DISK_GIB} GiB"
+                echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                 # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || > ${DISK_GIB} )); then
                     echo "Invalid input! Enter a positive integer in GiB."
                     continue
                 fi
@@ -512,9 +512,10 @@ quick_partition_swap_on_root()
 
                 partprobe "$DEV" || true
 
-                # Get total disk size in MiB
+                # Get total disk size in MiB & GiB
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
 
                 # Compute sizes
                 # EFI: 1024 MiB
@@ -522,13 +523,11 @@ quick_partition_swap_on_root()
                 
                 while true; do
                 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                 echo "Maximum available disk size: ${DISK_GIB} GiB"
-                echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                 # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || > ${DISK_GIB} )); then
                     echo "Invalid input! Enter a positive integer in GiB."
                     continue
                 fi
@@ -797,22 +796,23 @@ quick_partition_swap_off()
 
                             partprobe "$DEV" || true
 
-                            # Get total disk size in MiB
+                            # Get total disk size in MiB & GiB
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
-
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            
                             # Compute sizes
                             # EFI: 1024 MiB
                             EFI_SIZE_MIB=1024
                             
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || > ${DISK_GIB} )); then
                                 echo "Invalid input! Enter a positive integer in GiB."
                                 continue
                             fi
@@ -1050,19 +1050,18 @@ quick_partition_swap_off_root()
                             # Get total disk size in MiB
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
-
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             # Compute sizes
                             # EFI: 1024 MiB
                             EFI_SIZE_MIB=1024
                             
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                            echo "Maximum available disk size: ${DISK_GIB} GiB 
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 )); then
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ${DISK_GIB)); then
                                 echo "Invalid input! Enter a positive integer in GiB."
                                 continue
                             fi
