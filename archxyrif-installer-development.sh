@@ -831,9 +831,9 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition_swap_on ;; 
+                        quick_partition_swap_on || cleanup_and_restart ;; 
                     2)
-                        quick_partition_swap_off ;; 
+                        quick_partition_swap_off || cleanup_and_restart ;; 
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
@@ -1004,9 +1004,9 @@ echo
 
                 case "$PART_CHOICE" in
                     1)
-                        quick_partition ;;
+                        quick_partition || cleanup_and_restart ;;
                     2)
-                        custom_partition ;;
+                        custom_partition || cleanup_and_restart ;;
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
