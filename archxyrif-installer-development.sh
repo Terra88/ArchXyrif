@@ -259,12 +259,13 @@ quick_partition_swap_on()
                     echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
                     echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                     echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
-                    read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                    # Reserve 2 GiB for safety (adjust as needed)
+                    MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                    read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
 
-                    # Validate input: positive integer
-                    if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                        echo "Invalid input! Enter a positive integer in GiB."
-                        continue
+                    if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                    echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
+                    continue
                     fi
 
                         # Convert to MiB
@@ -545,12 +546,12 @@ quick_partition_swap_on_root()
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
                             echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
                             echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-                            read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                             MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
 
-                            # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                                echo "Invalid input! Enter a positive integer in GiB."
-                           continue
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                            echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
+                            continue
                             fi
                 
 
@@ -717,43 +718,6 @@ quick_partition_swap_on_root()
                     # Swap
                     mkswap "$P2"
                     swapon "$P2"
-
-
-                elif [[ "$DEV_CHOICE" == "3" ]]; then  # BTRFS root + EXT4 home
-                    echo "→ Formatting root (P2) as BTRFS..."
-                    mkfs.btrfs -f "$P3"
-
-                    echo "→ Mounting root to create subvolumes..."
-                    mount "$P3" /mnt
-                        
-                    btrfs subvolume create /mnt/@
-                    btrfs subvolume create /mnt/@home
-                    btrfs subvolume create /mnt/@snapshots
-                    btrfs subvolume create /mnt/@cache
-                    btrfs subvolume create /mnt/@log
-
-                    umount /mnt
-
-                    echo "→ Mounting root subvolumes..."
-                    mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
-                    mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
-                    mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/var/log
-
-                    # Swap
-                    mkswap "$P2"
-                    swapon "$P2"
-
-                    echo "→ BTRFS root and home setup complete."
-
-                    # EFI
-                    mkfs.fat -F32 "$P1"
-                    mkdir -p /mnt/boot
-                    mount "$P1" /mnt/boot
-
-                    echo "→ Mixed setup (BTRFS root + EXT4 home) complete."
                     
                 else
                     # EXT4 path
@@ -795,12 +759,12 @@ quick_partition_swap_off()
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
                             echo "Maximum available disk size: ${DISK_GIB%.*} GiB - Take into consideration that /home will require space later too"
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
-                            read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                            MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
 
-                            # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                                echo "Invalid input! Enter a positive integer in GiB."
-                                continue
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                            echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
+                            continue
                             fi
 
                             # Convert to MiB
@@ -1046,11 +1010,11 @@ quick_partition_swap_off_root()
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
                             echo "Maximum available disk size: ${DISK_GIB%.*} GiB"  
-                            read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
-                            
-                            # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                            echo "Invalid input! Enter a positive integer in GiB."
+                            MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                            echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
                             continue
                             fi
 
