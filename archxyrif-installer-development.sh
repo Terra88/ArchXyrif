@@ -746,6 +746,11 @@ quick_partition_swap_off_root()
                             done
                         
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
+
+                            p1_start=1
+                            p1_end=$((p1_start + EFI_SIZE_MIB))
+                            p2_start=$p1_end
+                            p2_end=$((p2_start + ROOT_SIZE_MIB))
  
 printf "\033c"
 echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤" 
