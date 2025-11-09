@@ -182,71 +182,14 @@ set -euo pipefail
         dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
         fi
 
-echo
-echo "#===================================================================================================#"
-echo "# 1.3 Choose Partitioning Mode                                                                     #"
-echo "#===================================================================================================#"
-echo
-            echo "Select partitioning method for $DEV:"
-            echo "1) Quick Partitioning  (automated, recommended)"
-            echo "2) Custom Partitioning (manual, using cfdisk)"
-            echo "3) Return back to start"
-            echo
-
-            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
-            PART_CHOICE="${PART_CHOICE:-1}"
-
-                case "$PART_CHOICE" in
-                    1)
-                        quick_partition(){} ;;
-                    2)
-                        custom_partition(){} ;;
-                    3)
-                        echo "Restarting..."
-                        exec "$0";;
-                    *)
-                        echo "Invalid choice."; exec "$0" ;;
-                esac
-
-
 quick_partition() 
 {
-
-echo "#===================================================================================================#"
-echo "# 1.4 Quick-Partition Mode: Select if you want Swap On or Off                                        "
-echo "#===================================================================================================#"
+quick_partition_swap_on() 
+    {
 
 
-            echo "-------------------------------------------"
-            echo "Swap Space Option"
-            echo "-------------------------------------------"
-            echo "Swap is disk space used as 'extra RAM' when your memory is full."
-            echo "It helps prevent slowdowns and allows hibernation."
-            echo 
-            echo "1) Swap ON"
-            echo "   → Safer choice for most users (especially <16GB RAM)."
-            echo 
-            echo "2) Swap OFF"
-            echo 
-            echo "3) Back to start"
-            echo "   → Advanced users with lots of RAM or no hibernation."
-            SWAP_CHOICE="${SWAP_CHOICE:-1}"
 
-                    case "$SWAP_CHOICE" in
-                    1)
-                        quick_partition_swap_on(){} ;;
-                    2)
-                        quick_partition_swap_off(){} ;;
-                    3)
-                        echo "Restarting..."
-                        exec "$0";;
-                    *)
-                        echo "Invalid choice."; exec "$0" ;;
-                esac
-
-
-quick_partition_swap_on() {
-
+                
                 partprobe "$DEV" || true
 
                 # Get total disk size in MiB
@@ -330,7 +273,7 @@ quick_partition_swap_on() {
                 sleep 1
                 clear
                 echo "#===================================================================================================#"
-                echo "# 1.5A)SELECT FILESYSTEM - Swap On                                                                   "
+                echo "# 1.5)SELECT FILESYSTEM                                                                             "
                 echo "#===================================================================================================#"
                 echo 
 
@@ -414,7 +357,7 @@ quick_partition_swap_on() {
                 P4="${DEV}${PSUFF}4"
 
                 #===================================================================================================#
-                # 1.6A) Mounting and formatting
+                # 1.6) Mounting and formatting
                 #===================================================================================================#
 
                 if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
@@ -515,12 +458,12 @@ quick_partition_swap_on() {
                     swapon "$P3"
                 fi
 
-                }           
+    }           
                 echo "Partitioning and filesystem setup complete."
 
-            
 
-quick_partition_swap_off() {
+quick_partition_swap_off() 
+    {
 
                             partprobe "$DEV" || true
 
@@ -587,7 +530,7 @@ quick_partition_swap_off() {
                             sleep 1
                             clear
                             echo "#===================================================================================================#"
-                            echo "# 1.5B)SELECT FILESYSTEM - Swap Off                                                                  "
+                            echo "# 1.5)SELECT FILESYSTEM                                                                             "
                             echo "#===================================================================================================#"
                             echo 
 
@@ -663,7 +606,7 @@ quick_partition_swap_off() {
                             P4="${DEV}${PSUFF}3"
 
                             #===================================================================================================#
-                            # 1.6B) Mounting and formatting
+                            # 1.6) Mounting and formatting
                             #===================================================================================================#
 
                             if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
@@ -754,13 +697,47 @@ quick_partition_swap_off() {
 
                             fi
 
-                            }           
+    }           
                             echo "Partitioning and filesystem setup complete."
-                                
-}
 
-custom_partition()
-{
+
+echo "#===================================================================================================#"
+echo "# 1.4 Quick-Partition Mode:                                                                         "
+echo "#===================================================================================================#"
+
+
+            echo "-------------------------------------------"
+            echo "Swap Space Option"
+            echo "-------------------------------------------"
+            echo "Swap is disk space used as 'extra RAM' when your memory is full."
+            echo "It helps prevent slowdowns and allows hibernation."
+            echo 
+            echo "1) Swap ON"
+            echo "   → Safer choice for most users (especially <16GB RAM)."
+            echo 
+            echo "2) Swap OFF"
+            echo 
+            echo "3) Back to start"
+            echo "   → Advanced users with lots of RAM or no hibernation."
+            SWAP_CHOICE="${SWAP_CHOICE:-1}"
+
+                    case "$SWAP_CHOICE" in
+                    1)
+                        quick_partition_swap_on ;;
+                    2)
+                        quick_partition_swap_off ;;
+                    3)
+                        echo "Restarting..."
+                        exec "$0";;
+                    *)
+                        echo "Invalid choice."; exec "$0" ;;
+                esac
+
+            }               
+                        
+
+
+custom_partition(){
 echo "#===================================================================================================#"
 echo "# 1.7)Custom-Partition Mode: Selected Drive  - Still in progress not finished                        "
 echo "#===================================================================================================#"
@@ -873,14 +850,36 @@ echo "#=========================================================================
                     echo
                     echo "Custom partitioning and mounting complete!"
 
-}
+                    }
 
-        
+echo
+echo "#===================================================================================================#"
+echo "# 1.3 Choose Partitioning Mode                                                                     #"
+echo "#===================================================================================================#"
+echo
+            echo "Select partitioning method for $DEV:"
+            echo "1) Quick Partitioning  (automated, recommended)"
+            echo "2) Custom Partitioning (manual, using cfdisk)"
+            echo "3) Return back to start"
+            echo
 
+            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
+            PART_CHOICE="${PART_CHOICE:-1}"
 
+                case "$PART_CHOICE" in
+                    1)
+                        quick_partition ;;
+                    2)
+                        custom_partition ;;
+                    3)
+                        echo "Restarting..."
+                        exec "$0";;
+                    *)
+                        echo "Invalid choice."; exec "$0" ;;
+                esac
 
-echo "Partitioning and filesystem setup complete."
-
+       
+             
 
 clear
 echo
