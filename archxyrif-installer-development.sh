@@ -1114,7 +1114,7 @@ quick_partition_swap_off_root()
 
                             echo "Partition table (MiB):"
                             echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB 100%
+                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB 100%"
                             echo
                             echo "-------------------------------------------"
                             echo "Filesystem Partition Options"
@@ -1140,12 +1140,12 @@ quick_partition_swap_off_root()
                                 1)
                                     echo "→ Selected EXT4"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB 100%"
                                     ;;
                                 2)
                                     echo "→ Selected BTRFS"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB 100%"
                                     ;;  
 
                                 3)
