@@ -706,8 +706,7 @@ quick_partition_swap_off() {
 
 quick_partition_swap_off_root() 
 {
-                        
-                        quick_partition_swap_off_root() {
+
                             partprobe "$DEV" || true
                         
                             # Disk sizes
