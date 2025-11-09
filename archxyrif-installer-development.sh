@@ -1315,7 +1315,6 @@ echo "#=========================================================================
             echo "   → Disk Layout:/boot(sdx1)/root(sdx2)/home(sdx3) "
             echo "   → example:/boot(sda1) /root(sda2) /home(sda2) /home right under /root"
             echo 
-            echo 
             echo "4) Home folder on same device as /root & swap disabled "
             echo "   → Advanced users with lots of RAM or no hibernation."
             echo "   → Disk Layout:/boot(sdx1)/root & /home(sdx2)"
