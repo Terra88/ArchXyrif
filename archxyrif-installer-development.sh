@@ -545,11 +545,10 @@ quick_partition_swap_on_root()
                 
                     while true; do
                     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
-                    echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                    echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 25 GiB reserved)"
                     echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                     echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
-                    echo "Reserve 5 GiB for safety (adjust as needed)"
-                    MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                    MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
                     read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
 
                     if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
@@ -768,7 +767,7 @@ quick_partition_swap_off()
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
-                            AVAILABLE_GIB=$((DISK_GIB_INT - 5))
+                            AVAILABLE_GIB=$((DISK_GIB_INT - 25))
         
                             # Compute sizes
                             # EFI: 1024 MiB
@@ -776,11 +775,10 @@ quick_partition_swap_off()
                         
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
-                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 25 GiB reserved)"
                             echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
-                            echo "Reserve 5 GiB for safety (adjust as needed)"
-                            MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                            MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
         
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
@@ -1030,17 +1028,16 @@ quick_partition_swap_off_root()
                         
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
-                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
+                            echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 25 GiB reserved)"
                             echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
-                            echo "Reserve 5 GiB for safety (adjust as needed)"
-                            MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                            MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
         
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
                             echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
                             continue
-                            fi    
+                            fi
 
                             # Convert to MiB
                             ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
