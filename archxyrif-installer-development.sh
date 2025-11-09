@@ -784,17 +784,19 @@ echo "¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤¤
                         read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                         DEV_CHOICE="${DEV_CHOICE:-1}"
 
-                               case "$DEV_CHOICE" in
-                                1)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                    ;;
-                                2)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    ;;
-                                *) echo "Invalid choice"; exec "$0" ;;
-                            esac
+                        case "$DEV_CHOICE" in
+                            1)
+                                parted -s "$DEV" mklabel gpt
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                                ;;
+                            2)
+                                parted -s "$DEV" mklabel gpt
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                ;;
+                            *) echo "Invalid choice"; exec "$0" ;;
+                        esac
                         
                             parted -s "$DEV" set 1 boot on
                             partprobe "$DEV"
