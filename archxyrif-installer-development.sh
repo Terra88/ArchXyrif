@@ -819,9 +819,9 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition ;; 
+                        quick_partition_swap_on() ;; 
                     2)
-                        quick_partition ;; 
+                        quick_partition_swap_off() ;; 
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
