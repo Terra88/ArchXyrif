@@ -314,7 +314,7 @@ quick_partition_swap_on()
                 sleep 1
                 clear
                 echo "#===================================================================================================#"
-                echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                echo "# 1.5)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                    "
                 echo "#===================================================================================================#"
                 echo 
 
@@ -510,27 +510,45 @@ echo "Partitioning and filesystem setup complete."
 quick_partition_swap_on_root()
 {
 
-                partprobe "$DEV" || true
-
-                # Get total disk size in MiB & GiB
-                DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
-                DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
-                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-
-                # Compute sizes
-                # EFI: 1024 MiB
-                EFI_SIZE_MIB=1024
-                
-                while true; do
-                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                echo "Maximum available disk size: ${DISK_GIB} GiB"
-                read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
-
-                # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
-                    echo "Invalid input! Enter a positive integer in GiB."
-                    continue
+                            partprobe "$DEV" || true
+                            
+               # Detect RAM in MiB
+                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+                if [[ -z "$ram_kb" ]]; then
+                die "Failed to read RAM from /proc/meminfo"
                 fi
+                ram_mib=$(( (ram_kb + 1023) / 1024 ))
+
+                # Swap sizing policy:
+                # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
+                # - Otherwise swap = RAM (1:1)
+                if (( ram_mib <= 8192 )); then
+                SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+                else
+                SWAP_SIZE_MIB=$(( ram_mib ))
+                fi
+                
+                            # Get total disk size in MiB
+                            DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
+                            DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")
+                            
+                            # Compute sizes
+                            # EFI: 1024 MiB
+                            EFI_SIZE_MIB=1024
+                            
+                            while true; do
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                            echo "Maximum available disk size: ${DISK_GIB} GiB"  
+                            read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                            
+                            # Validate input: positive integer
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
+                            echo "Invalid input! Enter a positive integer in GiB."
+                            continue
+                            fi
+                
 
                 # Convert to MiB
                 ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
@@ -547,21 +565,7 @@ quick_partition_swap_on_root()
                 break
             done
 
-                # Detect RAM in MiB
-                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                if [[ -z "$ram_kb" ]]; then
-                die "Failed to read RAM from /proc/meminfo"
-                fi
-                ram_mib=$(( (ram_kb + 1023) / 1024 ))
-
-                # Swap sizing policy:
-                # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
-                # - Otherwise swap = RAM (1:1)
-                if (( ram_mib <= 8192 )); then
-                SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-                else
-                SWAP_SIZE_MIB=$(( ram_mib ))
-                fi
+ 
 
                 echo
                 echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
@@ -597,7 +601,7 @@ quick_partition_swap_on_root()
                 sleep 1
                 clear
                 echo "#===================================================================================================#"
-                echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                         "
                 echo "#===================================================================================================#"
                 echo 
 
@@ -621,13 +625,8 @@ quick_partition_swap_on_root()
                 echo "     • Good for SSDs and frequent backups"
                 echo "     • Slightly more complex; better for advanced users"
                 echo
-                echo "3) BTRFS(root)-EXT4(home)"
-                echo "   → A balanced setup combining both worlds."
-                echo "     • BTRFS for system (root) — allows snapshots & rollback"
-                echo "     • EXT4 for home — simpler and very stable for data"
-                echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
                 echo
-                echo "4) Back to start"
+                echo "3) Back to start"
                 echo
                 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                 DEV_CHOICE="${DEV_CHOICE:-1}"
@@ -636,25 +635,19 @@ quick_partition_swap_on_root()
                     1)
                         echo "→ Selected EXT4"
                         parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                        parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                        parted -s "$DEV" mkpart primary linux-swap "${p2_start}MiB" "${p2_end}MiB"
+                        parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
                         ;;
 
                     2)
                         echo "→ Selected BTRFS"
                         parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                        parted -s "$DEV" mkpart primary linux-swap "${p2_start}MiB" "${p2_end}MiB"
+                        parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" "${p3_end}MiB"
                         ;;  
 
-                    3)  
-                        echo "→ Selected BTRFS (root) + EXT4 (home)"
-                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                        ;;
 
-                    4)
+                    3)
                         echo "Restarting..."
                         exec "$0"
                         ;;
@@ -676,8 +669,8 @@ quick_partition_swap_on_root()
                 # Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
                 PSUFF=$(part_suffix "$DEV")
                 P1="${DEV}${PSUFF}1"
-                P2="${DEV}${PSUFF}2"
-                P3="${DEV}${PSUFF}3"
+                P3="${DEV}${PSUFF}2"
+                P2="${DEV}${PSUFF}3"
 
                 #===================================================================================================#
                 # 1.6) Mounting and formatting
@@ -864,7 +857,7 @@ quick_partition_swap_off()
                             sleep 1
                             clear
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                            echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP OFF                                        "
                             echo "#===================================================================================================#"
                             echo 
 
@@ -1051,6 +1044,7 @@ quick_partition_swap_off_root()
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")
                             
                             # Compute sizes
                             # EFI: 1024 MiB
@@ -1062,9 +1056,9 @@ quick_partition_swap_off_root()
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
-                                echo "Invalid input! Enter a positive integer in GiB."
-                                continue
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
+                            echo "Invalid input! Enter a positive integer in GiB."
+                            continue
                             fi
 
                             # Convert to MiB
@@ -1114,7 +1108,7 @@ quick_partition_swap_off_root()
                             sleep 1
                             clear
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM                                                                             "
+                            echo "# 1.5)SELECT FILESYSTEM  HOME SEPARATE & SWAP OFF                                                    "
                             echo "#===================================================================================================#"
                             echo 
 
