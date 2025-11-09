@@ -182,6 +182,9 @@ set -euo pipefail
         dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
         fi
 
+#SWAP ON OR SWAP OFF CHOICE FROM BELOW        
+SWAP_CHOICE="${SWAP_CHOICE:-1}"
+
 quick_partition() 
 {
 quick_partition_swap_on() 
@@ -718,9 +721,8 @@ echo "#=========================================================================
             echo "2) Swap OFF"
             echo 
             echo "3) Back to start"
-            echo "   → Advanced users with lots of RAM or no hibernation."
-            SWAP_CHOICE="${SWAP_CHOICE:-1}"
-
+            echo "   → Advanced users with lots of RAM or no hibernation."           
+            echo
                     case "$SWAP_CHOICE" in
                     1)
                         quick_partition_swap_on() ;;
