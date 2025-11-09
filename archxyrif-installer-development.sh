@@ -386,95 +386,57 @@ quick_partition_swap_on()
                 #===================================================================================================#
                 # 1.6) Mounting and formatting
                 #===================================================================================================#
+# Format EFI
+mkfs.fat -F32 "$P1"
 
-          case "$DEV_CHOICE" in
-                1)
-                    mkfs.ext4 -F "$P2" "$P4"
-                    mount "$P2" /mnt
-                    mkdir -p /mnt/{boot,home}
-                    mount "$P1" /mnt/boot
-                    mount "$P4" /mnt/home
-                    ;;
-                
-                2)
-                    # Format partitions
-                    mkfs.btrfs -f "$P2"    # Root partition
-                    mkfs.btrfs -f "$P4"    # Home partition
-                
-                    # Mount root temporarily to create subvolumes
-                    mount "$P2" /mnt
-                    echo "→ Creating BTRFS root subvolumes..."
-                    for sv in @ @snapshots @cache @log; do
-                        btrfs subvolume create "/mnt/$sv"
-                    done
-                    umount /mnt
-                
-                    # Wait for kernel to register subvolumes
-                    udevadm settle
-                    sleep 1
-                
-                    # Mount BTRFS root subvolume
-                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                
-                    # Create directories for subvolumes and mount points
-                    mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                
-                    # Mount BTRFS home subvolume separately from $P4
-                    mount -o noatime,compress=zstd,subvol=@ "$P4" /mnt/home
-                
-                    # Mount other root subvolumes
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
-                
-                    # Mount EFI
-                    mount "$P1" /mnt/boot
-                ;;
-                3)
-                    # Format filesystems
-                    echo "→ Formatting root as BTRFS and home as EXT4..."
-                    mkfs.btrfs -f "$P2"
-                    mkfs.ext4 -F "$P4"
-                    
-                    # Ensure /mnt exists
-                    mkdir -p /mnt
-                    
-                    # Mount BTRFS root temporarily to create subvolumes
-                    mount "$P2" /mnt
-                    echo "→ Creating BTRFS subvolumes..."
-                    for sv in @ @snapshots @cache @log; do
-                        btrfs subvolume create "/mnt/$sv"
-                    done
-                    
-                    # Unmount BTRFS root to mount subvolumes properly
-                    umount /mnt
-                    
-                    # Wait for kernel to register subvolumes
-                    udevadm settle
-                    sleep 1
-                    
-                    # Mount BTRFS root subvolume
-                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                    
-                    # Create directories for other subvolumes and external home
-                    mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                    
-                    # Mount EXT4 home (ensure mountpoint exists)
-                    mountpoint -q /mnt/home || mkdir -p /mnt/home
-                    mount "$P4" /mnt/home
-                    
-                    # Mount remaining BTRFS subvolumes
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
-                    
-                    # Mount EFI
-                    mount "$P1" /mnt/boot
-            esac
-        
-            echo "→ Partitioning and filesystem setup complete."
-}
+# Format swap
+mkswap "$P3"
+swapon "$P3"
 
+case "$DEV_CHOICE" in
+    1) # EXT4 root + EXT4 home
+        mkfs.ext4 -F "$P2"
+        mkfs.ext4 -F "$P4"
+        mount "$P2" /mnt
+        mkdir -p /mnt/{boot,home}
+        mount -t vfat "$P1" /mnt/boot
+        mount "$P4" /mnt/home
+        ;;
+
+    2) # BTRFS root + BTRFS home
+        mkfs.btrfs -f "$P2"
+        mkfs.btrfs -f "$P4"
+        mount "$P2" /mnt
+        for sv in @ @snapshots @cache @log; do
+            btrfs subvolume create "/mnt/$sv"
+        done
+        umount /mnt
+        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+        mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+        mount -o noatime,compress=zstd,subvol=@ "$P4" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+        mount -t vfat "$P1" /mnt/boot
+        ;;
+
+    3) # BTRFS root + EXT4 home
+        mkfs.btrfs -f "$P2"
+        mkfs.ext4 -F "$P4"
+        mount "$P2" /mnt
+        for sv in @ @snapshots @cache @log; do
+            btrfs subvolume create "/mnt/$sv"
+        done
+        umount /mnt
+        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+        mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+        mount "$P4" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+        mount -t vfat "$P1" /mnt/boot
+        ;;
+esac
 
 quick_partition_swap_on_root()
 {
