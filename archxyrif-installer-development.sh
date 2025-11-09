@@ -237,6 +237,7 @@ quick_partition_swap_on()
                 EFI_SIZE_MIB=1024
                 
                 while true; do
+                lsblk -b -dn -o SIZE "$DEV"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -518,6 +519,7 @@ quick_partition_swap_on_root()
                 EFI_SIZE_MIB=1024
                 
                 while true; do
+                lsblk -b -dn -o SIZE "$DEV"
                 echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -800,6 +802,7 @@ quick_partition_swap_off()
                             EFI_SIZE_MIB=1024
                             
                             while true; do
+                            lsblk -b -dn -o SIZE "$DEV"
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -1048,6 +1051,7 @@ quick_partition_swap_off_root()
                             EFI_SIZE_MIB=1024
                             
                             while true; do
+                            lsblk -b -dn -o SIZE "$DEV"
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
