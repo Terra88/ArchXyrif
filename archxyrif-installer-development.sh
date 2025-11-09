@@ -75,27 +75,15 @@ echo
 set -euo pipefail
 
     # Helpers
-
     confirm() {
-    # $1 is the prompt message
-    read -p "$1 [Y/n] " response
-    response=${response:-Y}   # Default to Y if empty
-    if [[ "$response" =~ ^[Yy]$ ]]; then
-        return 0    # success / yes
-    else
-        return 1    # no
-    fi
-    }
-
-    #confirm() {
     # ask Yes/No, return 0 if yes
-    #local msg="${1:-Continue?}"
-    #read -r -p "$msg [yes/NO]: " ans
-    #case "$ans" in
-    #    [yY]|[yY][eE][sS]) return 0 ;;
-    #    *) return 1 ;;
-    #esac
-    #}
+    local msg="${1:-Continue?}"
+    read -r -p "$msg [yes/NO]: " ans
+    case "$ans" in
+        [yY]|[yY][eE][sS]) return 0 ;;
+       *) return 1 ;;
+    esac
+    }
 
     part_suffix() {
     # given /dev/sdX or /dev/nvme0n1, print partition suffix ('' or 'p')
@@ -110,91 +98,6 @@ set -euo pipefail
     die() {
     echo "ERROR: $*" >&2
     exit 1
-    }
-
-    cleanup_and_restart() {
-    echo "⚠️ Cleaning up mounts and swap before restarting..."
-
-    # Turn off swap if any
-    swapoff -a 2>/dev/null || true
-
-    # Unmount /mnt recursively but handle BTRFS subvolumes safely
-    if mountpoint -q /mnt; then
-        # Get all mounts under /mnt sorted by depth (deepest first)
-        mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
-        for mnt in "${MOUNTS[@]}"; do
-            umount -l "$mnt" 2>/dev/null || true
-        done
-    fi
-
-    generate_fstab() {
-    echo
-    echo "#==============================================================#"
-    echo "# Generating /etc/fstab for installed system                   #"
-    echo "#==============================================================#"
-
-    mkdir -p /mnt/etc
-    FSTAB_FILE="/mnt/etc/fstab"
-    : > "$FSTAB_FILE"
-
-    echo "# /etc/fstab: static file system information." >> "$FSTAB_FILE"
-    echo "# Generated automatically by installer" >> "$FSTAB_FILE"
-    echo "# <file system> <mount point> <type> <options> <dump> <pass>" >> "$FSTAB_FILE"
-
-    # Loop through all mounts under /mnt
-    mount | grep '^/dev/' | grep ' /mnt' | while read -r line; do
-        DEV=$(echo "$line" | awk '{print $1}')
-        MNT=$(echo "$line" | awk '{print $3}')
-        TYPE=$(echo "$line" | awk '{print $5}')
-
-        UUID=$(blkid -s UUID -o value "$DEV" 2>/dev/null)
-        [[ -z "$UUID" ]] && UUID=$(blkid -s PARTUUID -o value "$DEV" 2>/dev/null)
-        [[ -z "$UUID" ]] && continue  # skip unknown
-
-        # Normalize mount point (strip /mnt prefix)
-        MNT_POINT="${MNT#/mnt}"
-
-        # Handle swap separately
-        if [[ "$TYPE" == "swap" ]]; then
-            echo "UUID=$UUID none swap defaults 0 0" >> "$FSTAB_FILE"
-            continue
-        fi
-
-        # Default options per filesystem type
-        case "$TYPE" in
-            btrfs)
-                if mount | grep -q "subvol="; then
-                    OPTS="noatime,compress=zstd,ssd,space_cache=v2,subvol=${MNT_POINT#/}"
-                else
-                    OPTS="defaults,noatime,compress=zstd"
-                fi
-                ;;
-            ext4|xfs|f2fs)
-                OPTS="defaults,noatime"
-                ;;
-            vfat)
-                OPTS="defaults,noatime,umask=0077"
-                ;;
-            *)
-                OPTS="defaults"
-                ;;
-        esac
-
-        echo "UUID=$UUID $MNT_POINT $TYPE $OPTS 0 1" >> "$FSTAB_FILE"
-    done
-
-    echo
-    echo "✅ /etc/fstab generated successfully:"
-    echo "--------------------------------------------"
-    cat "$FSTAB_FILE"
-    echo "--------------------------------------------"
-}
-
-    # Clean up /mnt (optional)
-    rm -rf /mnt/* 2>/dev/null || true
-
-    echo "🔄 Restarting installer..."
-    exec "$0"
     }
 
     # Show devices
@@ -343,7 +246,7 @@ quick_partition_swap_on()
 
                 if ! confirm "Proceed to partition $DEV with the sizes above?"; then
                 echo "User Cancel"
-                cleanup_and_restart
+                exec "$0"
     
                 fi
 
@@ -431,13 +334,13 @@ quick_partition_swap_on()
 
                     4)
                         echo "Restarting..."
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
 
                     *)
                         cleanup_and_restart
                         echo "Invalid choice.";
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
 
                 esac  
@@ -556,7 +459,7 @@ quick_partition_swap_on()
                     mkswap "$P3"
                     swapon "$P3"
                 fi
-                generate_fstab
+                
 }           
                 echo "Partitioning and filesystem setup complete."
 
@@ -607,7 +510,7 @@ quick_partition_swap_off()
 
                             if ! confirm "Proceed to partition $DEV with the sizes above?"; then
                             echo "User Cancel"
-                            cleanup_and_restart
+                            exec "$0"
                              
                             fi
 
@@ -688,12 +591,12 @@ quick_partition_swap_off()
 
                                 4)
                                     echo "Restarting..."
-                                    cleanup_and_restart
+                                    exec "$0"
                                     ;;
                                 *)
                     
                                     echo "Invalid choice." 
-                                    cleanup_and_restart
+                                    exec "$0"
                                     ;;
 
                              esac        
@@ -801,7 +704,7 @@ quick_partition_swap_off()
                                 mount "$P4" /mnt/home
 
                             fi
-                            generate_fstab
+                            
 }           
                             echo "Partitioning and filesystem setup complete."
                             
@@ -831,16 +734,16 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition_swap_on || cleanup_and_restart ;; 
+                        quick_partition_swap_on  ;; 
                     2)
-                        quick_partition_swap_off || cleanup_and_restart ;; 
+                        quick_partition_swap_off  ;; 
                     3)
                         echo "Restarting..."
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
                     *)
                         echo "Invalid choice."
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
                 esac
 
@@ -1009,19 +912,39 @@ echo
                         custom_partition  ;;
                     3)
                         echo "Restarting..."
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
                     *)
                         echo "Invalid choice."
-                        cleanup_and_restart
+                        exec "$0"
                         ;;
                 esac
 
-       
+
+clear
+sleep 1
+echo
+echo "#===================================================================================================#"
+echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
+echo "#===================================================================================================#"
+echo
+sleep 1
+
+echo "Generating /etc/fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+echo "Partition Table and Mountpoints:"
+cat /mnt/etc/fstab
+
+
+
+
 
 read -rp "Proceed to package installation? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"  # default to Yes if empty
 [[ ! "$CONFIRM" =~ ^[Yy]$ ]] 
+
+
+
 
 clear
 echo
@@ -1055,21 +978,6 @@ PKGS=(
 
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
-
-
-#clear
-#sleep 1
-#echo
-#echo "#===================================================================================================#"
-#echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
-#echo "#===================================================================================================#"
-#echo
-#sleep 1
-
-#echo "Generating /etc/fstab..."
-#genfstab -U /mnt >> /mnt/etc/fstab
-#echo "Partition Table and Mountpoints:"
-#cat /mnt/etc/fstab
 
 
 clear
