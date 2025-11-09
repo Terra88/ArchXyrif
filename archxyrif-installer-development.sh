@@ -856,8 +856,7 @@ custom_partition() {
 
     echo "Custom partitioning complete!"
 
-    read -rp "Proceed to package installation? [y/N]: " CONFIRM
-    [[ ! "$CONFIRM" =~ ^[Yy]$ ]] && cleanup_and_restart
+
 }
 
 
