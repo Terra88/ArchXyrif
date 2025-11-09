@@ -204,6 +204,20 @@ set -euo pipefail
         dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
         fi
 
+            # Turn off swap if any
+            swapoff -a 2>/dev/null || true
+
+           # Unmount /mnt recursively but handle BTRFS subvolumes safely
+        if mountpoint -q /mnt; then
+            # Get all mounts under /mnt sorted by depth (deepest first)
+            mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
+            for mnt in "${MOUNTS[@]}"; do
+            umount -l "$mnt" 2>/dev/null || true
+            done
+        fi
+
+            # Clean up /mnt (optional)
+            rm -rf /mnt/* 2>/dev/null || true
 
 
 quick_partition_swap_on() 
