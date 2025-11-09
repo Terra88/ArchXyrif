@@ -720,7 +720,7 @@ echo "#=========================================================================
             echo 
             echo "3) Back to start"
             echo "   → Advanced users with lots of RAM or no hibernation."           
-            #SWAP ON OR SWAP OFF CHOICE FROM BELOW        
+            read -r -p "Select File System [1-2, default=1]: " SWAP_CHOICE        
             SWAP_CHOICE="${SWAP_CHOICE:-1}"
 
                     case "$SWAP_CHOICE" in
