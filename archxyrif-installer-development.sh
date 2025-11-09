@@ -381,7 +381,7 @@ quick_partition_swap_on()
                     P2="${DEV}${PSUFF}2"   # Root
                     P3="${DEV}${PSUFF}3"   # Swap
                     P4="${DEV}${PSUFF}4"   # Home
-
+}
 
                 #===================================================================================================#
                 # 1.6) Mounting and formatting
