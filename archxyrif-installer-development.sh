@@ -850,15 +850,7 @@ custom_partition() {
     # Swap
     [[ -n "$P3" ]] && mkswap "$P3" && swapon "$P3"
 
-    echo "Custom partitioning complete!"
-
-    # ✅ Fixed prompt: default Yes [Y/n]
-    read -rp "Proceed to package installation? [Y/n]: " CONFIRM
-    CONFIRM="${CONFIRM:-Y}"   # default to Yes if empty
-    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-        echo "Aborting installation per user choice..."
-        cleanup_and_restart
-    fi
+    echo "Custom partitioning complete! Proceeding to package installation..."
 }
 
 
