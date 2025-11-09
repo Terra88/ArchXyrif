@@ -106,10 +106,16 @@ set -euo pipefail
     # Turn off swap if any
     swapoff -a 2>/dev/null || true
 
-    # Unmount everything under /mnt recursively
-    umount -R /mnt 2>/dev/null || true
+    # Unmount /mnt recursively but handle BTRFS subvolumes safely
+    if mountpoint -q /mnt; then
+        # Get all mounts under /mnt sorted by depth (deepest first)
+        mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
+        for mnt in "${MOUNTS[@]}"; do
+            umount -l "$mnt" 2>/dev/null || true
+        done
+    fi
 
-    # Remove leftover directories (optional, keeps /mnt clean)
+    # Clean up /mnt (optional)
     rm -rf /mnt/* 2>/dev/null || true
 
     echo "🔄 Restarting installer..."
@@ -136,7 +142,7 @@ set -euo pipefail
     echo "You selected: $DEV"
     echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-    die "User cancelled."
+    cleanup_and_restart
     fi
 
     # Unmount any mounted partitions and swapoff
