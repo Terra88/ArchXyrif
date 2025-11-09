@@ -395,40 +395,81 @@ quick_partition_swap_on()
                     mount "$P1" /mnt/boot
                     mount "$P4" /mnt/home
                     ;;
+                
                 2)
-                    mkfs.btrfs -f "$P2" "$P4"
+                    # Format partitions
+                    mkfs.btrfs -f "$P2"    # Root partition
+                    mkfs.btrfs -f "$P4"    # Home partition
+                
+                    # Mount root temporarily to create subvolumes
                     mount "$P2" /mnt
-                    btrfs subvolume create /mnt/@
-                    btrfs subvolume create /mnt/@home
-                    btrfs subvolume create /mnt/@snapshots
-                    btrfs subvolume create /mnt/@cache
-                    btrfs subvolume create /mnt/@log
+                    echo "→ Creating BTRFS root subvolumes..."
+                    for sv in @ @snapshots @cache @log; do
+                        btrfs subvolume create "/mnt/$sv"
+                    done
                     umount /mnt
+                
+                    # Wait for kernel to register subvolumes
+                    udevadm settle
+                    sleep 1
+                
+                    # Mount BTRFS root subvolume
                     mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                
+                    # Create directories for subvolumes and mount points
                     mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                    mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+                
+                    # Mount BTRFS home subvolume separately from $P4
+                    mount -o noatime,compress=zstd,subvol=@ "$P4" /mnt/home
+                
+                    # Mount other root subvolumes
                     mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
                     mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
                     mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+                
+                    # Mount EFI
                     mount "$P1" /mnt/boot
-                    ;;
+                ;;
                 3)
+                    # Format filesystems
+                    echo "→ Formatting root as BTRFS and home as EXT4..."
                     mkfs.btrfs -f "$P2"
                     mkfs.ext4 -F "$P4"
+                    
+                    # Ensure /mnt exists
+                    mkdir -p /mnt
+                    
+                    # Mount BTRFS root temporarily to create subvolumes
                     mount "$P2" /mnt
-                    btrfs subvolume create /mnt/@
-                    btrfs subvolume create /mnt/@snapshots
-                    btrfs subvolume create /mnt/@cache
-                    btrfs subvolume create /mnt/@log
+                    echo "→ Creating BTRFS subvolumes..."
+                    for sv in @ @snapshots @cache @log; do
+                        btrfs subvolume create "/mnt/$sv"
+                    done
+                    
+                    # Unmount BTRFS root to mount subvolumes properly
                     umount /mnt
+                    
+                    # Wait for kernel to register subvolumes
+                    udevadm settle
+                    sleep 1
+                    
+                    # Mount BTRFS root subvolume
                     mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    
+                    # Create directories for other subvolumes and external home
                     mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+                    
+                    # Mount EXT4 home (ensure mountpoint exists)
+                    mountpoint -q /mnt/home || mkdir -p /mnt/home
                     mount "$P4" /mnt/home
+                    
+                    # Mount remaining BTRFS subvolumes
                     mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
                     mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
                     mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+                    
+                    # Mount EFI
                     mount "$P1" /mnt/boot
-                    ;;
             esac
         
             echo "→ Partitioning and filesystem setup complete."
@@ -589,60 +630,84 @@ quick_partition_swap_on_root()
                 esac  
                 
 
-               # Ensure device nodes are ready
+                # After partitioning, ensure device nodes
                 partprobe "$DEV" || true
                 udevadm settle || true
                 sleep 1
                 
-                # After partitions are created
                 PSUFF=$(part_suffix "$DEV")
                 P1="${DEV}${PSUFF}1"   # EFI
-                P2="${DEV}${PSUFF}2"   # Swap
-                P3="${DEV}${PSUFF}3"   # Root
-
+                P2="${DEV}${PSUFF}2"   # Root
+                P3="${DEV}${PSUFF}3"   # Swap
+                P4="${DEV}${PSUFF}4"   # Home
+                
                 # Enable swap and format EFI
                 mkfs.fat -F32 "$P1"
-                mkswap "$P2"
-                swapon "$P2"
+                mkswap "$P3"
+                swapon "$P3"
                 
                 #===================================================================================================#
                 # Mounting and formatting (fixed)
                 #===================================================================================================#
-                if [[ "$FS_CHOICE" == "1" ]]; then
-                    # ================= EXT4 SCHEME =================
-                    mkfs.ext4 -F "$P3"
-                    mount "$P3" /mnt
-                    mkdir -p /mnt/boot /mnt/home
-                    mount "$P1" /mnt/boot
+                case "$FS_CHOICE" in
+                    1)  # EXT4 root + EXT4 home
+                        echo "→ Formatting ROOT and HOME as EXT4..."
+                        mkfs.ext4 -F "$P2"
+                        mkfs.ext4 -F "$P4"
                 
-                else
-                    mkfs.btrfs -f "$P3"
-                    mount "$P3" /mnt
+                        # Mount root
+                        mount "$P2" /mnt
                 
-                    # Create subvolumes
-                    btrfs subvolume create /mnt/@
-                    btrfs subvolume create /mnt/@home
-                    btrfs subvolume create /mnt/@snapshots
-                    btrfs subvolume create /mnt/@cache
-                    btrfs subvolume create /mnt/@log
-                    umount /mnt
+                        # Create boot & home directories
+                        mkdir -p /mnt/boot /mnt/home
                 
-                    # Mount subvolumes properly
-                    mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
-                    mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                    mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/var/log
-                    mount "$P1" /mnt/boot
-
-                fi
+                        # Mount EFI and HOME
+                        mount "$P1" /mnt/boot
+                        mount "$P4" /mnt/home
+                        ;;
+                    2)  # BTRFS root + BTRFS home
+                        echo "→ Formatting ROOT and HOME as BTRFS..."
+                        mkfs.btrfs -f "$P2"
+                        mkfs.btrfs -f "$P4"
+                
+                        # Mount BTRFS root temporarily to create subvolumes
+                        mount "$P2" /mnt
+                        echo "→ Creating BTRFS subvolumes on ROOT..."
+                        for sv in @ @snapshots @cache @log; do
+                            btrfs subvolume create "/mnt/$sv"
+                        done
+                        umount /mnt
+                        udevadm settle
+                        sleep 1
+                
+                        # Mount root subvolume
+                        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                
+                        # Create directories for subvolumes and home
+                        mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+                
+                        # Mount BTRFS home partition separately
+                        mount -o noatime,compress=zstd "$P4" /mnt/home
+                
+                        # Mount other subvolumes
+                        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+                        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
+                        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
+                
+                        # Mount EFI
+                        mount "$P1" /mnt/boot
+                        ;;
+                    *)
+                        echo "Invalid FS choice."
+                        exit 1
+                        ;;
+                esac
 }
 echo "Partitioning and filesystem setup complete."
 
 
 
-                        quick_partition_swap_off() {
+quick_partition_swap_off() {
                             partprobe "$DEV" || true
                         
                             # Disk sizes
@@ -711,14 +776,14 @@ echo "Partitioning and filesystem setup complete."
                             sleep 1
                             printf "\033c"
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP OFF                                        "
+                            echo "# 1.5)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                        "
                             echo "#===================================================================================================#"
                             echo 
 
                             echo "Partition table (MiB):"
                             echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
                             echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
-                            echo "  3) Home   : ${p3_start}MiB - - 100% (home)"
+                            echo "  3) Home   : ${p3_start}MiB - ${p3_end}MiB (~${HOME_SIZE_MIB}, home)"
                             echo
                             echo "-------------------------------------------"
                             echo "Filesystem Partition Options"
@@ -843,7 +908,7 @@ echo "Partitioning and filesystem setup complete."
 
 
                             
-                        quick_partition_swap_off() {
+                            quick_partition_swap_off() {
                         
                             partprobe "$DEV" || true
                         
@@ -900,13 +965,13 @@ echo "Partitioning and filesystem setup complete."
                             p1_start=1
                             p1_end=$((p1_start + EFI_SIZE_MIB))
                             p2_start=$p1_end
-                            p2_end="100%"
+                            p2_end=$((p2_start + ROOT_SIZE_MIB))
 
 
                             sleep 1
                             printf "\033c"
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM  HOME SEPARATE & SWAP OFF                                                    "
+                            echo "# 1.5)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  "
                             echo "#===================================================================================================#"
                             echo 
 
