@@ -517,7 +517,7 @@ quick_partition_swap_on() {
                 }           
                 echo "Partitioning and filesystem setup complete."
 
-            }
+            
 
 quick_partition_swap_off() {
 
