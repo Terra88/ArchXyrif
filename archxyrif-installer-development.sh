@@ -733,9 +733,6 @@ quick_partition_swap_on_root()
                         mkswap "$P2"
                         swapon "$P2"
                     fi
-                
-                else
-
                     
                 else
                     # EXT4 path
