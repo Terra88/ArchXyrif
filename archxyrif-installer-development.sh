@@ -248,15 +248,16 @@ quick_partition_swap_on()
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                 DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")  # round to nearest integer
+                DISK_GIB_INT=${DISK_GIB%.*})  # round to nearest integer
 
                 # Compute sizes
                 # EFI: 1024 MiB
                 EFI_SIZE_MIB=1024
                 
                     while true; do
-                    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                    echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
+                    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
+                    echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
+                    echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
                     echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                     read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -534,21 +535,23 @@ quick_partition_swap_on_root()
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")
+                            DISK_GIB_INT=${DISK_GIB%.*}
                             
                             # Compute sizes
                             # EFI: 1024 MiB
                             EFI_SIZE_MIB=1024
                             
                             while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            echo "Maximum available disk size: ${DISK_GIB} GiB"  
+                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
+                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
+                            echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
+                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
-                            
+
                             # Validate input: positive integer
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                            echo "Invalid input! Enter a positive integer in GiB."
-                            continue
+                                echo "Invalid input! Enter a positive integer in GiB."
+                           continue
                             fi
                 
 
@@ -783,7 +786,7 @@ quick_partition_swap_off()
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")  # round to nearest integer
+                            DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
                             
                             # Compute sizes
                             # EFI: 1024 MiB
@@ -791,7 +794,7 @@ quick_partition_swap_off()
                             
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
+                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB - Take into consideration that /home will require space later too"
                             echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
@@ -1035,7 +1038,7 @@ quick_partition_swap_off_root()
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=$(printf "%.0f" "$DISK_GIB")
+                            DISK_GIB_INT=${DISK_GIB%.*}
                             
                             # Compute sizes
                             # EFI: 1024 MiB
@@ -1043,7 +1046,7 @@ quick_partition_swap_off_root()
                             
                             while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            echo "Maximum available disk size: ${DISK_GIB} GiB"  
+                            echo "Maximum available disk size: ${DISK_GIB%.*} GiB"  
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
                             # Validate input: positive integer
