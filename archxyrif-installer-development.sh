@@ -717,9 +717,10 @@ echo "#=========================================================================
             echo "   → Safer choice for most users (especially <16GB RAM)."
             echo 
             echo "2) Swap OFF"
+            echo "   → Advanced users with lots of RAM or no hibernation." 
             echo 
             echo "3) Back to start"
-            echo "   → Advanced users with lots of RAM or no hibernation."           
+            echo          
             read -r -p "Select File System [1-2, default=1]: " SWAP_CHOICE        
             SWAP_CHOICE="${SWAP_CHOICE:-1}"
 
