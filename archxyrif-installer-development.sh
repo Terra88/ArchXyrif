@@ -184,10 +184,8 @@ set -euo pipefail
 
 
 
-quick_partition() 
-{
 quick_partition_swap_on() 
-    {
+{
 
 
 
@@ -460,12 +458,12 @@ quick_partition_swap_on()
                     swapon "$P3"
                 fi
 
-    }           
+}           
                 echo "Partitioning and filesystem setup complete."
 
 
 quick_partition_swap_off() 
-    {
+{
 
                             partprobe "$DEV" || true
 
@@ -699,10 +697,11 @@ quick_partition_swap_off()
 
                             fi
 
-    }           
+}           
                             echo "Partitioning and filesystem setup complete."
 
-
+quick_partition()
+{
 echo "#===================================================================================================#"
 echo "# 1.4 Quick-Partition Mode:                                                                         "
 echo "#===================================================================================================#"
@@ -738,9 +737,10 @@ echo "#=========================================================================
 
             }               
                         
+}
 
-
-custom_partition(){
+custom_partition()
+{
 echo "#===================================================================================================#"
 echo "# 1.7)Custom-Partition Mode: Selected Drive  - Still in progress not finished                        "
 echo "#===================================================================================================#"
@@ -853,7 +853,7 @@ echo "#=========================================================================
                     echo
                     echo "Custom partitioning and mounting complete!"
 
-                    }
+}
 
 echo
 echo "#===================================================================================================#"
