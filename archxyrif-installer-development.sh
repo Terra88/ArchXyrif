@@ -244,7 +244,7 @@ quick_partition_swap_on()
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                 # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > ${DISK_GIB} )); then
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
                     echo "Invalid input! Enter a positive integer in GiB."
                     continue
                 fi
@@ -527,7 +527,7 @@ quick_partition_swap_on_root()
                 read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                 # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > ${DISK_GIB} )); then
+                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
                     echo "Invalid input! Enter a positive integer in GiB."
                     continue
                 fi
@@ -812,7 +812,7 @@ quick_partition_swap_off()
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > ${DISK_GIB} )); then
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
                                 echo "Invalid input! Enter a positive integer in GiB."
                                 continue
                             fi
@@ -1062,7 +1062,7 @@ quick_partition_swap_off_root()
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
                             
                             # Validate input: positive integer
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > ${DISK_GIB} )); then
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB )); then
                                 echo "Invalid input! Enter a positive integer in GiB."
                                 continue
                             fi
