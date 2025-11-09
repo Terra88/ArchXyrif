@@ -601,8 +601,6 @@ quick_partition_swap_on_root()
                 p3_start=$p2_end                             # swap start
                 p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
 
-                p4_start=$p3_end                             # home start; end = 100%
-
                 sleep 1
                 clear
                 echo "#===================================================================================================#"
@@ -666,58 +664,78 @@ quick_partition_swap_on_root()
                 esac  
                 
 
-                # Set boot flag on partition 1 (UEFI)
-                parted -s "$DEV" set 1 boot on
-                partprobe "$DEV"
+               # Ensure device nodes are ready
+                partprobe "$DEV" || true
+                udevadm settle || true
                 sleep 1
-
-                # Derive partition names (/dev/sda1 vs /dev/nvme0n1p1)
+                
                 PSUFF=$(part_suffix "$DEV")
-                P1="${DEV}${PSUFF}1"
-                P2="${DEV}${PSUFF}2"
-                P3="${DEV}${PSUFF}3"
-
+                P1="${DEV}${PSUFF}1"   # EFI
+                P2="${DEV}${PSUFF}2"   # SWAP
+                P3="${DEV}${PSUFF}3"   # ROOT
+                
                 #===================================================================================================#
-                # 1.6) Mounting and formatting
+                # Mounting and formatting (fixed)
                 #===================================================================================================#
-
-                if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS
-
-                    echo "→ Formatting root (P2) as BTRFS..."
+                
+                if [[ "$DEV_CHOICE" == "2" ]]; then  # BTRFS + swap
+                    # Format root (P3) as BTRFS
+                    echo "→ Formatting root (P3) as BTRFS..."
                     mkfs.btrfs -f "$P3"
-
-                    echo "→ Mounting root to create subvolumes..."
+                
+                    # Create subvolumes
                     mount "$P3" /mnt
-
-                echo "→ Creating BTRFS subvolumes on root..."
-                    btrfs subvolume create /mnt/@
-                    btrfs subvolume create /mnt/@home
-                    btrfs subvolume create /mnt/@snapshots
-                    btrfs subvolume create /mnt/@cache
-                    btrfs subvolume create /mnt/@log
-
+                    echo "→ Creating BTRFS subvolumes on root..."
+                    btrfs subvolume create /mnt/@ || true
+                    btrfs subvolume create /mnt/@home || true
+                    btrfs subvolume create /mnt/@snapshots || true
+                    btrfs subvolume create /mnt/@cache || true
+                    btrfs subvolume create /mnt/@log || true
                     umount /mnt
-
+                
+                    # Mount the subvolumes from the correct device ($P3)
                     echo "→ Mounting root subvolumes..."
-                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
                     mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
-                    mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
-                    mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
-                    mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/var/cache
-                    mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/var/log
-
-
-
-                    echo "→ BTRFS root and home setup complete."
-
+                    mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
+                    mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
+                    mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/var/cache
+                    mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/var/log
+                
                     # EFI
                     mkfs.fat -F32 "$P1"
                     mkdir -p /mnt/boot
                     mount "$P1" /mnt/boot
+                
+                    # Swap on the correct device (P2)
+                    if [[ -n "$P2" ]]; then
+                        mkswap "$P2"
+                        swapon "$P2"
+                    fi
+                
+                elif [[ "$DEV_CHOICE" == "1" ]]; then  # EXT4 + swap
+                    echo "→ Formatting root (P3) as EXT4..."
+                    mkfs.ext4 -F "$P3"
+                
+                    # Mount root, create dirs
+                    mount "$P3" /mnt
+                    mkdir -p /mnt/boot /mnt/home
+                
+                    # EFI
+                    mkfs.fat -F32 "$P1"
+                    mount "$P1" /mnt/boot
+                
+                    # If you have a separate home partition (not in this mode), mount it here:
+                    # [[ -n "$P4" ]] && mkfs.ext4 -F "$P4" && mount "$P4" /mnt/home
+                
+                    # Swap on P2
+                    if [[ -n "$P2" ]]; then
+                        mkswap "$P2"
+                        swapon "$P2"
+                    fi
+                
+                else
 
-                    # Swap
-                    mkswap "$P2"
-                    swapon "$P2"
                     
                 else
                     # EXT4 path
