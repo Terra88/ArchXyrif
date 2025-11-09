@@ -226,7 +226,23 @@ set -euo pipefail
 quick_partition_swap_on() 
 {
                 
-                partprobe "$DEV" || true
+                    partprobe "$DEV" || true
+                            
+                    # Detect RAM in MiB
+                    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+                    if [[ -z "$ram_kb" ]]; then
+                    die "Failed to read RAM from /proc/meminfo"
+                    fi
+                    ram_mib=$(( (ram_kb + 1023) / 1024 ))
+            
+                    # Swap sizing policy:
+                    # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
+                    # - Otherwise swap = RAM (1:1)
+                    if (( ram_mib <= 8192 )); then
+                    SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+                    else
+                    SWAP_SIZE_MIB=$(( ram_mib ))
+                    fi
 
                 # Get total disk size in MiB / GiB
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
@@ -238,49 +254,33 @@ quick_partition_swap_on()
                 # EFI: 1024 MiB
                 EFI_SIZE_MIB=1024
                 
-                while true; do
-                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                echo "Maximum available disk size: ${DISK_GIB} GiB  
-                echo "Take into consideration = /home will require space later too"
-                echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
-                read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
+                    while true; do
+                    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                    echo "Maximum available disk size: ${DISK_GIB} GiB - Take into consideration that /home will require space later too"
+                    echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                    read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
-                # Validate input: positive integer
-                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
-                    echo "Invalid input! Enter a positive integer in GiB."
-                    continue
-                fi
+                    # Validate input: positive integer
+                    if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > DISK_GIB_INT )); then
+                        echo "Invalid input! Enter a positive integer in GiB."
+                        continue
+                    fi
 
-                # Convert to MiB
-                ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+                        # Convert to MiB
+                        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
 
-                # Check if it fits on disk
-                MIN_REQUIRED_MIB=$(( ROOT_SIZE_MIB + EFI_SIZE_MIB ))
-                if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
-                    echo "Error: Requested root size + EFI ($MIN_REQUIRED_MIB MiB) exceeds disk size ($DISK_SIZE_MIB MiB)."
-                    echo "Please enter a smaller value."
-                    continue
-                fi
+                        # Check if it fits on disk
+                        MIN_REQUIRED_MIB=$(( ROOT_SIZE_MIB + EFI_SIZE_MIB ))
+                        if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
+                            echo "Error: Requested root size + EFI ($MIN_REQUIRED_MIB MiB) exceeds disk size ($DISK_SIZE_MIB MiB)."
+                            echo "Please enter a smaller value."
+                            continue
+                        fi
 
-                # Valid input fits on disk
-                break
-            done
+                        # Valid input fits on disk
+                        break
+                    done
 
-                # Detect RAM in MiB
-                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                if [[ -z "$ram_kb" ]]; then
-                die "Failed to read RAM from /proc/meminfo"
-                fi
-                ram_mib=$(( (ram_kb + 1023) / 1024 ))
-
-                # Swap sizing policy:
-                # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
-                # - Otherwise swap = RAM (1:1)
-                if (( ram_mib <= 8192 )); then
-                SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-                else
-                SWAP_SIZE_MIB=$(( ram_mib ))
-                fi
 
                 echo
                 echo "Detected RAM: ${ram_mib} MiB (~$((ram_mib/1024)) GiB)."
@@ -609,8 +609,8 @@ quick_partition_swap_on_root()
 
                 echo "Partition table (MiB):"
                 echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
-                echo "  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB} MiB)"
+                echo "  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${SWAP_SIZE_MIB} MiB)"
+                echo "  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${ROOT_SIZE_GIB}, root)"
                 echo
                 echo "-------------------------------------------"
                 echo "Filesystem Partition Options"
@@ -768,18 +768,6 @@ quick_partition_swap_on_root()
                     mkswap "$P2"
                     swapon "$P2"
                 fi
-
-
-
-
-
-
-
-
-
-
-
-
 }
 echo "Partitioning and filesystem setup complete."
 
