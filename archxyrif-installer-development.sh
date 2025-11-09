@@ -210,7 +210,8 @@ echo
 
 
 quick_partition() 
-            {
+{
+
 echo "#===================================================================================================#"
 echo "# 1.4 Quick-Partition Mode: Select if you want Swap On or Off                                        "
 echo "#===================================================================================================#"
@@ -756,9 +757,10 @@ quick_partition_swap_off() {
                             }           
                             echo "Partitioning and filesystem setup complete."
                                 
-                        }
+}
 
-custom_partition(){
+custom_partition()
+{
 echo "#===================================================================================================#"
 echo "# 1.7)Custom-Partition Mode: Selected Drive  - Still in progress not finished                        "
 echo "#===================================================================================================#"
@@ -871,7 +873,7 @@ echo "#=========================================================================
                     echo
                     echo "Custom partitioning and mounting complete!"
 
-                    }
+}
 
         
 
