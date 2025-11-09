@@ -439,7 +439,8 @@ quick_partition_swap_on()
                     esac
 }
 
-quick_partition_swap_on_root() {
+quick_partition_swap_on_root()
+{
 
                         partprobe "$DEV" || true
                     
@@ -576,41 +577,42 @@ echo "Partitioning and filesystem setup complete."
 
 
 
-quick_partition_swap_off() {
-                           quick_partition_swap_off() {
-    partprobe "$DEV" || true
+quick_partition_swap_off() 
+{
 
-    # Disk sizes
-    DISK_SIZE_MIB=$(($(lsblk -b -dn -o SIZE "$DEV")/1024/1024))
-    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-    DISK_GIB_INT=${DISK_GIB%.*}
-    EFI_SIZE_MIB=1024
-
-    # Ask root/home sizes
-    while true; do
-        lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-        MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
-        read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
-        MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB+EFI_SIZE_MIB))
-        (( MIN_REQUIRED_MIB>DISK_SIZE_MIB )) && { echo "Root+EFI too large"; continue; }
-
-        REMAINING_HOME_GIB=$((DISK_GIB_INT-ROOT_SIZE_GIB-EFI_SIZE_MIB/1024))
-        read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
-        HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-        HOME_SIZE_MIB=$((HOME_SIZE_GIB*1024))
-        break
-    done
-
-    echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
-
-    parted -s "$DEV" mklabel gpt
-    p1_start=1
-    p1_end=$((p1_start+EFI_SIZE_MIB))
-    p2_start=$p1_end
-    p2_end=$((p2_start+ROOT_SIZE_MIB))
-    p3_start=$p2_end
-    p3_end=$((p3_start+HOME_SIZE_MIB))
+                            partprobe "$DEV" || true
+                        
+                            # Disk sizes
+                            DISK_SIZE_MIB=$(($(lsblk -b -dn -o SIZE "$DEV")/1024/1024))
+                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                            DISK_GIB_INT=${DISK_GIB%.*}
+                            EFI_SIZE_MIB=1024
+                        
+                            # Ask root/home sizes
+                            while true; do
+                                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                                MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
+                                read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+                                ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
+                                MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB+EFI_SIZE_MIB))
+                                (( MIN_REQUIRED_MIB>DISK_SIZE_MIB )) && { echo "Root+EFI too large"; continue; }
+                        
+                                REMAINING_HOME_GIB=$((DISK_GIB_INT-ROOT_SIZE_GIB-EFI_SIZE_MIB/1024))
+                                read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
+                                HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
+                                HOME_SIZE_MIB=$((HOME_SIZE_GIB*1024))
+                                break
+                            done
+                        
+                            echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
+                        
+                            parted -s "$DEV" mklabel gpt
+                            p1_start=1
+                            p1_end=$((p1_start+EFI_SIZE_MIB))
+                            p2_start=$p1_end
+                            p2_end=$((p2_start+ROOT_SIZE_MIB))
+                            p3_start=$p2_end
+                            p3_end=$((p3_start+HOME_SIZE_MIB))
 
 
 
