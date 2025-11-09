@@ -777,121 +777,113 @@ echo "#=========================================================================
                         
 }
 
-custom_partition()
-{
-echo "#===================================================================================================#"
-echo "# 1.7)Custom-Partition Mode: Selected Drive  - Still in progress not finished                        "
-echo "#===================================================================================================#"
+custom_partition() {
+    echo "#===================================================================================================#"
+    echo "# 1.7) Custom Partition Mode                                                                         #"
+    echo "#===================================================================================================#"
 
-                    partprobe "$DEV" || true
+    partprobe "$DEV" || true
 
-                    echo "→ You chose custom partition mode."
-                    echo "→ You will manually partition your drive using cfdisk or parted."
-                    echo
-                    echo "IMPORTANT:"
-                    echo "  - Ensure you create an EFI partition (if using UEFI)."
-                    echo "  - Create root (/) and optionally home (/home), swap, etc."
-                    echo "  - Do NOT mount anything yet — the script will handle it after setup."
-                    echo
+    echo "→ You chose custom partition mode."
+    echo "→ You will manually partition your drive using cfdisk or parted."
+    echo
+    echo "IMPORTANT:"
+    echo "  - Ensure you create an EFI partition (if using UEFI)."
+    echo "  - Create root (/) and optionally home (/home), swap, etc."
+    echo "  - Do NOT mount anything yet — the script will handle it after setup."
+    echo
 
-                    read -rp "Press Enter to launch cfdisk on $DEV..."
-                    cfdisk "$DEV"
+    read -rp "Press Enter to launch cfdisk on $DEV..."
+    cfdisk "$DEV"
 
-                    echo
-                    echo "Partitioning complete. Let’s define which partition is which."
-                    echo "Example: /dev/nvme0n1p1, /dev/sda2, etc."
-                    echo
+    echo
+    echo "Partitioning complete. Let’s define which partition is which."
+    echo "Example: /dev/nvme0n1p1, /dev/sda2, etc."
+    echo
 
-                    # Ask for partitions
-                    read -rp "Enter EFI partition (or leave empty if BIOS): " P1
-                    read -rp "Enter ROOT partition (/): " P2
-                    read -rp "Enter SWAP partition (or leave empty): " P3
-                    read -rp "Enter HOME partition (or leave empty): " P4
+    # Ask for partitions
+    read -rp "Enter EFI partition (or leave empty if BIOS): " P1
+    read -rp "Enter ROOT partition (/): " P2
+    read -rp "Enter SWAP partition (or leave empty): " P3
+    read -rp "Enter HOME partition (or leave empty): " P4
 
-                    echo
-                    echo "-------------------------------------------"
-                    echo "Filesystem Setup Options"
-                    echo "-------------------------------------------"
-                    echo "1) EXT4"
-                    echo "2) BTRFS"
-                    echo "3) BTRFS (root) + EXT4 (home)"
-                    echo
-                    read -rp "Select filesystem layout [1-3, default=1]: " FS_CHOICE
-                    FS_CHOICE="${FS_CHOICE:-1}"
+    echo
+    echo "-------------------------------------------"
+    echo "Filesystem Setup Options"
+    echo "-------------------------------------------"
+    echo "1) EXT4"
+    echo "2) BTRFS"
+    echo "3) BTRFS (root) + EXT4 (home)"
+    echo
+    read -rp "Select filesystem layout [1-3, default=1]: " FS_CHOICE
+    FS_CHOICE="${FS_CHOICE:-1}"
 
-                    # Formatting and mounting logic
-                    echo
-                    echo "Formatting and mounting partitions..."
-                    case "$FS_CHOICE" in
-                        2)
-                            echo "→ Formatting root as BTRFS..."
-                            mkfs.btrfs -f "$P2"
+    echo
+    echo "Formatting and mounting partitions..."
+    case "$FS_CHOICE" in
+        2)
+            echo "→ Formatting root as BTRFS..."
+            mkfs.btrfs -f "$P2"
+            mount "$P2" /mnt
+            btrfs subvolume create /mnt/@
+            btrfs subvolume create /mnt/@snapshots
+            btrfs subvolume create /mnt/@cache
+            btrfs subvolume create /mnt/@log
+            umount /mnt
+            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+            [[ -n "$P4" ]] && mkfs.btrfs -f "$P4" && mount "$P4" /mnt/home
+            ;;
+        3)
+            echo "→ Formatting root as BTRFS..."
+            mkfs.btrfs -f "$P2"
+            echo "→ Formatting home as EXT4..."
+            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4"
+            mount "$P2" /mnt
+            btrfs subvolume create /mnt/@
+            btrfs subvolume create /mnt/@snapshots
+            btrfs subvolume create /mnt/@cache
+            btrfs subvolume create /mnt/@log
+            umount /mnt
+            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+            [[ -n "$P4" ]] && mount "$P4" /mnt/home
+            ;;
+        *)
+            echo "→ Formatting root as EXT4..."
+            mkfs.ext4 -F "$P2"
+            mount "$P2" /mnt
+            mkdir -p /mnt/home
+            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4" && mount "$P4" /mnt/home
+            ;;
+    esac
 
-                            mount "$P2" /mnt
-                            echo "→ Creating BTRFS subvolumes..."
-                            btrfs subvolume create /mnt/@
-                            btrfs subvolume create /mnt/@snapshots
-                            btrfs subvolume create /mnt/@cache
-                            btrfs subvolume create /mnt/@log
-                            umount /mnt
+    # EFI
+    if [[ -n "$P1" ]]; then
+        echo "→ Formatting EFI partition..."
+        mkfs.fat -F32 "$P1"
+        mkdir -p /mnt/boot
+        mount "$P1" /mnt/boot
+    fi
 
-                            echo "→ Mounting root subvolume..."
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+    # Swap
+    if [[ -n "$P3" ]]; then
+        echo "→ Setting up swap..."
+        mkswap "$P3"
+        swapon "$P3"
+    fi
 
-                            if [[ -n "$P4" ]]; then
-                                echo "→ Formatting home as BTRFS..."
-                                mkfs.btrfs -f "$P4"
-                                mount "$P4" /mnt/home
-                            fi
-                            ;;
-                        3)
-                            echo "→ Formatting root as BTRFS..."
-                            mkfs.btrfs -f "$P2"
-                            echo "→ Formatting home as EXT4..."
-                            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4"
+    echo
+    echo "Custom partitioning and mounting complete!"
 
-                            mount "$P2" /mnt
-                            btrfs subvolume create /mnt/@
-                            btrfs subvolume create /mnt/@snapshots
-                            btrfs subvolume create /mnt/@cache
-                            btrfs subvolume create /mnt/@log
-                            umount /mnt
-
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
-
-                            [[ -n "$P4" ]] && mount "$P4" /mnt/home
-                            ;;
-                        *)
-                            echo "→ Formatting root as EXT4..."
-                            mkfs.ext4 -F "$P2"
-                            mount "$P2" /mnt
-
-                            mkdir -p /mnt/home
-                            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4" && mount "$P4" /mnt/home
-                            ;;
-                    esac
-
-                    # EFI
-                    if [[ -n "$P1" ]]; then
-                        echo "→ Formatting EFI partition..."
-                        mkfs.fat -F32 "$P1"
-                        mkdir -p /mnt/boot
-                        mount "$P1" /mnt/boot
-                    fi
-
-                    # Swap
-                    if [[ -n "$P3" ]]; then
-                        echo "→ Setting up swap..."
-                        mkswap "$P3"
-                        swapon "$P3"
-                    fi
-
-                    echo
-                    echo "Custom partitioning and mounting complete!"
-
+    # Confirm user wants to proceed
+    read -rp "Proceed to package installation? [y/N]: " CONFIRM
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo "User cancelled installation."
+        cleanup_and_restart
+    fi
 }
+
 
 echo
 echo "#===================================================================================================#"
