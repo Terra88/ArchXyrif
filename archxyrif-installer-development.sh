@@ -1358,6 +1358,7 @@ echo
                 esac
 
 
+sleep 1
 clear
 echo
 echo "#===================================================================================================#"
@@ -1407,6 +1408,7 @@ cat /mnt/etc/fstab
 
 
 
+sleep 1
 clear
 echo
 echo "#===================================================================================================#"
@@ -1505,6 +1507,7 @@ efibootmgr -v || true
 # /boot/efi/EFI/GRUB/grubx64.efi
 # /boot/efi/EFI/Boot/BOOTX64.EFI
 
+sleep 1
 clear
 echo
 echo "#===================================================================================================#"
@@ -1576,6 +1579,8 @@ if ! id "$NEWUSER" &>/dev/null; then
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
+sleep 1
+clear
 # Root password
 echo
 echo "============================"
@@ -1647,6 +1652,9 @@ arch-chroot /mnt /root/postinstall.sh
 rm -f /mnt/root/postinstall.sh
 
 echo "✅ Chroot configuration complete."
+
+
+sleep 1
 clear
 echo
 echo "#===================================================================================================#"
@@ -1665,6 +1673,12 @@ arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
 }
 
+echo "#===================================================================================================#"
+echo "# 7B) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
+echo "#===================================================================================================#"
+
+sleep 1
+clear
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -2197,7 +2211,7 @@ rm -rf \"\$REPO_DIR\"
     fi
 fi
 
-sleep 2
+sleep 1
 clear
 echo
 echo "#===================================================================================================#"
