@@ -515,8 +515,8 @@ quick_partition_swap_on_root()
                 echo "3) Back to start"
                 echo
                 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                DEV_CHOICE="${DEV_CHOICE:-1}"
-
+                FS_CHOICE="${FS_CHOICE:-1}"
+                
                 case "$FS_CHOICE" in
                     1)
                         parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
@@ -552,26 +552,27 @@ quick_partition_swap_on_root()
                 # Mounting and formatting (fixed)
                 #===================================================================================================#
                 # Format & mount root
-                    case "$FS_CHOICE" in
-                        1)  # EXT4
-                            mkfs.ext4 -F "$P2"
-                            mount "$P2" /mnt
-                            mkdir -p /mnt/{boot,home}
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                        2)  # BTRFS
-                            mkfs.btrfs -f "$P2"
-                            mount "$P2" /mnt
-                            for sv in @ @snapshots @cache @log; do
-                                btrfs subvolume create "/mnt/$sv"
-                            done
-                            umount /mnt
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                    esac
-                }
+                case "$FS_CHOICE" in
+                1)  # EXT4
+                    mkfs.ext4 -F "$P2"
+                    mount "$P2" /mnt
+                    mkdir -p /mnt/{boot,home}
+                    mount -t vfat "$P1" /mnt/boot
+                    ;;
+                2)  # BTRFS
+                    mkfs.btrfs -f "$P2"
+                    mount "$P2" /mnt
+                    for sv in @ @snapshots @cache @log; do
+                        btrfs subvolume create "/mnt/$sv"
+                    done
+                    umount /mnt
+                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                    mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
+                    mount -t vfat "$P1" /mnt/boot
+                    ;;
+                esac
+
+}
 
 echo "Partitioning and filesystem setup complete."
 
