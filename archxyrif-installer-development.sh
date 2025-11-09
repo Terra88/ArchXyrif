@@ -863,14 +863,11 @@ quick_partition_swap_off() {
                                 esac
                             
                                 echo "→ Partitioning and filesystem setup complete."
-                            }
+}
 
 
-
-
-
-                            
-                            quick_partition_swap_off() {
+quick_partition_swap_off() 
+{
                         
                             partprobe "$DEV" || true
                         
