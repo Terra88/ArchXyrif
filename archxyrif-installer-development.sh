@@ -224,79 +224,68 @@ set -euo pipefail
 
 
 quick_partition_swap_on() 
-
 {
-
-                    partprobe "$DEV" || true
-                
-                    # Detect RAM in MiB
-                    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                    if [[ -z "$ram_kb" ]]; then
-                        die "Failed to read RAM from /proc/meminfo"
+            
+                partprobe "$DEV" || true
+            
+                # Detect RAM in MiB
+                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+                ram_mib=$(( (ram_kb + 1023) / 1024 ))
+            
+                # Swap sizing
+                if (( ram_mib <= 8192 )); then
+                    SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+                else
+                    SWAP_SIZE_MIB=$ram_mib
+                fi
+            
+                # Disk sizes
+                DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
+                DISK_SIZE_MIB=$((DISK_SIZE_MIB / 1024 / 1024))
+                DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                DISK_GIB_INT=${DISK_GIB%.*}
+                EFI_SIZE_MIB=1024
+            
+                # Ask root size
+                while true; do
+                    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                    MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
+                    read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+                    if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                        echo "Invalid input!"
+                        continue
                     fi
-                    ram_mib=$(( (ram_kb + 1023) / 1024 ))
-                
-                    # Swap sizing policy
-                    if (( ram_mib <= 8192 )); then
-                        SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-                    else
-                        SWAP_SIZE_MIB=$ram_mib
+                    ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
+                    MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + SWAP_SIZE_MIB))
+                    if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
+                        echo "Error: root + swap + EFI exceeds disk size"
+                        continue
                     fi
-                
-                    # Get disk size
-                    DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
-                    DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))
-                    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                    DISK_GIB_INT=${DISK_GIB%.*}
-                    AVAILABLE_GIB=$((DISK_GIB_INT - 5))
-                    EFI_SIZE_MIB=1024
-                
-                    # Ask user for root and home sizes
+            
+                    # Calculate remaining space for HOME
+                    REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB/1024 - SWAP_SIZE_MIB/1024))
+                    echo "Remaining space available for HOME: ~${REMAINING_HOME_GIB} GiB"
+            
+                    # Optional: ask user for home size manually
                     while true; do
-                        lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                        echo "Maximum available disk size: ${AVAILABLE_GIB} GiB (Total: ${DISK_GIB_INT} GiB, minus 5 GiB reserved)"
-                        echo "Detected RAM: ${ram_mib} MiB = Swap reserved: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)"
-                        echo "Example: 100GB ~107GiB, suggest ~45-150 GiB for root"
-                        MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
-                        read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                
-                        if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                            echo "Invalid input! Enter a positive integer up to ${MAX_ROOT_GIB} GiB."
+                        read -r -p "Enter HOME partition size in GiB (or press ENTER to use remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
+                        HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
+                        if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]] || (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > REMAINING_HOME_GIB )); then
+                            echo "Invalid input!"
                             continue
                         fi
-                
-                        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                
-                        # Ask user for home size
-                        MAX_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - (SWAP_SIZE_MIB / 1024) - 1))
-                        read -r -p "Enter HOME partition size in GiB (or leave empty to use remaining space): " HOME_SIZE_GIB
-                
-                        if [[ -n "$HOME_SIZE_GIB" ]]; then
-                            if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]] || (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > MAX_HOME_GIB )); then
-                                echo "Invalid input! Enter a positive integer up to ${MAX_HOME_GIB} GiB."
-                                continue
-                            fi
-                            HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
-                            HOME_END=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + SWAP_SIZE_MIB + HOME_SIZE_MIB))
-                            HOME_END="${HOME_END}MiB"
-                        else
-                            HOME_END="100%"
-                        fi
-                
+                        HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
                         break
                     done
-                
-                    echo
-                    echo "Root: ${ROOT_SIZE_MIB} MiB (~$ROOT_SIZE_GIB GiB)"
-                    echo "Home: ${HOME_SIZE_MIB:-remaining} MiB (~$HOME_SIZE_GIB GiB or full remaining)"
-                    echo "Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)"
-                    echo "EFI: ${EFI_SIZE_MIB} MiB"
-                    echo
-                
-                    if ! confirm "Proceed to partition $DEV with the sizes above?"; then
-                        echo "User canceled"
-                        exec "$0"
-                    fi
+            
+                    break
+                done
+            
+                echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), Home: $HOME_SIZE_MIB MiB (~$HOME_SIZE_GIB GiB), Swap: $SWAP_SIZE_MIB MiB (~$((SWAP_SIZE_MIB/1024)) GiB), EFI: $EFI_SIZE_MIB MiB"
+                if ! confirm "Proceed to partition $DEV?"; then
+                    echo "User canceled"
+                    exec "$0"
+                fi
                 
                     # Partitioning with parted
                     which parted >/dev/null 2>&1 || die "parted required but not found."
@@ -902,21 +891,22 @@ echo "Partitioning and filesystem setup complete."
 
 
                             
-quick_partition_swap_off_root() 
-{
-
+                        quick_partition_swap_off() {
+                        
                             partprobe "$DEV" || true
                         
+                            # Disk sizes
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                             DISK_SIZE_MIB=$((DISK_SIZE_MIB / 1024 / 1024))
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             DISK_GIB_INT=${DISK_GIB%.*}
-                            AVAILABLE_GIB=$((DISK_GIB_INT - 5))
+                            AVAILABLE_GIB=$((DISK_GIB_INT - 25))
                             EFI_SIZE_MIB=1024
                         
+                            # Ask root size
                             while true; do
                                 lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                                MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
+                                MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
                                 read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
                                 if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
                                     echo "Invalid input!"
@@ -928,10 +918,27 @@ quick_partition_swap_off_root()
                                     echo "Error: root + EFI exceeds disk size"
                                     continue
                                 fi
+                        
+                                # Calculate remaining space for HOME
+                                REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB/1024))
+                                echo "Remaining space available for HOME: ~${REMAINING_HOME_GIB} GiB"
+                        
+                                # Optional: ask user for home size manually
+                                while true; do
+                                    read -r -p "Enter HOME partition size in GiB (or press ENTER to use remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
+                                    HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
+                                    if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]] || (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > REMAINING_HOME_GIB )); then
+                                        echo "Invalid input!"
+                                        continue
+                                    fi
+                                    HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+                                    break
+                                done
+                        
                                 break
                             done
                         
-                            echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
+                            echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), Home: $HOME_SIZE_MIB MiB (~$HOME_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
                             if ! confirm "Proceed to partition $DEV?"; then
                                 echo "User canceled"
                                 exec "$0"
