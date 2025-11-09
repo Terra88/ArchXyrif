@@ -819,9 +819,9 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition || cleanup_and_restart ;; 
+                        quick_partition ;; 
                     2)
-                        quick_partition || cleanup_and_restart ;; 
+                        quick_partition ;; 
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
@@ -1014,75 +1014,6 @@ echo "#=========================================================================
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
 echo "#===================================================================================================#"
 echo
-
-# ============================================
-# Variables from partition step
-# ============================================
-ROOT_MNT="/mnt"         # always /mnt
-ROOT_PART="$P2"         # root partition from custom_partition()
-HOME_PART="$P4"         # optional
-EFI_PART="$P1"          # optional
-SWAP_PART="$P3"         # optional
-FS_TYPE="ext4"          # default
-[[ "$FS_CHOICE" == "2" || "$FS_CHOICE" == "3" ]] && FS_TYPE="btrfs"
-
-# ============================================
-# Safe pacstrap function with retries
-# ============================================
-safe_pacstrap() {
-    local PKGS=("$@")
-    local MAX_RETRIES=3
-    local RETRY_DELAY=5
-
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        echo
-        echo "📦 Pacstrap attempt $i/$MAX_RETRIES: ${PKGS[*]}"
-        
-        if pacstrap "$ROOT_MNT" "${PKGS[@]}"; then
-            echo "✅ Pacstrap succeeded"
-            return 0
-        else
-            echo "⚠️ Pacstrap failed on attempt $i"
-
-            # Unmount all mounts under $ROOT_MNT (handles BTRFS subvolumes)
-            echo "→ Unmounting any mounted partitions under $ROOT_MNT..."
-            mapfile -t MOUNTS < <(mount | grep "^$ROOT_MNT" | awk '{print $3}' | sort -r)
-            for mnt in "${MOUNTS[@]}"; do
-                echo "  → umount $mnt"
-                umount -l "$mnt" 2>/dev/null || true
-            done
-
-            # Swap off if swap partition exists
-            if [[ -n "$SWAP_PART" ]]; then
-                echo "→ Turning off swap $SWAP_PART"
-                swapoff "$SWAP_PART" 2>/dev/null || true
-            fi
-
-            # Remount root and subvolumes
-            echo "→ Remounting partitions..."
-            if [[ "$FS_TYPE" == "btrfs" ]]; then
-                mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" "$ROOT_MNT"
-                mkdir -p "$ROOT_MNT"/{.snapshots,var/cache,var/log,home}
-                [[ -n "$HOME_PART" ]] && mount "$HOME_PART" "$ROOT_MNT/home"
-            else
-                mount "$ROOT_PART" "$ROOT_MNT"
-                [[ -n "$HOME_PART" ]] && mount "$HOME_PART" "$ROOT_MNT/home"
-            fi
-
-            [[ -n "$EFI_PART" ]] && mkdir -p "$ROOT_MNT/boot" && mount "$EFI_PART" "$ROOT_MNT/boot"
-            [[ -n "$SWAP_PART" ]] && swapon "$SWAP_PART"
-
-            echo "🔄 Retrying pacstrap in $RETRY_DELAY seconds..."
-            sleep "$RETRY_DELAY"
-        fi
-    done
-
-    echo "❌ Pacstrap failed after $MAX_RETRIES attempts."
-    return 1
-}
-
-
-
 # You can modify the package list below as needed.
 
 PKGS=(
@@ -1106,12 +1037,6 @@ PKGS=(
   amd-ucode
   btrfs-progs     
 )
-
-# ============================================
-# Run pacstrap safely
-# ============================================
-safe_pacstrap "${PKGS[@]}"
-
 
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
