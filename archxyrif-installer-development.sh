@@ -198,9 +198,9 @@ echo
 
                 case "$PART_CHOICE" in
                     1)
-                        quick_partition ;;
+                        quick_partition(){} ;;
                     2)
-                        custom_partition ;;
+                        custom_partition(){} ;;
                     3)
                         echo "Restarting..."
                         exec "$0";;
@@ -234,9 +234,9 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition_swap_on ;;
+                        quick_partition_swap_on(){} ;;
                     2)
-                        quick_partition_swap_off ;;
+                        quick_partition_swap_off(){} ;;
                     3)
                         echo "Restarting..."
                         exec "$0";;
