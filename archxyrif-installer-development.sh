@@ -16,7 +16,7 @@
 #===========================================================================
 # Arch logo: Edited manually by Terra88
 #===========================================================================
-clear
+printf "\033c"
 loadkeys fi
 timedatectl set-ntp true
 echo "▄▖▌     ▄▖      ▗   ▖  ▖      ▜ ▘▗ ▌    "
@@ -317,7 +317,7 @@ quick_partition_swap_on()
                 p4_start=$p3_end                             # home start; end = 100%
 
                 sleep 1
-                clear
+                printf "\033c"
                 echo "#===================================================================================================#"
                 echo "# 1.5)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                    "
                 echo "#===================================================================================================#"
@@ -604,7 +604,7 @@ quick_partition_swap_on_root()
                 p3_end=$((p3_start + ROOT_SIZE_MIB))         # root end
 
                 sleep 1
-                clear
+                printf "\033c"
                 echo "#===================================================================================================#"
                 echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                         "
                 echo "#===================================================================================================#"
@@ -831,7 +831,7 @@ quick_partition_swap_off()
 
 
                             sleep 1
-                            clear
+                            printf "\033c"
                             echo "#===================================================================================================#"
                             echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP OFF                                        "
                             echo "#===================================================================================================#"
@@ -1084,7 +1084,7 @@ quick_partition_swap_off_root()
 
 
                             sleep 1
-                            clear
+                            printf "\033c"
                             echo "#===================================================================================================#"
                             echo "# 1.5)SELECT FILESYSTEM  HOME SEPARATE & SWAP OFF                                                    "
                             echo "#===================================================================================================#"
@@ -1249,7 +1249,7 @@ quick_partition()
 {
 
 sleep 1
-clear
+printf "\033c"
 echo "#===================================================================================================#"
 echo "# 1.4 Quick-Partition Mode:                                                                         "
 echo "#===================================================================================================#"
@@ -1314,7 +1314,7 @@ echo "#=========================================================================
 custom_partition()
 {
 sleep 1
-clear
+printf "\033c"
 echo "#===================================================================================================#"
 echo "# 1.7) Custom Partition Mode: Selected Drive $DEV                                                   "
 echo "#===================================================================================================#"
@@ -1324,7 +1324,7 @@ echo "#=========================================================================
 
 }
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 1.3 Choose Partitioning Mode                                                                     #"
@@ -1356,7 +1356,7 @@ echo
 
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
@@ -1389,7 +1389,7 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 
-clear
+printf "\033c"
 sleep 1
 echo
 echo "#===================================================================================================#"
@@ -1406,7 +1406,7 @@ cat /mnt/etc/fstab
 
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 4) Setting Basic variables for chroot (defaults provided)                                          "
@@ -1431,7 +1431,7 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 
 
-clear
+printf "\033c"
 sleep 1
 echo
 echo "#===================================================================================================#"
@@ -1505,7 +1505,7 @@ efibootmgr -v || true
 # /boot/efi/EFI/Boot/BOOTX64.EFI
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.     "
@@ -1576,8 +1576,8 @@ if ! id "$NEWUSER" &>/dev/null; then
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-sleep 2
-clear
+
+printf "\033c"
 # Root password
 echo
 echo "============================"
@@ -1652,6 +1652,8 @@ echo "✅ Chroot configuration complete."
 
 
 
+sleep 1
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
@@ -1669,12 +1671,8 @@ arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
 }
 
-
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 7B) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
-echo "#===================================================================================================#"
+echo "===================================================================================================="
+echo "===================================================================================================="
 
 echo "Available mirror regions:"
 echo "1) United States"
@@ -1868,7 +1866,7 @@ EOF
 CHROOT_CMD=(arch-chroot /mnt)
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                             "
@@ -1912,7 +1910,7 @@ if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
 fi
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                 "
@@ -1979,7 +1977,7 @@ safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
 
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 8C) LOGIN / DISPLAY MANAGER SELECTION                                                              "
@@ -2047,7 +2045,7 @@ fi
 
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                           "
@@ -2093,7 +2091,7 @@ fi
 
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                     "
@@ -2129,7 +2127,7 @@ else
 fi
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                            "
@@ -2209,7 +2207,7 @@ rm -rf \"\$REPO_DIR\"
 fi
 
 sleep 1
-clear
+printf "\033c"
 echo
 echo "#===================================================================================================#"
 echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                      "
