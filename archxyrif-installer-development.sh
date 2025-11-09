@@ -248,7 +248,7 @@ quick_partition_swap_on()
                 DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
                 DISK_SIZE_MIB=$(( DISK_SIZE_MIB / 1024 / 1024 ))  # convert bytes → MiB
                 DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                DISK_GIB_INT=${DISK_GIB%.*})  # round to nearest integer
+                DISK_GIB_INT=${DISK_GIB%.*}  # round to nearest integer
 
                 # Compute sizes
                 # EFI: 1024 MiB
