@@ -512,21 +512,21 @@ quick_partition_swap_on_root()
 
                             partprobe "$DEV" || true
                             
-               # Detect RAM in MiB
-                ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                if [[ -z "$ram_kb" ]]; then
-                die "Failed to read RAM from /proc/meminfo"
-                fi
-                ram_mib=$(( (ram_kb + 1023) / 1024 ))
-
-                # Swap sizing policy:
-                # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
-                # - Otherwise swap = RAM (1:1)
-                if (( ram_mib <= 8192 )); then
-                SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-                else
-                SWAP_SIZE_MIB=$(( ram_mib ))
-                fi
+                           # Detect RAM in MiB
+                            ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+                            if [[ -z "$ram_kb" ]]; then
+                            die "Failed to read RAM from /proc/meminfo"
+                            fi
+                            ram_mib=$(( (ram_kb + 1023) / 1024 ))
+            
+                            # Swap sizing policy:
+                            # - If RAM <= 8192 MiB (8 GiB): swap = 2 * RAM
+                            # - Otherwise swap = RAM (1:1)
+                            if (( ram_mib <= 8192 )); then
+                            SWAP_SIZE_MIB=$(( ram_mib * 2 ))
+                            else
+                            SWAP_SIZE_MIB=$(( ram_mib ))
+                            fi
                 
                             # Get total disk size in MiB
                             DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
@@ -1114,8 +1114,7 @@ quick_partition_swap_off_root()
 
                             echo "Partition table (MiB):"
                             echo "  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)"
-                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)"
-                            echo "  3) Home   : ${p3_start}MiB - - 100% (home)"
+                            echo "  2) Root   : ${p2_start}MiB - ${p2_end}MiB 100%
                             echo
                             echo "-------------------------------------------"
                             echo "Filesystem Partition Options"
@@ -1132,13 +1131,7 @@ quick_partition_swap_off_root()
                             echo "     • Good for SSDs and frequent backups"
                             echo "     • Slightly more complex; better for advanced users"
                             echo
-                            echo "3) BTRFS(root)-EXT4(home)"
-                            echo "   → A balanced setup combining both worlds."
-                            echo "     • BTRFS for system (root) — allows snapshots & rollback"
-                            echo "     • EXT4 for home — simpler and very stable for data"
-                            echo "     • Recommended if you want snapshots but prefer EXT4 for personal files"
-                            echo
-                            echo "4) Back to start"
+                            echo "3) Back to start"
                             echo
                             read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                             DEV_CHOICE="${DEV_CHOICE:-1}"
@@ -1147,23 +1140,15 @@ quick_partition_swap_off_root()
                                 1)
                                     echo "→ Selected EXT4"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" 100%
                                     ;;
                                 2)
                                     echo "→ Selected BTRFS"
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" 100%
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" 100%
                                     ;;  
-                                3)  
-                                    echo "→ Selected BTRFS (root) + EXT4 (home)"
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4  "${p3_start}MiB" 100%
-                                    ;;
 
-                                4)
+                                3)
                                     echo "Restarting..."
                                     exec "$0"
                                     ;;
@@ -1185,7 +1170,7 @@ quick_partition_swap_off_root()
                             PSUFF=$(part_suffix "$DEV")
                             P1="${DEV}${PSUFF}1"
                             P2="${DEV}${PSUFF}2"
-                            P4="${DEV}${PSUFF}3"
+                            
 
                             #===================================================================================================#
                             # 1.6) Mounting and formatting
