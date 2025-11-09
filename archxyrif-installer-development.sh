@@ -791,24 +791,6 @@ echo
                 esac
 
 
-clear
-sleep 1
-echo
-echo "#===================================================================================================#"
-echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
-echo "#===================================================================================================#"
-echo
-sleep 1
-
-echo "Generating /etc/fstab..."
-genfstab -U /mnt >> /mnt/etc/fstab
-echo "Partition Table and Mountpoints:"
-cat /mnt/etc/fstab
-
-
-
-
-
 read -rp "Proceed to package installation? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"  # default to Yes if empty
 [[ ! "$CONFIRM" =~ ^[Yy]$ ]] 
@@ -848,6 +830,21 @@ PKGS=(
 
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
+
+clear
+sleep 1
+echo
+echo "#===================================================================================================#"
+echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                        "
+echo "#===================================================================================================#"
+echo
+sleep 1
+
+echo "Generating /etc/fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+echo "Partition Table and Mountpoints:"
+cat /mnt/etc/fstab
+
 
 
 clear
