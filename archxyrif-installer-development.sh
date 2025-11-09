@@ -217,7 +217,7 @@ set -euo pipefail
     echo "You selected: $DEV"
     echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-    cleanup_and_restart
+    exec "$0"
     fi
 
 
@@ -1004,9 +1004,9 @@ echo
 
                 case "$PART_CHOICE" in
                     1)
-                        quick_partition || cleanup_and_restart ;;
+                        quick_partition  ;;
                     2)
-                        custom_partition || cleanup_and_restart ;;
+                        custom_partition  ;;
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
@@ -1021,7 +1021,7 @@ echo
 
 read -rp "Proceed to package installation? [Y/n]: " CONFIRM
 CONFIRM="${CONFIRM:-Y}"  # default to Yes if empty
-[[ ! "$CONFIRM" =~ ^[Yy]$ ]] && cleanup_and_restart
+[[ ! "$CONFIRM" =~ ^[Yy]$ ]] 
 
 clear
 echo
