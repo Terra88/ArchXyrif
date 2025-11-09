@@ -100,6 +100,22 @@ set -euo pipefail
     exit 1
     }
 
+    cleanup_and_restart() {
+    echo "⚠️ Cleaning up mounts and swap before restarting..."
+
+    # Turn off swap if any
+    swapoff -a 2>/dev/null || true
+
+    # Unmount everything under /mnt recursively
+    umount -R /mnt 2>/dev/null || true
+
+    # Remove leftover directories (optional, keeps /mnt clean)
+    rm -rf /mnt/* 2>/dev/null || true
+
+    echo "🔄 Restarting installer..."
+    exec "$0"
+    }
+
     # Show devices
     echo "Available block devices (lsblk):"
     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
@@ -186,7 +202,7 @@ set -euo pipefail
 
 quick_partition_swap_on() 
 {
-
+                
 
 
                 
@@ -250,7 +266,8 @@ quick_partition_swap_on()
 
                 if ! confirm "Proceed to partition $DEV with the sizes above?"; then
                 echo "User Cancel"
-                exec "$0" 
+                cleanup_and_restart
+    
                 fi
 
                 # Partitioning with parted (using MiB units)
@@ -337,10 +354,14 @@ quick_partition_swap_on()
 
                     4)
                         echo "Restarting..."
-                        exec "$0";;
+                        cleanup_and_restart
+                        ;;
 
                     *)
-                        echo "Invalid choice."; exec "$0" ;;
+                        cleanup_and_restart
+                        echo "Invalid choice.";
+                        cleanup_and_restart
+                        ;;
 
                 esac  
                 
@@ -509,7 +530,8 @@ quick_partition_swap_off()
 
                             if ! confirm "Proceed to partition $DEV with the sizes above?"; then
                             echo "User Cancel"
-                            exec "$0" 
+                            cleanup_and_restart
+                             
                             fi
 
                             # Partitioning with parted (using MiB units)
@@ -589,9 +611,13 @@ quick_partition_swap_off()
 
                                 4)
                                     echo "Restarting..."
-                                    exec "$0";;
+                                    cleanup_and_restart
+                                    ;;
                                 *)
-                                    echo "Invalid choice."; exec "$0" ;;
+                    
+                                    echo "Invalid choice." 
+                                    cleanup_and_restart
+                                    ;;
 
                              esac        
                             
@@ -733,9 +759,12 @@ echo "#=========================================================================
                         quick_partition_swap_off ;;
                     3)
                         echo "Restarting..."
-                        exec "$0";;
+                        cleanup_and_restart
+                        ;;
                     *)
-                        echo "Invalid choice."; exec "$0" ;;
+                        echo "Invalid choice."
+                        cleanup_and_restart
+                        ;;
                 esac
 
                           
@@ -879,9 +908,12 @@ echo
                         custom_partition ;;
                     3)
                         echo "Restarting..."
-                        exec "$0";;
+                        cleanup_and_restart
+                        ;;
                     *)
-                        echo "Invalid choice."; exec "$0" ;;
+                        echo "Invalid choice."
+                        cleanup_and_restart
+                        ;;
                 esac
 
        
