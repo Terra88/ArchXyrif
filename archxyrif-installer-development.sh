@@ -598,11 +598,11 @@ quick_partition_swap_on_root()
                 p1_start=1
                 p1_end=$((p1_start + EFI_SIZE_MIB))         # 1MiB..1024MiB
 
-                p2_start=$p1_end                             # root start
-                p2_end=$((p2_start + ROOT_SIZE_MIB))         # root end
+                p2_start=$p1_end                             # swap start
+                p2_end=$((p2_start + SWAP_SIZE_MIB))         # swap end
 
-                p3_start=$p2_end                             # swap start
-                p3_end=$((p3_start + SWAP_SIZE_MIB))         # swap end
+                p3_start=$p2_end                             # root start
+                p3_end=$((p3_start + ROOT_SIZE_MIB))         # root end
 
                 sleep 1
                 clear
