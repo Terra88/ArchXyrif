@@ -258,7 +258,7 @@ quick_partition_swap_on()
                     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
                     echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
                     echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-                    echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
+                    echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB - Remember Home Requires Space Too"
                     read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                     # Validate input: positive integer
@@ -545,7 +545,6 @@ quick_partition_swap_on_root()
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT ${DEV}
                             echo "Maximum available disk size: ${DISK_GIB%.*} GiB"
                             echo "Detected RAM: ${ram_mib} MiB = Reserved to Swap: ${SWAP_SIZE_MIB} MiB (~$((SWAP_SIZE_MIB/1024)) GiB)."
-                            echo "Example: 100GB = ~107GiB - Suggest:~45GiB-150GiB"
                             read -r -p $'\nEnter ROOT Partition Size in GiB: ' ROOT_SIZE_GIB
 
                             # Validate input: positive integer
