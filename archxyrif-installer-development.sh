@@ -145,25 +145,7 @@ set -euo pipefail
     cleanup_and_restart
     fi
 
-    # Unmount any mounted partitions and swapoff
-    echo "Attempting to unmount any mounted partitions and disable swap on $DEV..."
-    mapfile -t MOUNTS < <(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!="" {print $1":"$2}')
-    for m in "${MOUNTS[@]:-}"; do
-    name="${m%%:*}"
-    mnt="${m#*:}"
-    if [[ -n "$mnt" ]]; then
-        echo "  Unmounting /dev/$name from $mnt"
-        umount -l "/dev/$name" || true
-    fi
-    done
 
-    # swapoff on partitions of this device
-    for sw in $(cat /proc/swaps | awk 'NR>1 {print $1}'); do
-    if [[ "$sw" == "$DEV"* ]]; then
-        echo "  Turning off swap on $sw"
-        swapoff "$sw" || true
-    fi
-    done
 
 #===================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
@@ -870,8 +852,15 @@ custom_partition() {
 
     echo "Custom partitioning complete!"
 
-
+    # ✅ Fixed prompt: default Yes [Y/n]
+    read -rp "Proceed to package installation? [Y/n]: " CONFIRM
+    CONFIRM="${CONFIRM:-Y}"   # default to Yes if empty
+    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
+        echo "Aborting installation per user choice..."
+        cleanup_and_restart
+    fi
 }
+
 
 
 echo
