@@ -656,7 +656,7 @@ quick_partition_swap_off()
                             read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                             DEV_CHOICE="${DEV_CHOICE:-1}"
 
-                                case "$DEV_CHOICE" in
+                            case "$DEV_CHOICE" in
                                 1)
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
                                     parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
@@ -666,6 +666,11 @@ quick_partition_swap_off()
                                     parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
                                     parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
                                     parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" "${p3_end}MiB"
+                                    ;;
+                                3)
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                    parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
                                     ;;
                                 *) exec "$0";;
                             esac
@@ -703,6 +708,20 @@ quick_partition_swap_off()
                                     mount "$P3" /mnt/home
                                     mount -t vfat "$P1" /mnt/boot
                                     ;;
+                                3)  # BTRFS root + EXT4 home
+                                     mkfs.btrfs -f "$P2"
+                                     mkfs.ext4 -F "$P3"
+                                     mount "$P2" /mnt
+                                     for sv in @ @snapshots @cache @log; do
+                                     btrfs subvolume create "/mnt/$sv"
+                                    done
+                                     umount /mnt
+                                     mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                     mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
+                                     mount "$P3" /mnt/home
+                                    mount -t vfat "$P1" /mnt/boot
+                                        ;;
+
                             esac
 }
 
