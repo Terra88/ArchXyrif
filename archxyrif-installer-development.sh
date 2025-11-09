@@ -760,9 +760,9 @@ echo "#=========================================================================
 
                     case "$SWAP_CHOICE" in
                     1)
-                        quick_partition_swap_on ;;
+                        quick_partition || cleanup_and_restart ;; 
                     2)
-                        quick_partition_swap_off ;;
+                        quick_partition || cleanup_and_restart ;; 
                     3)
                         echo "Restarting..."
                         cleanup_and_restart
@@ -801,28 +801,22 @@ custom_partition() {
     echo "Example: /dev/nvme0n1p1, /dev/sda2, etc."
     echo
 
-    # Ask for partitions
     read -rp "Enter EFI partition (or leave empty if BIOS): " P1
     read -rp "Enter ROOT partition (/): " P2
     read -rp "Enter SWAP partition (or leave empty): " P3
     read -rp "Enter HOME partition (or leave empty): " P4
 
     echo
-    echo "-------------------------------------------"
     echo "Filesystem Setup Options"
-    echo "-------------------------------------------"
     echo "1) EXT4"
     echo "2) BTRFS"
     echo "3) BTRFS (root) + EXT4 (home)"
-    echo
     read -rp "Select filesystem layout [1-3, default=1]: " FS_CHOICE
     FS_CHOICE="${FS_CHOICE:-1}"
 
-    echo
     echo "Formatting and mounting partitions..."
     case "$FS_CHOICE" in
         2)
-            echo "→ Formatting root as BTRFS..."
             mkfs.btrfs -f "$P2"
             mount "$P2" /mnt
             btrfs subvolume create /mnt/@
@@ -835,9 +829,7 @@ custom_partition() {
             [[ -n "$P4" ]] && mkfs.btrfs -f "$P4" && mount "$P4" /mnt/home
             ;;
         3)
-            echo "→ Formatting root as BTRFS..."
             mkfs.btrfs -f "$P2"
-            echo "→ Formatting home as EXT4..."
             [[ -n "$P4" ]] && mkfs.ext4 -F "$P4"
             mount "$P2" /mnt
             btrfs subvolume create /mnt/@
@@ -850,7 +842,6 @@ custom_partition() {
             [[ -n "$P4" ]] && mount "$P4" /mnt/home
             ;;
         *)
-            echo "→ Formatting root as EXT4..."
             mkfs.ext4 -F "$P2"
             mount "$P2" /mnt
             mkdir -p /mnt/home
@@ -859,29 +850,14 @@ custom_partition() {
     esac
 
     # EFI
-    if [[ -n "$P1" ]]; then
-        echo "→ Formatting EFI partition..."
-        mkfs.fat -F32 "$P1"
-        mkdir -p /mnt/boot
-        mount "$P1" /mnt/boot
-    fi
-
+    [[ -n "$P1" ]] && mkfs.fat -F32 "$P1" && mkdir -p /mnt/boot && mount "$P1" /mnt/boot
     # Swap
-    if [[ -n "$P3" ]]; then
-        echo "→ Setting up swap..."
-        mkswap "$P3"
-        swapon "$P3"
-    fi
+    [[ -n "$P3" ]] && mkswap "$P3" && swapon "$P3"
 
-    echo
-    echo "Custom partitioning and mounting complete!"
+    echo "Custom partitioning complete!"
 
-    # Confirm user wants to proceed
     read -rp "Proceed to package installation? [y/N]: " CONFIRM
-    if [[ ! "$CONFIRM" =~ ^[Yy]$ ]]; then
-        echo "User cancelled installation."
-        cleanup_and_restart
-    fi
+    [[ ! "$CONFIRM" =~ ^[Yy]$ ]] && cleanup_and_restart
 }
 
 
@@ -923,7 +899,76 @@ echo "#=========================================================================
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                           "
 echo "#===================================================================================================#"
 echo
-      # You can modify the package list below as needed.
+
+# ============================================
+# Variables from partition step
+# ============================================
+ROOT_MNT="/mnt"         # always /mnt
+ROOT_PART="$P2"         # root partition from custom_partition()
+HOME_PART="$P4"         # optional
+EFI_PART="$P1"          # optional
+SWAP_PART="$P3"         # optional
+FS_TYPE="ext4"          # default
+[[ "$FS_CHOICE" == "2" || "$FS_CHOICE" == "3" ]] && FS_TYPE="btrfs"
+
+# ============================================
+# Safe pacstrap function with retries
+# ============================================
+safe_pacstrap() {
+    local PKGS=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo
+        echo "📦 Pacstrap attempt $i/$MAX_RETRIES: ${PKGS[*]}"
+        
+        if pacstrap "$ROOT_MNT" "${PKGS[@]}"; then
+            echo "✅ Pacstrap succeeded"
+            return 0
+        else
+            echo "⚠️ Pacstrap failed on attempt $i"
+
+            # Unmount all mounts under $ROOT_MNT (handles BTRFS subvolumes)
+            echo "→ Unmounting any mounted partitions under $ROOT_MNT..."
+            mapfile -t MOUNTS < <(mount | grep "^$ROOT_MNT" | awk '{print $3}' | sort -r)
+            for mnt in "${MOUNTS[@]}"; do
+                echo "  → umount $mnt"
+                umount -l "$mnt" 2>/dev/null || true
+            done
+
+            # Swap off if swap partition exists
+            if [[ -n "$SWAP_PART" ]]; then
+                echo "→ Turning off swap $SWAP_PART"
+                swapoff "$SWAP_PART" 2>/dev/null || true
+            fi
+
+            # Remount root and subvolumes
+            echo "→ Remounting partitions..."
+            if [[ "$FS_TYPE" == "btrfs" ]]; then
+                mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" "$ROOT_MNT"
+                mkdir -p "$ROOT_MNT"/{.snapshots,var/cache,var/log,home}
+                [[ -n "$HOME_PART" ]] && mount "$HOME_PART" "$ROOT_MNT/home"
+            else
+                mount "$ROOT_PART" "$ROOT_MNT"
+                [[ -n "$HOME_PART" ]] && mount "$HOME_PART" "$ROOT_MNT/home"
+            fi
+
+            [[ -n "$EFI_PART" ]] && mkdir -p "$ROOT_MNT/boot" && mount "$EFI_PART" "$ROOT_MNT/boot"
+            [[ -n "$SWAP_PART" ]] && swapon "$SWAP_PART"
+
+            echo "🔄 Retrying pacstrap in $RETRY_DELAY seconds..."
+            sleep "$RETRY_DELAY"
+        fi
+    done
+
+    echo "❌ Pacstrap failed after $MAX_RETRIES attempts."
+    return 1
+}
+
+
+
+# You can modify the package list below as needed.
 
 PKGS=(
   base
@@ -946,6 +991,12 @@ PKGS=(
   amd-ucode
   btrfs-progs     
 )
+
+# ============================================
+# Run pacstrap safely
+# ============================================
+safe_pacstrap "${PKGS[@]}"
+
 
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
