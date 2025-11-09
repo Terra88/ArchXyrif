@@ -836,189 +836,142 @@ echo "#=========================================================================
                         
 }
 
-custom_partition() {
-    echo "#==============================================================#"
-    echo "# Custom Partition Mode (Auto Detect + Format + Mount)          #"
-    echo "#==============================================================#"
-    echo
-    echo "→ You can now use cfdisk to create partitions on your disk."
-    echo "→ This tool will then format and mount them automatically."
-    echo
+custom_partition()
+{
+echo "#===================================================================================================#"
+echo "# 1.7) Custom Partition Mode: Selected Drive $DEV                                                   "
+echo "#===================================================================================================#"
 
-    lsblk -d -n -p -o NAME,SIZE,MODEL | grep -E "/dev/(sd|nvme|vd)"
-    echo
-    read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
-    [[ ! -b "$DEV" ]] && echo "❌ Invalid disk: $DEV" && exit 1
+    partprobe "$DEV" || true
 
+    echo
+    echo "→ You chose custom partition mode."
+    echo "→ You will now manually create your partitions using cfdisk."
+    echo
+    echo "NOTE:"
+    echo "  - Choose 'gpt' as label if you use UEFI."
+    echo "  - Create EFI (512MiB–1GiB, type EFI System), root (/), swap (optional), and home (optional)."
+    echo "  - cfdisk only sets *mount points*, not filesystems — the script will format them later."
+    echo
     read -rp "Press Enter to launch cfdisk on $DEV..."
     cfdisk "$DEV"
 
     echo
     echo "→ Refreshing partition table..."
     partprobe "$DEV" || true
+    sync
     sleep 2
 
-    echo
-    echo "→ Scanning partitions on $DEV..."
-    lsblk -lnp -o NAME,SIZE,FSTYPE "$DEV"
-    echo
-
-    # Step 1: Filesystem selection and formatting
-    PARTS=($(lsblk -lnp -o NAME "$DEV"))
-    for part in "${PARTS[@]}"; do
-        fstype=$(blkid -s TYPE -o value "$part" 2>/dev/null)
-        echo
-        echo "Partition: $part"
-        echo "Current filesystem: ${fstype:-<none>}"
-
-        if [[ -z "$fstype" ]]; then
-            echo "→ No filesystem found. Choose format for $part:"
-            select FS in ext4 btrfs xfs f2fs swap fat32 skip; do
-                case $FS in
-                    ext4)
-                        mkfs.ext4 -F "$part"
-                        break ;;
-                    btrfs)
-                        mkfs.btrfs -f "$part"
-                        break ;;
-                    xfs)
-                        mkfs.xfs -f "$part"
-                        break ;;
-                    f2fs)
-                        mkfs.f2fs -f "$part"
-                        break ;;
-                    swap)
-                        mkswap "$part"
-                        swapon "$part"
-                        break ;;
-                    fat32)
-                        mkfs.fat -F32 "$part"
-                        break ;;
-                    skip)
-                        echo "Skipping $part."
-                        break ;;
-                    *)
-                        echo "Invalid choice."
-                        ;;
-                esac
-            done
+    echo "→ Waiting for partitions to be recognized..."
+    for i in {1..10}; do
+        PARTS=($(lsblk -lnp -o NAME "$DEV" | grep -E "${DEV}[0-9]+"))
+        if (( ${#PARTS[@]} > 0 )); then
+            echo "→ Detected ${#PARTS[@]} partitions:"
+            lsblk -lnp -o NAME,SIZE,TYPE,FSTYPE "$DEV"
+            break
         fi
+        echo "  ...still waiting ($i/10)"
+        sleep 1
     done
 
-    echo
-    echo "✅ Formatting complete. Detecting roles (EFI, boot, root, home, swap)..."
-    echo
-
-    EFI_PART=""
-    BOOT_PART=""
-    ROOT_PART=""
-    HOME_PART=""
-    SWAP_PART=""
-
-    for part in "${PARTS[@]}"; do
-        fstype=$(blkid -s TYPE -o value "$part" 2>/dev/null)
-        parttype=$(blkid -s PARTTYPE -o value "$part" 2>/dev/null)
-        partlabel=$(blkid -s PARTLABEL -o value "$part" 2>/dev/null)
-        size_mib=$(lsblk -bn -o SIZE "$part" | awk '{printf "%.0f\n",$1/1024/1024}')
-
-        # EFI (UEFI)
-        if [[ "$fstype" =~ ^(vfat|fat32)$ ]] || [[ "$parttype" == "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" ]]; then
-            EFI_PART="$part"
-            continue
-        fi
-
-        # BIOS /boot partition
-        if [[ "$fstype" == "ext4" && "$size_mib" -le 2048 ]]; then
-            if lsblk -no PARTFLAGS "$part" 2>/dev/null | grep -q "boot"; then
-                BOOT_PART="$part"
-                continue
-            fi
-            if [[ "$partlabel" =~ [Bb][Oo][Oo][Tt] ]]; then
-                BOOT_PART="$part"
-                continue
-            fi
-        fi
-
-        # Swap
-        if [[ "$fstype" == "swap" ]]; then
-            SWAP_PART="$part"
-            continue
-        fi
-
-        # Root/home heuristic
-        if [[ "$fstype" =~ (ext4|xfs|btrfs|f2fs) ]]; then
-            if [[ -z "$ROOT_PART" ]]; then
-                ROOT_PART="$part"
-            else
-                HOME_PART="$part"
-            fi
-        fi
-    done
+    if (( ${#PARTS[@]} == 0 )); then
+        echo "❌ ERROR: No partitions detected after cfdisk. Please verify and rerun."
+        exit 1
+    fi
 
     echo
-    echo "Detected partitions:"
-    echo "  EFI : ${EFI_PART:-<none>}"
-    echo "  BOOT: ${BOOT_PART:-<none>}"
-    echo "  ROOT: ${ROOT_PART:-<none>}"
-    echo "  HOME: ${HOME_PART:-<none>}"
-    echo "  SWAP: ${SWAP_PART:-<none>}"
+    echo "Now let's assign partitions for each mount point."
+    echo "(Leave empty if not applicable)"
     echo
+    read -rp "Enter EFI partition (e.g. /dev/sda1): " P1
+    read -rp "Enter ROOT partition (e.g. /dev/sda2): " P2
+    read -rp "Enter SWAP partition (optional, e.g. /dev/sda3): " P3
+    read -rp "Enter HOME partition (optional, e.g. /dev/sda4): " P4
 
-    # Step 2: Mount partitions
-    echo "→ Mounting partitions..."
+    echo
+    echo "-------------------------------------------"
+    echo "Filesystem Setup Options"
+    echo "-------------------------------------------"
+    echo "1) EXT4"
+    echo "2) BTRFS"
+    echo "3) BTRFS (root) + EXT4 (home)"
+    echo
+    read -rp "Select filesystem layout [1-3, default=1]: " FS_CHOICE
+    FS_CHOICE="${FS_CHOICE:-1}"
 
-    # --- ROOT ---
-    if [[ -n "$ROOT_PART" ]]; then
-        echo "→ Mounting root partition ($ROOT_PART)..."
-        fstype=$(blkid -s TYPE -o value "$ROOT_PART")
-        if [[ "$fstype" == "btrfs" ]]; then
-            mount "$ROOT_PART" /mnt
-            for sub in @ @home @snapshots @log; do
-                btrfs subvolume create "/mnt/$sub" 2>/dev/null || true
-            done
+    echo
+    echo "→ Formatting and mounting partitions..."
+
+    case "$FS_CHOICE" in
+        2)
+            echo "→ Formatting root as BTRFS..."
+            mkfs.btrfs -f "$P2"
+
+            mount "$P2" /mnt
+            echo "→ Creating BTRFS subvolumes..."
+            btrfs subvolume create /mnt/@
+            btrfs subvolume create /mnt/@snapshots
+            btrfs subvolume create /mnt/@cache
+            btrfs subvolume create /mnt/@log
             umount /mnt
-            mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
-            mkdir -p /mnt/{home,boot,var,.snapshots}
-        else
-            mount "$ROOT_PART" /mnt
-        fi
-    fi
 
-    # --- HOME ---
-    if [[ -n "$HOME_PART" ]]; then
-        mkdir -p /mnt/home
-        mount "$HOME_PART" /mnt/home
-    fi
+            echo "→ Mounting root subvolume..."
+            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
 
-    # --- EFI ---
-    if [[ -n "$EFI_PART" ]]; then
-        mkdir -p /mnt/boot/efi
-        mount "$EFI_PART" /mnt/boot/efi
-    fi
+            if [[ -n "$P4" ]]; then
+                echo "→ Formatting home as BTRFS..."
+                mkfs.btrfs -f "$P4"
+                mount "$P4" /mnt/home
+            fi
+            ;;
 
-    # --- BOOT ---
-    if [[ -n "$BOOT_PART" ]]; then
+        3)
+            echo "→ Formatting root as BTRFS..."
+            mkfs.btrfs -f "$P2"
+            echo "→ Formatting home as EXT4..."
+            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4"
+
+            mount "$P2" /mnt
+            btrfs subvolume create /mnt/@
+            btrfs subvolume create /mnt/@snapshots
+            btrfs subvolume create /mnt/@cache
+            btrfs subvolume create /mnt/@log
+            umount /mnt
+
+            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+            mkdir -p /mnt/{.snapshots,var/cache,var/log,home}
+
+            [[ -n "$P4" ]] && mount "$P4" /mnt/home
+            ;;
+
+        *)
+            echo "→ Formatting root as EXT4..."
+            mkfs.ext4 -F "$P2"
+            mount "$P2" /mnt
+
+            mkdir -p /mnt/home
+            [[ -n "$P4" ]] && mkfs.ext4 -F "$P4" && mount "$P4" /mnt/home
+            ;;
+    esac
+
+    # EFI
+    if [[ -n "$P1" ]]; then
+        echo "→ Formatting EFI partition..."
+        mkfs.fat -F32 "$P1"
         mkdir -p /mnt/boot
-        mount "$BOOT_PART" /mnt/boot
+        mount "$P1" /mnt/boot
     fi
 
-    # --- SWAP ---
-    if [[ -n "$SWAP_PART" ]]; then
-        swapon "$SWAP_PART"
+    # Swap
+    if [[ -n "$P3" ]]; then
+        echo "→ Setting up swap..."
+        mkswap "$P3"
+        swapon "$P3"
     fi
 
     echo
-    echo "✅ Mounting complete. Generating /etc/fstab..."
-    echo
-
-    # Step 3: Generate fstab
-    generate_fstab
-
-    echo
-    echo "✅ Custom partition setup complete!"
-    echo "→ Root mounted at /mnt"
-    echo "→ Ready for installation or chroot."
-    echo "→ Run 'arch-chroot /mnt' or your installer next."
+    echo "✅ Custom partitioning and mounting complete!"
 }
 
 
