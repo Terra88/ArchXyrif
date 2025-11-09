@@ -1576,7 +1576,7 @@ if ! id "$NEWUSER" &>/dev/null; then
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
 
-sleep 1
+sleep 2
 clear
 # Root password
 echo
@@ -1651,8 +1651,7 @@ rm -f /mnt/root/postinstall.sh
 echo "✅ Chroot configuration complete."
 
 
-sleep 1
-clear
+
 echo
 echo "#===================================================================================================#"
 echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
@@ -1670,12 +1669,13 @@ arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
 }
 
+
+sleep 1
+clear
 echo "#===================================================================================================#"
 echo "# 7B) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                    "
 echo "#===================================================================================================#"
 
-sleep 1
-clear
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
