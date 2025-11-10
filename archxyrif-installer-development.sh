@@ -68,10 +68,9 @@ echo "#=========================================================================
 echo "1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                   "
 echo "#===================================================================================================#"
 echo
-
 #!/usr/bin/env bash
 set -euo pipefail
-
+#=========================================================================================================================================#
     # Helpers
     confirm() {
     # ask Yes/No, return 0 if yes
@@ -93,12 +92,13 @@ set -euo pipefail
     fi
     }
 
+    #die helper
     die() {
     echo "ERROR: $*" >&2
     exit 1
     }
     
-#========BTRFS VOLUME UNLOADER IF RELOAD REQUIRED=============================================
+    #BTRFS VOLUME UNLOADER IF RELOAD REQUIRED
     unmount_btrfs_and_swap() {
     local dev="$1"
 
@@ -135,7 +135,7 @@ set -euo pipefail
 
     echo "→ Unmounting completed for $dev."
 }
-#============================================================================================
+#=========================================================================================================================================#
 
     # Show devices
     echo "Available block devices (lsblk):"
@@ -220,7 +220,7 @@ set -euo pipefail
             # Clean up /mnt (optional)
             rm -rf /mnt/* 2>/dev/null || true
 
-echo "#===================================================================================================#"
+#=========================================================================================================================================#
 quick_partition_swap_on() 
 {
                         partprobe "$DEV" || true
@@ -424,10 +424,9 @@ quick_partition_swap_on()
                             ;;
                     esac
 }
-echo "#===================================================================================================#"
+#=========================================================================================================================================#
 quick_partition_swap_on_root()
 {
-
                         partprobe "$DEV" || true
                     
                         # RAM in MiB
@@ -439,11 +438,12 @@ quick_partition_swap_on_root()
                         SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
                     
                         # Disk sizes
-                        DISK_SIZE_MIB=$(($(lsblk -b -dn -o SIZE "$DEV")/1024/1024))
+                        DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
                         DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                         DISK_GIB_INT=${DISK_GIB%.*}
                     
                         EFI_SIZE_MIB=1024
+                        BUFFER_MIB=8   # small safety buffer to avoid edge-case BTRFS failures
                     
                         # Ask root size
                         while true; do
@@ -455,20 +455,21 @@ quick_partition_swap_on_root()
                                 continue
                             fi
                             ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
-                            [[ $((ROOT_SIZE_MIB+EFI_SIZE_MIB)) -gt $DISK_SIZE_MIB ]] && { echo "Root+EFI too large"; continue; }
+                            [[ $((ROOT_SIZE_MIB+EFI_SIZE_MIB+BUFFER_MIB)) -gt $DISK_SIZE_MIB ]] && { echo "Root+EFI too large"; continue; }
                             break
                         done
                     
                         echo "Swap: ${SWAP_SIZE_MIB}MiB, Root: ${ROOT_SIZE_MIB}MiB, EFI: ${EFI_SIZE_MIB}MiB"
                     
                         # Partitioning
+                        which parted >/dev/null 2>&1 || die "parted required but not found."
                         parted -s "$DEV" mklabel gpt
                         p1_start=1
-                        p1_end=$((p1_start+EFI_SIZE_MIB))
+                        p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                         p2_start=$p1_end
-                        p2_end=$((p2_start+ROOT_SIZE_MIB))
+                        p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
                         p3_start=$p2_end
-                        p3_end=$((p3_start+SWAP_SIZE_MIB))
+                        p3_end=$((p3_start + SWAP_SIZE_MIB - BUFFER_MIB))
 
                 sleep 1
                 printf "\033c"
@@ -498,105 +499,110 @@ quick_partition_swap_on_root()
                 echo "#===================================================================================================#"
                 echo "3) Back to start                                                                                    "
                 echo "#===================================================================================================#"
-                read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                FS_CHOICE="${FS_CHOICE:-1}"
-                
-                case "$FS_CHOICE" in
-                    1)
-                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                        parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                        ;;
-                    2)
-                        parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                        parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                        parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                        ;;
-                    *)
-                        echo "Invalid choice"; exec "$0";;
-                esac
-                
+                        read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
+                        FS_CHOICE="${FS_CHOICE:-1}"
+                    
+                        case "$FS_CHOICE" in
+                            1)
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                                ;;
+                            2)
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                ;;
+                            *)
+                                echo "Invalid choice"; exec "$0";;
+                        esac
+                    
+                        parted -s "$DEV" set 1 boot on
+                        partprobe "$DEV"
+                        udevadm settle || true
+                        sleep 1
+                    
+                        PSUFF=$(part_suffix "$DEV")
+                        P1="${DEV}${PSUFF}1" # EFI
+                        P2="${DEV}${PSUFF}2" # Root
+                        P3="${DEV}${PSUFF}3" # Swap
+                    
+                        # Format EFI & swap
+                        mkfs.fat -F32 "$P1"
+                        mkswap "$P3"
+                        swapon "$P3"
+                    
+                        #===================================================================================================#
+                        # Mounting and formatting (fixed)
+                        #===================================================================================================#
+                        # Format & mount root
+                        case "$FS_CHOICE" in
+                            1)  # EXT4
+                                mkfs.ext4 -F "$P2"
+                                mount "$P2" /mnt
+                                mkdir -p /mnt/{boot,home}
+                                mount -t vfat "$P1" /mnt/boot
+                                ;;
+                            2)  # BTRFS
+                                # Use a small safety flag and create subvolumes on a mounted root to avoid edge-case low-space issues
+                                mkfs.btrfs -f --nodiscard "$P2"
+                                mount "$P2" /mnt
+                                for sv in @ @snapshots @cache @log; do
+                                    btrfs subvolume create "/mnt/$sv"
+                                done
+                                umount /mnt
+                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
+                                mount -t vfat "$P1" /mnt/boot
+                                ;;
+                        esac
 
-
-                    parted -s "$DEV" set 1 boot on
-                    partprobe "$DEV"
-                    sleep 1
-                
-                    PSUFF=$(part_suffix "$DEV")
-                    P1="${DEV}${PSUFF}1" # EFI
-                    P2="${DEV}${PSUFF}2" # Root
-                    P3="${DEV}${PSUFF}3" # Swap
-                
-                    # Format EFI & swap
-                    mkfs.fat -F32 "$P1"
-                    mkswap "$P3"
-                    swapon "$P3"
-                
-                #===================================================================================================#
-                # Mounting and formatting (fixed)
-                #===================================================================================================#
-                # Format & mount root
-                case "$FS_CHOICE" in
-                1)  # EXT4
-                    mkfs.ext4 -F "$P2"
-                    mount "$P2" /mnt
-                    mkdir -p /mnt/{boot,home}
-                    mount -t vfat "$P1" /mnt/boot
-                    ;;
-                2)  # BTRFS
-                    mkfs.btrfs -f "$P2"
-                    mount "$P2" /mnt
-                    for sv in @ @snapshots @cache @log; do
-                        btrfs subvolume create "/mnt/$sv"
-                    done
-                    umount /mnt
-                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                    mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                    mount -t vfat "$P1" /mnt/boot
-                    ;;
-                esac
 
 }
 
 
-echo "#=================================================================================================================================#"
+
+#=========================================================================================================================================#
 quick_partition_swap_off() 
 {
+                                    partprobe "$DEV" || true
+                                
+                                    # Disk sizes
+                                    DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
+                                    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+                                    DISK_GIB_INT=${DISK_GIB%.*}
+                                    EFI_SIZE_MIB=1024
+                                    BUFFER_MIB=8   # Safety buffer to prevent partition overlap and btrfs errors
+                                
+                                    # Ask root/home sizes
+                                    while true; do
+                                        lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+                                        MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
+                                        read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+                                        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
+                                        MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB))
+                                        (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )) && { echo "Root+EFI too large"; continue; }
+                                
+                                        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB / 1024))
+                                        read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
+                                        HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
+                                        HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+                                        break
+                                    done
+                                
+                                    echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
+                                
+                                    which parted >/dev/null 2>&1 || die "parted required but not found."
+                                    parted -s "$DEV" mklabel gpt
+                                
+                                    # Partition layout with buffer
+                                    p1_start=1
+                                    p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
+                                    p2_start=$p1_end
+                                    p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
+                                    p3_start=$p2_end
+                                    p3_end=$((p3_start + HOME_SIZE_MIB - BUFFER_MIB))
 
-                            partprobe "$DEV" || true
-                        
-                            # Disk sizes
-                            DISK_SIZE_MIB=$(($(lsblk -b -dn -o SIZE "$DEV")/1024/1024))
-                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=${DISK_GIB%.*}
-                            EFI_SIZE_MIB=1024
-                        
-                            # Ask root/home sizes
-                            while true; do
-                                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                                MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
-                                read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                                ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
-                                MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB+EFI_SIZE_MIB))
-                                (( MIN_REQUIRED_MIB>DISK_SIZE_MIB )) && { echo "Root+EFI too large"; continue; }
-                        
-                                REMAINING_HOME_GIB=$((DISK_GIB_INT-ROOT_SIZE_GIB-EFI_SIZE_MIB/1024))
-                                read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
-                                HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-                                HOME_SIZE_MIB=$((HOME_SIZE_GIB*1024))
-                                break
-                            done
-                        
-                            echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
-                        
-                            parted -s "$DEV" mklabel gpt
-                            p1_start=1
-                            p1_end=$((p1_start+EFI_SIZE_MIB))
-                            p2_start=$p1_end
-                            p2_end=$((p2_start+ROOT_SIZE_MIB))
-                            p3_start=$p2_end
-                            p3_end=$((p3_start+HOME_SIZE_MIB))
-echo "#===============================================================================================================================================================#"
                             sleep 1
                             printf "\033c"
                             echo "#===================================================================================================#"
@@ -631,79 +637,82 @@ echo "#=========================================================================
                             echo "#===================================================================================================#"
                             echo "4) Back to start                                                                                    "
                             echo "#===================================================================================================#"
-                            read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                            DEV_CHOICE="${DEV_CHOICE:-1}"
+                            read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
+                                    FS_CHOICE="${FS_CHOICE:-1}"
+                                
+                                    case "$FS_CHOICE" in
+                                        1)
+                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                            parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                                            parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
+                                            ;;
+                                        2)
+                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                            parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" "${p3_end}MiB"
+                                            ;;
+                                        3)
+                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                            parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
+                                            ;;
+                                        *) exec "$0";;
+                                    esac
+                                
+                                    parted -s "$DEV" set 1 boot on
+                                    partprobe "$DEV"
+                                    udevadm settle || true
+                                    sleep 1
+                                
+                                    PSUFF=$(part_suffix "$DEV")
+                                    P1="${DEV}${PSUFF}1" # EFI
+                                    P2="${DEV}${PSUFF}2" # Root
+                                    P3="${DEV}${PSUFF}3" # Home
+                                
+                                    mkfs.fat -F32 "$P1"
+                                
+                                    case "$FS_CHOICE" in
+                                        1)  # EXT4
+                                            mkfs.ext4 -F "$P2"
+                                            mkfs.ext4 -F "$P3"
+                                            mount "$P2" /mnt
+                                            mkdir -p /mnt/{boot,home}
+                                            mount -t vfat "$P1" /mnt/boot
+                                            mount "$P3" /mnt/home
+                                            ;;
+                                        2)  # BTRFS
+                                            mkfs.btrfs -f --nodiscard "$P2"
+                                            mkfs.btrfs -f --nodiscard "$P3"
+                                            mount "$P2" /mnt
+                                            for sv in @ @snapshots @cache @log; do
+                                                btrfs subvolume create "/mnt/$sv"
+                                            done
+                                            umount /mnt
+                                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                            mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
+                                            mount "$P3" /mnt/home
+                                            mount -t vfat "$P1" /mnt/boot
+                                            ;;
+                                        3)  # BTRFS root + EXT4 home
+                                            mkfs.btrfs -f --nodiscard "$P2"
+                                            mkfs.ext4 -F "$P3"
+                                            mount "$P2" /mnt
+                                            for sv in @ @snapshots @cache @log; do
+                                                btrfs subvolume create "/mnt/$sv"
+                                            done
+                                            umount /mnt
+                                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                            mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
+                                            mount "$P3" /mnt/home
+                                            mount -t vfat "$P1" /mnt/boot
+                                            ;;
+                                    esac
+                                
+                                    echo "→ Partitioning and filesystem setup complete."
+                                }
 
-                            case "$DEV_CHOICE" in
-                                1)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
-                                    ;;
-                                2)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" "${p3_end}MiB"
-                                    ;;
-                                3)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
-                                    ;;
-                                *) exec "$0";;
-                            esac
-                        
-                            parted -s "$DEV" set 1 boot on
-                            partprobe "$DEV"
-                            sleep 1
-                        
-                            PSUFF=$(part_suffix "$DEV")
-                            P1="${DEV}${PSUFF}1" # EFI
-                            P2="${DEV}${PSUFF}2" # Root
-                            P3="${DEV}${PSUFF}3" # Home
-                        
-                            mkfs.fat -F32 "$P1"
-                        
-                            case "$DEV_CHOICE" in
-                                1)  # EXT4
-                                    mkfs.ext4 -F "$P2"
-                                    mkfs.ext4 -F "$P3"
-                                    mount "$P2" /mnt
-                                    mkdir -p /mnt/{boot,home}
-                                    mount -t vfat "$P1" /mnt/boot
-                                    mount "$P3" /mnt/home
-                                    ;;
-                                2)  # BTRFS
-                                    mkfs.btrfs -f "$P2"
-                                    mkfs.btrfs -f "$P3"
-                                    mount "$P2" /mnt
-                                    for sv in @ @snapshots @cache @log; do
-                                        btrfs subvolume create "/mnt/$sv"
-                                    done
-                                    umount /mnt
-                                    mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                    mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                                    mount "$P3" /mnt/home
-                                    mount -t vfat "$P1" /mnt/boot
-                                    ;;
-                                3)  # BTRFS root + EXT4 home
-                                     mkfs.btrfs -f "$P2"
-                                     mkfs.ext4 -F "$P3"
-                                     mount "$P2" /mnt
-                                     for sv in @ @snapshots @cache @log; do
-                                     btrfs subvolume create "/mnt/$sv"
-                                    done
-                                     umount /mnt
-                                     mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                     mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                                     mount "$P3" /mnt/home
-                                    mount -t vfat "$P1" /mnt/boot
-                                        ;;
 
-                            esac
-}
-
-
+#=========================================================================================================================================#
 quick_partition_swap_off_root() 
 {
 
@@ -740,9 +749,9 @@ quick_partition_swap_off_root()
                             p1_end=$((p1_start + EFI_SIZE_MIB))
                             p2_start=$p1_end
                             p2_end=$((p2_start + ROOT_SIZE_MIB))
- 
+
+
 printf "\033c"
- 
 echo "#===================================================================================================#"
 echo "# 1.5)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  "
 echo "#===================================================================================================#" 
@@ -822,7 +831,7 @@ echo "#=========================================================================
                             echo "→ Partitioning and filesystem setup complete."
                         }
 
-echo "#===============================================================================================================#" 
+#=========================================================================================================================================#
 quick_partition()
 {
 sleep 1
@@ -832,7 +841,6 @@ echo "# 1.4 Quick-Partition Mode:                                               
 echo "#===============================================================================================================#" 
             echo "                            Table Of Contents:                                     " 
             echo "#==================================================================================#" 
-            echo "#==================================================================================#"
             echo "1) Separate partition for home & swap enabled-(DEFAULT OPTION)                     "
             echo "   → Safer choice for most users (especially <16GB RAM).                           "
             echo "   → example: Divides drive into 2 Linux partitions /root and /home (with swap)    "
@@ -874,6 +882,7 @@ echo "#=========================================================================
                         ;;
                 esac                        
 }
+#=========================================================================================================================================#
 sleep 1
 printf "\033c"
 echo "#===================================================================================================#"
@@ -1063,6 +1072,7 @@ custom_partition()
             echo "→ Custom block partitioning complete."
         }
 }
+#=========================================================================================================================================#
 sleep 1
 printf "\033c"
 echo
@@ -1337,17 +1347,17 @@ sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 set -e  # restore strict error handling
 
-echo "#========================================================#"
+#========================================================#
 # 7) Home directory setup
-echo "#========================================================#"
+#========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 
-echo "#========================================================#"
+#========================================================#
 # 8) Enable basic services
-echo "#========================================================#"
+#========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
 
