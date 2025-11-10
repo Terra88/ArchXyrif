@@ -1263,39 +1263,37 @@ echo "#=========================================================================
 echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.     "
 echo "#===================================================================================================#"
 echo
+#========================================================#
 # inline script for arch-chroot operations "postinstall.sh"
 # Ask for passwords before chroot (silent input)
-
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
-echo "#========================================================#"
+#========================================================#
 # Variables injected by main installer
-echo "#========================================================#"
+#========================================================#
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 
-echo "#========================================================#"
+#========================================================#
 # 1) Timezone & hardware clock
-echo "#========================================================#"
+#========================================================#
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
-
-echo "#========================================================#"
+#========================================================#
 # 2) Locale
-echo "#========================================================#"
+#========================================================#
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 
-echo "#========================================================#"
+#========================================================#
 # 3) Hostname & /etc/hosts
-echo "#========================================================#"
+#========================================================#
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
@@ -1303,22 +1301,22 @@ cat > /etc/hosts <<HOSTS
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 
-echo "#========================================================#"
+#========================================================#
 # 4) Keyboard layout
-echo "#========================================================#"
+#========================================================#
 echo "KEYMAP=fi" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap fi
 localectl set-x11-keymap fi
 
-echo "#========================================================#"
+#========================================================#
 # 5) Initramfs
-echo "#========================================================#"
+#========================================================#
 mkinitcpio -P
 
-echo "#========================================================#"
+#========================================================#
 # 6) Root + user passwords (interactive)
-echo "#========================================================#"
+#========================================================#
 set +e  # allow retries
 MAX_RETRIES=3
 
@@ -1327,14 +1325,13 @@ if ! id "$NEWUSER" &>/dev/null; then
     echo "Creating user '$NEWUSER'..."
     useradd -m -G wheel -s /bin/bash "$NEWUSER"
 fi
-
-
+#========================================================#
 printf "\033c"
 # Root password
 echo
-echo "#========================================================#"
+#========================================================#
 echo " Set ROOT password                "
-echo "#========================================================#"
+#========================================================#
 for i in $(seq 1 $MAX_RETRIES); do
     if passwd root; then
         break
@@ -1342,12 +1339,12 @@ for i in $(seq 1 $MAX_RETRIES); do
         echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
     fi
 done
-
+#========================================================#
 # User password
 echo
-echo "#========================================================#"
+#========================================================#
 echo " Set password for user '$NEWUSER' "
-echo "#========================================================#"
+#========================================================#
 for i in $(seq 1 $MAX_RETRIES); do
     if passwd "$NEWUSER"; then
         break
@@ -1355,7 +1352,7 @@ for i in $(seq 1 $MAX_RETRIES); do
         echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
     fi
 done
-
+#========================================================#
 # Give sudo rights
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
