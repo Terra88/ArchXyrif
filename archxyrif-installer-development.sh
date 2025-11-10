@@ -304,7 +304,7 @@ quick_partition_swap_on()
                 sleep 1
                 printf "\033c"
                 echo "#===================================================================================================#"
-                echo " 1.5)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                    #"
+                echo " 1)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                                    #"
                 echo "#===================================================================================================#"
                 echo "                                     Table Of Contents:                                             "
                 echo "#===================================================================================================#"
@@ -474,7 +474,7 @@ quick_partition_swap_on_root()
                 sleep 1
                 printf "\033c"
                 echo "#===================================================================================================#"
-                echo "# 1.5)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                        #"
+                echo "# 2)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                        #"
                 echo "#===================================================================================================#"
                 echo "                                     Table of Contents:                                             "
                 echo "#===================================================================================================#"
@@ -603,7 +603,7 @@ quick_partition_swap_off()
                             sleep 1
                             printf "\033c"
                             echo "#===================================================================================================#"
-                            echo "# 1.5)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                       #"
+                            echo "# 3)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                       #"
                             echo "#===================================================================================================#"
                             echo "                                    Table Of Contents:                                              "
                             echo "#===================================================================================================#"
@@ -758,7 +758,7 @@ quick_partition_swap_off_root()
 
 printf "\033c"
 echo "#===================================================================================================#"
-echo "# 1.5)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  "
+echo "# 4)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                  "
 echo "#===================================================================================================#" 
                         echo "                  Table Of Contents:                       "
                         echo "#=========================================================#" 
