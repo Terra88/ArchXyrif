@@ -903,9 +903,8 @@ echo "#=========================================================================
 echo
 custom_partition()
 {
-      echo "Under Construction - Feature coming soon, returning to start menu. . . "
-      sleep 5
-      exec "$0"
+      echo "Under Construction - Feature coming soon, Select Quick Format to Proceed. . . "
+
 }
 #=========================================================================================================================================#
 sleep 1
