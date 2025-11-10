@@ -569,7 +569,7 @@ quick_partition_swap_on_root()
 
 }
 
-echo "Partitioning and filesystem setup complete."
+
 echo "#=================================================================================================================================#"
 quick_partition_swap_off() 
 {
@@ -832,7 +832,7 @@ echo "#=========================================================================
                         
                             echo "→ Partitioning and filesystem setup complete."
                         }
-echo "Partitioning and filesystem setup complete."
+
 echo "#===============================================================================================================#" 
 quick_partition()
 {
