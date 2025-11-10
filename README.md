@@ -121,3 +121,17 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -Features i'm currently planning on implementing later: Custom partition scheme - set values manually and filesystem.<br><br>
 
 known bugs: well it's not really a bug, but the unmount process at the start of the script only unmounts LUKS LV's and clears encryptions, if you format with btrfs, you will have to unmount the drive manually or reboot your system to re-format, if you have to run the script again for any reason. Will fix that later.
+
+### **Version 1.3.9 - Release!!!**
+<br><br>
+- Added More options to the quick partition scheme:<br>
+- EXT4 & BTRFS Filesystems currently available<br>
+- You can either do Disk format and partitioning: to a 1 big disk(Everything under /root) or 2 Disk Partitions(/Root /Home) separate.<br>
+- You can switch Swap On or Off - Value still set to be calculated automatically, via ram.<br>
+- You can now manually set Root and Home partition sizes, to suite your needs.<br>
+- you can also create a BTRFS(root)+Ext4(home) if you want snapshot support to @root.<br>
+<br>
+-Did error handling so you should not be able to insert values that float over the current disk size.<br>
+-Every option has been tested and should be working correctly.
+<br> <br>
+-Adding custom partition/format section later, to support more file systems and to suppor more options.
