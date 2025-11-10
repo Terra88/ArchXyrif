@@ -715,7 +715,6 @@ quick_partition_swap_off()
 #=========================================================================================================================================#
 quick_partition_swap_off_root() 
 {
-
                             partprobe "$DEV" || true
                         
                             # Disk sizes
@@ -723,6 +722,7 @@ quick_partition_swap_off_root()
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
                             DISK_GIB_INT=${DISK_GIB%.*}
                             EFI_SIZE_MIB=1024
+                            BUFFER_MIB=8    # safety buffer to avoid partition overlap / BTRFS edgecases
                         
                             # Ask user for root size
                             while true; do
@@ -735,20 +735,28 @@ quick_partition_swap_off_root()
                                 fi
                         
                                 ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                                MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB))
+                                MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB))
                                 if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
-                                    echo "Error: root + EFI exceeds disk size!"
+                                    echo "Error: requested root + EFI (with buffer) exceeds disk size!"
                                     continue
                                 fi
                                 break
                             done
                         
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
-
+                        
+                            # Partition boundaries
                             p1_start=1
-                            p1_end=$((p1_start + EFI_SIZE_MIB))
+                            p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                             p2_start=$p1_end
-                            p2_end=$((p2_start + ROOT_SIZE_MIB))
+                            p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
+                        
+                            # Quick safety check that end offsets do not exceed disk
+                            if (( p2_end + BUFFER_MIB > DISK_SIZE_MIB )); then
+                                echo "ERROR: computed partition end (${p2_end} MiB) would exceed disk size (${DISK_SIZE_MIB} MiB)."
+                                echo "Reduce ROOT size and try again."
+                                return 1
+                            fi
 
 
 printf "\033c"
@@ -778,25 +786,31 @@ echo "#=========================================================================
                         echo "#=========================================================#"  
                         echo "3) Back to start                                           "
                         echo "#=========================================================#" 
-                        read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                        DEV_CHOICE="${DEV_CHOICE:-1}"
-
-                        case "$DEV_CHOICE" in
-                            1)
-                                parted -s "$DEV" mklabel gpt
-                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                ;;
-                            2)
-                                parted -s "$DEV" mklabel gpt
-                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                ;;
-                            *) echo "Invalid choice"; exec "$0" ;;
-                        esac
+                         read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
+                            FS_CHOICE="${FS_CHOICE:-1}"
                         
+                            # create label and partitions
+                            which parted >/dev/null 2>&1 || die "parted required but not found."
+                            parted -s "$DEV" mklabel gpt
+                        
+                            case "$FS_CHOICE" in
+                                1)
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                                    ;;
+                                2)
+                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                    ;;
+                                *)
+                                    echo "Invalid choice"; exec "$0"
+                                    ;;
+                            esac
+                        
+                            # finalize device nodes
                             parted -s "$DEV" set 1 boot on
                             partprobe "$DEV"
+                            udevadm settle || true
                             sleep 1
                         
                             PSUFF=$(part_suffix "$DEV")
@@ -805,7 +819,7 @@ echo "#=========================================================================
                         
                             # Format partitions
                             mkfs.fat -F32 "$P1"
-                            case "$DEV_CHOICE" in
+                            case "$FS_CHOICE" in
                                 1) mkfs.ext4 -F "$P2" ;;
                                 2) mkfs.btrfs -f "$P2" ;;
                             esac
@@ -815,7 +829,7 @@ echo "#=========================================================================
                             mkdir -p /mnt/home
                         
                             # BTRFS subvolumes
-                            if [[ "$DEV_CHOICE" == "2" ]]; then
+                            if [[ "$FS_CHOICE" == "2" ]]; then
                                 for sv in @ @snapshots @cache @log; do
                                     btrfs subvolume create "/mnt/$sv"
                                 done
