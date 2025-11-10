@@ -1886,8 +1886,8 @@ echo "  swapoff ${P3} || true"
 echo "  reboot"
 echo
 echo "Done."
-#===========================================================================#
-echo "-GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88"
-echo "-Author  : Terra88"
-echo "-GitHub  : http://github.com/Terra88"
-#===========================================================================
+echo "#===========================================================================#"
+echo "# -GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      #"
+echo "# -Author  : Terra88                                                        #"
+echo "# -GitHub  : http://github.com/Terra88                                      #"
+echo "#===========================================================================#"
