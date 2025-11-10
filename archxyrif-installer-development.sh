@@ -250,7 +250,7 @@ quick_partition_swap_on()
                             MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "Invalid input!"
+                                echo "Invalid input! -10% Disk Space Must be left for error margin"
                                 continue
                             fi
                     
@@ -451,7 +451,7 @@ quick_partition_swap_on_root()
                             MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
                             if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "Invalid input!"
+                                echo "Invalid input! -10% Disk Space Must be left for error margin"
                                 continue
                             fi
                             ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
@@ -727,7 +727,7 @@ quick_partition_swap_off_root()
                                 MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
                                 read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
                                 if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                    echo "Invalid input!"
+                                    echo "Invalid input! ~5-10% Disk Space Must be left for error margin"
                                     continue
                                 fi
                         
@@ -926,7 +926,7 @@ custom_partition()
             while true; do
                 read -r -p "Enter ROOT partition size in GiB (max $((DISK_GIB_INT - 5))): " ROOT_SIZE_GIB
                 if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > AVAILABLE_GIB )); then
-                    echo "Invalid input!"
+                    echo "Invalid input! ~5-10% Disk Space Must be left for error margin"
                     continue
                 fi
                 ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
