@@ -246,38 +246,71 @@ quick_partition_swap_on()
                         BUFFER_MIB=8  # Safety buffer for BTRFS and partition edge issues
                     
                         # Ask root size
-                        while true; do
+                         while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
                             MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
+                        
+                            echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "Invalid input! -10% Disk Space Must be left for error margin"
+                        
+                            # Validate root input
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+                                echo "❌ Invalid input! Enter a numeric value."
                                 continue
                             fi
-                    
+                            if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                                echo "❌ Invalid input! - 10% disk space must remain free."
+                                echo "Maximum safe root size: ${MAX_ROOT_GIB} GiB"
+                                continue
+                            fi
+                        
                             ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
                             MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + SWAP_SIZE_MIB))
-                            if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
-                                echo "Error: root + swap + EFI exceeds disk size"
+                        
+                            # Check if root + EFI + swap fits
+                            if (( MIN_REQUIRED_MIB >= DISK_SIZE_MIB - 8 )); then
+                                echo "❌ Error: Root + swap + EFI exceeds total disk capacity (${DISK_GIB_INT} GiB)."
                                 continue
                             fi
-                    
-                            # Calculate remaining space for HOME
-                            REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB/1024 - SWAP_SIZE_MIB/1024))
-                            echo "Remaining space available for HOME: ~${REMAINING_HOME_GIB} GiB"
-                    
-                            # Ask user for home size
+                        
+                            # Compute remaining space for HOME (subtract small buffer)
+                            REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB/1024 - SWAP_SIZE_MIB/1024 - 1))
+                            if (( REMAINING_HOME_GIB < 1 )); then
+                                echo "❌ Not enough space left for HOME partition."
+                                continue
+                            fi
+                        
+                            echo "✅ Remaining space available for HOME: ~${REMAINING_HOME_GIB} GiB"
+                        
+                            # Ask for home size
                             while true; do
-                                read -r -p "Enter HOME partition size in GiB (or press ENTER to use remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
+                                read -r -p "Enter HOME partition size in GiB (ENTER to use remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
                                 HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-                                if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]] || (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > REMAINING_HOME_GIB )); then
-                                    echo "Invalid input!"
+                        
+                                # Validate home input
+                                if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+                                    echo "❌ Invalid input! Enter a numeric value."
                                     continue
                                 fi
+                                if (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > REMAINING_HOME_GIB )); then
+                                    echo "❌ Home size must be between 1 and ${REMAINING_HOME_GIB} GiB."
+                                    continue
+                                fi
+                        
                                 HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+                                TOTAL_REQUIRED_MIB=$((EFI_SIZE_MIB + SWAP_SIZE_MIB + ROOT_SIZE_MIB + HOME_SIZE_MIB))
+                        
+                                # Final safety check
+                                if (( TOTAL_REQUIRED_MIB >= DISK_SIZE_MIB - 8 )); then
+                                    echo "❌ Error: Combined partitions exceed available disk capacity (${DISK_GIB_INT} GiB total)."
+                                    echo "Reduce HOME or ROOT size and try again."
+                                    continue 2   # retry outer loop
+                                fi
+                        
                                 break
                             done
-                    
+                        
+                            # All inputs valid
                             break
                         done
                     
@@ -450,13 +483,30 @@ quick_partition_swap_on_root()
                         while true; do
                             lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
                             MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
+                            
+                            echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
                             read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "Invalid input! -10% Disk Space Must be left for error margin"
+                        
+                            # Validate input
+                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+                                echo "❌ Invalid input! Enter a numeric value."
                                 continue
                             fi
-                            ROOT_SIZE_MIB=$((ROOT_SIZE_GIB*1024))
-                            [[ $((ROOT_SIZE_MIB+EFI_SIZE_MIB+BUFFER_MIB)) -gt $DISK_SIZE_MIB ]] && { echo "Root+EFI too large"; continue; }
+                            if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                                echo "❌ Invalid input! - 10% disk space must remain free."
+                                echo "Maximum safe root size: ${MAX_ROOT_GIB} GiB"
+                                continue
+                            fi
+                        
+                            ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
+                        
+                            # Check if root + EFI + buffer fits
+                            if (( ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB > DISK_SIZE_MIB )); then
+                                echo "❌ Root + EFI exceeds available disk space!"
+                                continue
+                            fi
+                        
+                            # Input is valid
                             break
                         done
                     
@@ -576,15 +626,64 @@ quick_partition_swap_off()
                                     while true; do
                                         lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
                                         MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
+                                        
+                                        echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
                                         read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
+                                    
+                                        # Validate root input
+                                        if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+                                            echo "❌ Invalid input! Enter a numeric value."
+                                            continue
+                                        fi
+                                        if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+                                            echo "❌ Invalid input! - 10% disk space must remain free."
+                                            continue
+                                        fi
+                                    
                                         ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
                                         MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB))
-                                        (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )) && { echo "Root+EFI too large"; continue; }
-                                
-                                        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB / 1024))
-                                        read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
-                                        HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-                                        HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+                                    
+                                        # Check if root + EFI + buffer fits
+                                        if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
+                                            echo "❌ Error: Root + EFI exceeds available disk space!"
+                                            continue
+                                        fi
+                                    
+                                        # Calculate remaining space for HOME
+                                        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB / 1024 - 1))
+                                        if (( REMAINING_HOME_GIB < 1 )); then
+                                            echo "❌ Not enough space left for HOME partition. Adjust ROOT size."
+                                            continue
+                                        fi
+                                    
+                                        # Ask user for HOME size
+                                        while true; do
+                                            read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
+                                            HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
+                                    
+                                            # Validate HOME input
+                                            if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+                                                echo "❌ Invalid input! Enter a numeric value."
+                                                continue
+                                            fi
+                                            if (( HOME_SIZE_GIB <= 0 )); then
+                                                echo "❌ Home size must be greater than 0."
+                                                continue
+                                            fi
+                                    
+                                            HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+                                            TOTAL_REQUIRED_MIB=$((EFI_SIZE_MIB + ROOT_SIZE_MIB + HOME_SIZE_MIB))
+                                    
+                                            # Final check
+                                            if (( TOTAL_REQUIRED_MIB > DISK_SIZE_MIB - 8 )); then
+                                                echo "❌ Error: Combined partitions exceed disk capacity."
+                                                echo "Reduce ROOT or HOME size and try again."
+                                                continue 2  # go back to outer loop
+                                            fi
+                                            break
+                                        done
+                                    
+                                        # All inputs valid
                                         break
                                     done
                                 
