@@ -843,7 +843,6 @@ echo "# 1.4 Quick-Partition Mode:                                               
 echo "#===============================================================================================================#" 
             echo "                            Table Of Contents:                                     " 
             echo "#==================================================================================#" 
-            echo " Option: 1)
             echo "#==================================================================================#"
             echo "1) Separate partition for home & swap enabled-(DEFAULT OPTION)                     "
             echo "   → Safer choice for most users (especially <16GB RAM).                           "
