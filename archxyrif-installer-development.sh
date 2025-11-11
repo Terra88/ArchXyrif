@@ -19,9 +19,9 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #===========================================================================
 clear
 logo(){
-echo "#===================================================================================================#"
+echo "${GREEN}#===================================================================================================#${RESET}"
 echo "| The Great Monolith of Installing Arch Linux!                                                      |"
-echo "|===================================================================================================|"
+echo "${GREEN}#===================================================================================================#${RESET}"
 echo "|                                                                                                   |"
 echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
 echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
@@ -37,9 +37,9 @@ echo "|                                                     Y88P                
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
 echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               |"
-echo "|===================================================================================================#"
+echo "${GREEN}#===================================================================================================#${RESET}"
 echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
-echo "|===================================|===============================================================|"
+echo "${GREEN}#===================================================================================================#${RESET}"
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
@@ -54,9 +54,10 @@ echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom install
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
 echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
-echo "#===================================#===============================================================#"
+echo "${GREEN}#===================================================================================================#${RESET}"
 echo "-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                 |"
-echo "====================================================================================================#"
+echo "${GREEN}#===================================================================================================#${RESET}"
+
 }
 #!/usr/bin/env bash
 loadkeys fi
@@ -402,22 +403,18 @@ partition_disk() {
 format_and_mount() {
     local ps
     ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"
-    local P2="${DEV}${ps}2"
-    local P3="${DEV}${ps}3"
-    local P4="${DEV}${ps}4"
+    local P1="${DEV}${ps}1"   # Boot / EFI
+    local P2="${DEV}${ps}2"   # Root
+    local P3="${DEV}${ps}3"   # Swap
+    local P4="${DEV}${ps}4"   # Home
 
     echo "Formatting partitions..."
 
-    # -----------------------------
-    # Format Swap
-    # -----------------------------
+    # Swap first
     mkswap "$P3"
     swapon "$P3"
 
-    # -----------------------------
-    # Format Root and Home
-    # -----------------------------
+    # Format root and home based on selected FS
     case "$FS_CHOICE" in
         1)  # EXT4 root + home
             mkfs.ext4 -F "$P2"
@@ -436,24 +433,18 @@ format_and_mount() {
             ;;
     esac
 
-    # -----------------------------
-    # Mount Root
-    # -----------------------------
+    # Ensure /mnt exists
     mkdir -p /mnt
+
+    # Mount root
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mount "$P2" /mnt
-
-        # Create subvolumes
         echo "Creating BTRFS subvolumes..."
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv" || true
         done
-
-        # Remount root subvolume
         umount /mnt
         mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-
-        # Mount home subvolume
         mkdir -p /mnt/home
         mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
     else
@@ -462,9 +453,7 @@ format_and_mount() {
         mount "$P4" /mnt/home
     fi
 
-    # -----------------------------
-    # Mount Boot / EFI
-    # -----------------------------
+    # Boot/EFI partition mount
     mkdir -p /mnt/boot
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1"
@@ -474,12 +463,10 @@ format_and_mount() {
         mount "$P1" /mnt/boot
     fi
 
-    # -----------------------------
-    # Create other directories
-    # -----------------------------
-    mkdir -p /mnt/{var,cache,.snapshots}
+    # Optional: create standard directories
+    mkdir -p /mnt/{var,cache,.snapshots,boot}
 
-    echo "✅ All partitions formatted and mounted to /mnt."
+    echo "All partitions formatted and mounted to /mnt."
 }
 
 #=========================================================================================================================================#
