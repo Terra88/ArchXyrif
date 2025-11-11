@@ -351,28 +351,28 @@ partition_disk() {
 format_and_mount() {
     local ps
     ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"
-    local P2="${DEV}${ps}2"
-    local P3="${DEV}${ps}3"
-    local P4="${DEV}${ps}4"
+    local P1="${DEV}${ps}1"   # Boot/EFI
+    local P2="${DEV}${ps}2"   # Root
+    local P3="${DEV}${ps}3"   # Swap
+    local P4="${DEV}${ps}4"   # Home (EXT4 if separate)
 
     echo -e "\n🧱 Formatting partitions..."
 
-    # swap
+    # Swap
     mkswap "$P3" || die "Failed to create swap $P3"
     swapon "$P3" || die "Failed to enable swap $P3"
 
-    # Root & Home
+    # Format root and home
     case "$FS_CHOICE" in
-        1)
+        1)  # EXT4 root + EXT4 home
             mkfs.ext4 -F "$P2" || die "Failed to format root $P2"
             mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
             ;;
-        2)
+        2)  # BTRFS root + BTRFS home
             mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
             mkfs.btrfs -f "$P4" || die "Failed to format home $P4"
             ;;
-        3)
+        3)  # BTRFS root + EXT4 home
             mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
             mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
             ;;
@@ -381,24 +381,39 @@ format_and_mount() {
             ;;
     esac
 
-    # Ensure mount points exist
-    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi /mnt/{var,cache,.snapshots}
+    # Ensure main mount points exist
+    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi /mnt/{var,cache,.snapshots,log}
 
     # Mount root & home
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mount "$P2" /mnt || die "Failed to mount $P2 on /mnt"
+
+        # Create BTRFS subvolumes
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv" || die "Failed to create subvolume $sv"
         done
+
+        # Unmount root before mounting subvolumes
         umount /mnt
+
+        # Mount root subvolume
         mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt || die "Failed to mount subvolume @"
+
+        # Ensure directories exist for other subvolumes
+        mkdir -p /mnt/home /mnt/.snapshots /mnt/cache /mnt/log
+
+        # Mount other subvolumes
         mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home || die "Failed to mount subvolume @home"
+        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots || die "Failed to mount subvolume @snapshots"
+        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/cache || die "Failed to mount subvolume @cache"
+        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/log || die "Failed to mount subvolume @log"
     else
-        mount "$P2" /mnt || die "Failed to mount $P2 on /mnt"
-        mount "$P4" /mnt/home || die "Failed to mount $P4 on /mnt/home"
+        # EXT4 root + home (or EXT4 home)
+        mount "$P2" /mnt || die "Failed to mount root $P2 on /mnt"
+        mount "$P4" /mnt/home || die "Failed to mount home $P4 on /mnt/home"
     fi
 
-    # Boot / EFI
+    # Mount boot/EFI
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1" || die "Failed to format EFI $P1"
         mount "$P1" /mnt/boot || die "Failed to mount EFI $P1 on /mnt/boot"
@@ -407,7 +422,7 @@ format_and_mount() {
         mount "$P1" /mnt/boot || die "Failed to mount BIOS boot $P1 on /mnt/boot"
     fi
 
-    echo "✅ All partitions formatted and mounted under /mnt."
+    echo "✅ All partitions formatted and mounted under /mnt successfully."
 }
 #=========================================================================================================================================#
 # -----------------------
