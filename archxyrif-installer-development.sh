@@ -1322,12 +1322,12 @@ echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios sup
 echo "#===================================================================================================#"
 echo
 sleep 1
-# EFI partition is expected to be mounted on /boot (as done before chroot)
-echo "Installing GRUB (UEFI)..."
+
 
 if [[ -d /sys/firmware/efi ]]; then
     echo "Installing GRUB (UEFI)..."
-
+    # EFI partition is expected to be mounted on /boot (as done before chroot)
+    
     if ! mountpoint -q /mnt/boot/efi; then
         echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
         mkdir -p /mnt/boot/efi
