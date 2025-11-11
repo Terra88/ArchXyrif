@@ -357,55 +357,56 @@ format_and_mount() {
     local P4="${DEV}${ps}4"
 
     echo -e "\n🧱 Formatting partitions..."
-    # swap
-    mkswap "$P3"
-    swapon "$P3" || true
 
-    # Root & Home formatting
+    # swap
+    mkswap "$P3" || die "Failed to create swap $P3"
+    swapon "$P3" || die "Failed to enable swap $P3"
+
+    # Root & Home
     case "$FS_CHOICE" in
         1)
-            mkfs.ext4 -F "$P2"
-            mkfs.ext4 -F "$P4"
+            mkfs.ext4 -F "$P2" || die "Failed to format root $P2"
+            mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
             ;;
         2)
-            mkfs.btrfs -f "$P2"
-            mkfs.btrfs -f "$P4"
+            mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
+            mkfs.btrfs -f "$P4" || die "Failed to format home $P4"
             ;;
         3)
-            mkfs.btrfs -f "$P2"
-            mkfs.ext4 -F "$P4"
+            mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
+            mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
             ;;
         *)
             die "Invalid FS choice"
             ;;
     esac
 
-    # Mount root & home
-    mkdir -p /mnt /mnt/home /mnt/boot
+    # Ensure mount points exist
+    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi /mnt/{var,cache,.snapshots}
 
+    # Mount root & home
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mount "$P2" /mnt
+        mount "$P2" /mnt || die "Failed to mount $P2 on /mnt"
         for sv in @ @home @snapshots @cache @log; do
-            btrfs subvolume create "/mnt/$sv"
+            btrfs subvolume create "/mnt/$sv" || die "Failed to create subvolume $sv"
         done
         umount /mnt
-        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt || die "Failed to mount subvolume @"
+        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home || die "Failed to mount subvolume @home"
     else
-        mount "$P2" /mnt
-        mount "$P4" /mnt/home
+        mount "$P2" /mnt || die "Failed to mount $P2 on /mnt"
+        mount "$P4" /mnt/home || die "Failed to mount $P4 on /mnt/home"
     fi
 
     # Boot / EFI
     if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 "$P1"
-        mount "$P1" /mnt/boot
+        mkfs.fat -F32 "$P1" || die "Failed to format EFI $P1"
+        mount "$P1" /mnt/boot || die "Failed to mount EFI $P1 on /mnt/boot"
     else
-        mkfs.ext4 -F "$P1"
-        mount "$P1" /mnt/boot
+        mkfs.ext4 -F "$P1" || die "Failed to format BIOS boot $P1"
+        mount "$P1" /mnt/boot || die "Failed to mount BIOS boot $P1 on /mnt/boot"
     fi
 
-    mkdir -p /mnt/{var,cache,.snapshots}
     echo "✅ All partitions formatted and mounted under /mnt."
 }
 #=========================================================================================================================================#
@@ -489,7 +490,7 @@ preview_partitions() {
 # Robust main menu (simple + careful)
 #---------------------------------------
 main_menu() {
-    logo
+    
     echo "Available block devices:"
     lsblk -p -o NAME,MODEL,SIZE,TYPE,MOUNTPOINT || true
     read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
