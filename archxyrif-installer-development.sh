@@ -82,6 +82,21 @@ set -euo pipefail
     echo "ERROR: $*" >&2
     exit 1
     }
+#=========================================================================================================================================#
+    #CLEANUP HELPER 
+    cleanup() {
+    echo
+    echo "🧹 Running cleanup before exit..."
+    swapoff -a 2>/dev/null || true
+    if mountpoint -q /mnt; then
+        echo "🔽 Unmounting /mnt..."
+        umount -R /mnt 2>/dev/null || true
+    fi
+    sync
+    echo "✅ Cleanup complete. Safe to exit."
+}
+
+trap cleanup EXIT INT TERM
 #=========================================================================================================================================#    
     #BTRFS VOLUME UNLOADER IF RELOAD REQUIRED
     unmount_btrfs_and_swap() {
