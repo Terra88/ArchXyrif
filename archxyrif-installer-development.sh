@@ -36,7 +36,7 @@ echo "|                                                   Y8b d88P              
 echo "|                                                     Y88P                                          |"
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
 echo "|                                                                                                   |"
-echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               |"
+echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
 echo "#===================================================================================================#"
 echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
 echo "#===================================================================================================#"
