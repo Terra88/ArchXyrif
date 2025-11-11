@@ -301,12 +301,22 @@ while true; do
         
     if [[ "$MODE" == "UEFI" ]]; then
         # Compute remaining space for HOME
-        RESERVED=$(( (MODE=="UEFI" ? EFI_SIZE_MIB : BIOS_BOOT_SIZE_MIB)/1024 ))
+        RESERVED=$(( (MODE=="UEFI" ? EFI_SIZE_MIB)/1024 ))
+        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - RESERVED - 1))
+        if (( REMAINING_HOME_GIB < 1 )); then echo "❌ Not enough space for HOME"; continue; fi
+
+        read -rp "Enter HOME partition size in GiB (ENTER for remaining $REMAINING_HOME_GIB GiB): " HOME_SIZE_GIB
+        HOME_SIZE_GIB="${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}"
+        if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
+        HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
+        break
+        
+    else [[ "$MODE" == "BIOS" ]];
+        # Compute remaining space for HOME
+        RESERVED=$(( (MODE=="BIOS" ? BIOS_BOOT_SIZE_MIB)/1024 ))
         REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - RESERVED - 1))
         if (( REMAINING_HOME_GIB < 1 )); then echo "❌ Not enough space for HOME"; continue; fi
         
-    else
-    
         read -rp "Enter HOME partition size in GiB (ENTER for remaining $REMAINING_HOME_GIB GiB): " HOME_SIZE_GIB
         HOME_SIZE_GIB="${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}"
         if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
