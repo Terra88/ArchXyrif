@@ -34,8 +34,8 @@ echo "|                                                     Y88P                
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
 echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               |"
-echo "|===================================================================================================#===================================#"
-echo "|-Table of Contents:                |-0) Disk Format INFO                                                                               |"
+echo "|===================================================================================================#"
+echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
 echo "|===================================|===================================================================================================|"
 echo "|-1)Disk Selection & Format         |-archformat.sh                                                                                     |"
 echo "|-2)Pacstrap:Installing Base system |- shows lsblk and asks which device to use                                                         |"
@@ -46,13 +46,14 @@ echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT
 echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------------------------------------------|"
 echo "|-Optional:                         |-WARNING: destructive. Run as root. Double-check device before continuing.                         |"
 echo "|-8A)GPU-Guided install             |---------------------------------------------------------------------------------------------------|"
-echo "|-8B)Guided Window Manager Install  |-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                |"
-echo "|-8C)Guided Login Manager Install   |===================================================================================================#"
-echo "|-9)Extra Pacman & AUR PKG Install  |"
-echo "|-If Hyprland Selected As WM        |"
-echo "|-10)Optional Theme install         |"
-echo "#===================================#"
-echo
+echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                   |"
+echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                       |"
+echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                         |"
+echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬)                     |"
+echo "|-10)Optional Theme install         | ( •̀ᴗ•́ )و ̑̑  (◣◢)ψ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ)                      |"
+echo "#===================================#==============================================================#"
+echo "-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                |"
+echo "===================================================================================================#"
 #!/usr/bin/env bash
 set -euo pipefail
 #=========================================================================================================================================#
