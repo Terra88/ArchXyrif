@@ -163,11 +163,6 @@ unmount_device() {
     
 #=========================================================================================================================================#
 
-echo "Cleaning any old mounts from $DEV ..."
-unmount_device "$DEV"
-unmount_btrfs_and_swap "$DEV"
-
-#=========================================================================================================================================#
 #===================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
 #===================================================================================================#
@@ -583,6 +578,8 @@ logo
         die "No valid device supplied."
     fi
 
+    echo "Cleaning any old mounts from $DEV ..."
+    unmount_device "$DEV"
     unmount_btrfs_and_swap "$DEV"
 
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will destroy data)"; then
