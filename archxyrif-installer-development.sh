@@ -1376,11 +1376,11 @@ else
     echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
 
     # Compute the parent disk of the future root partition BEFORE chroot
-    ROOT_PART=$(findmnt -n -o SOURCE /mnt)
+    ROOT_PART=$(findmnt -n -o SOURCE /mnt | sed 's/\[.*//')
     BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
+    
     echo "→ Installing GRUB on /dev/$BIOS_DISK (root partition: $ROOT_PART)..."
-
-    # Install GRUB inside chroot
+    
     arch-chroot /mnt grub-install --target=i386-pc --recheck /dev/"$BIOS_DISK"
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
