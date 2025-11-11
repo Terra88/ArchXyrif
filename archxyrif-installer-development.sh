@@ -533,133 +533,122 @@ main_menu() {
     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
     echo
 
-    # Ask for device and validate
-    read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-    DEV="${DEV:-}"
+    # Ask for device
+    read -rp $'\nEnter target disk (e.g. /dev/sda or /dev/nvme0n1): ' DEV
     if [[ -z "$DEV" ]]; then
-        die "No device provided. Aborting."
+        die "❌ No device entered. Aborting."
     fi
     if [[ ! -b "$DEV" ]]; then
-        die "Device '$DEV' not found or not a block device."
+        die "❌ '$DEV' is not a valid block device."
     fi
 
-    # Confirm selection
-    echo -e "\nYou selected: ${YELLOW}$DEV${RESET}"
-    echo "This WILL DESTROY ALL DATA on $DEV (partitions, LUKS, LVM, etc)."
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-        die "User aborted."
+    echo -e "\nSelected disk: ${YELLOW}$DEV${RESET}"
+    echo "⚠️  ALL DATA ON THIS DISK WILL BE ERASED!"
+    if ! confirm "Proceed with wiping and partitioning $DEV?"; then
+        die "User aborted installation."
     fi
 
-    # 1) Robust cleanup of the device to remove mounts, subvolumes, swap, and notify kernel
-    echo -e "\n→ Running robust cleanup on $DEV (unmounts, swapoff, partprobe) ..."
-    cleanup_device "$DEV" || echo "Warning: cleanup_device returned non-zero, continuing cautiously."
+    # Step 1: Cleanup
+    echo -e "\n→ Cleaning and unmounting all existing partitions on $DEV..."
+    cleanup_device "$DEV" || echo "⚠️ cleanup_device had warnings, continuing..."
     unmount_device "$DEV" || true
 
-    # Double-check no mounts remain on this device
-    mapfile -t _left_mnts < <(mount | awk -v d="$DEV" '$1 ~ d {print $3}' || true)
-    if (( ${#_left_mnts[@]} > 0 )); then
-        echo "⚠️  Found mounts still referencing $DEV:"
-        printf "   %s\n" "${_left_mnts[@]}"
-        echo "Attempting to unmount them forcefully..."
-        for m in "${_left_mnts[@]}"; do
+    # Double-check mounts
+    mapfile -t ACTIVE_MOUNTS < <(mount | awk -v d="$DEV" '$1 ~ d {print $3}' || true)
+    if (( ${#ACTIVE_MOUNTS[@]} > 0 )); then
+        echo "→ Still mounted: ${ACTIVE_MOUNTS[*]}"
+        echo "Force unmounting..."
+        for m in "${ACTIVE_MOUNTS[@]}"; do
             umount -l "$m" 2>/dev/null || true
         done
         sleep 1
     fi
 
-    # 2) Re-notify udev & kernel (safe extra attempt)
-    echo "→ Notifying udev and kernel..."
+    # Step 2: Notify kernel
+    echo -e "\n→ Informing kernel of changes..."
     udevadm settle || true
-    partprobe "$DEV" || true
+    partprobe "$DEV" 2>/dev/null || true
     partx -u "$DEV" 2>/dev/null || true
     sleep 1
 
-    # 3) Clear signatures / LUKS / LVM - best-effort
-    echo "→ Clearing partition table signatures and old mappings (best-effort)..."
-    clear_partition_table_luks_lvmsignatures "$DEV" || echo "Warning: clearing signatures failed or returned non-zero."
+    # Step 3: Clear old signatures
+    echo -e "\n→ Clearing LVM/LUKS/FS signatures..."
+    clear_partition_table_luks_lvmsignatures "$DEV" || echo "⚠️ Signature clearing non-critical."
 
-    # 4) Detect boot mode & calculate swap
+    # Step 4: Detect system mode
     detect_boot_mode
     calculate_swap
-
-    # 5) Filesystem choice & partition size prompts
     select_filesystem
     ask_partition_sizes
 
-    # 6) Show preview and require confirmation
+    # Step 5: Preview partitions
     preview_partitions
-    if ! confirm "Proceed to create partitions on $DEV as shown above?"; then
+    if ! confirm "Confirm and write new partition table to $DEV?"; then
         die "User canceled partition creation."
     fi
 
-    # 7) Create partitions (partition_disk handles actual parted calls)
-    echo -e "\n→ Creating partition table and partitions on $DEV ..."
+    # Step 6: Create partitions
+    echo -e "\n→ Creating partitions on $DEV..."
     partition_disk || {
-        echo "❌ partition_disk failed. Attempting to re-run kernel notification and retry once..."
+        echo "⚠️ Partitioning failed once, retrying after reloading kernel..."
         udevadm settle || true
         partprobe "$DEV" || true
-        partx -u "$DEV" 2>/dev/null || true
+        partx -u "$DEV" || true
         sleep 2
-        # Try partitioning one more time
-        partition_disk || die "partition_disk failed a second time. Kernel believes partitions in use — reboot recommended."
+        partition_disk || die "❌ Partition creation failed twice. Reboot and retry."
     }
 
-    # 8) Ensure kernel sees the new partitions: retry several times
-    echo "→ Ensuring kernel recognizes the new partition table..."
-    attempts=0
-    max_attempts=6
+    # Step 7: Wait for kernel to see partitions
+    echo -e "\n→ Waiting for kernel to recognize new partitions..."
     psuf=$(part_suffix "$DEV")
-    expected_part="${DEV}${psuf}2"   # root partition presence check (part 2)
-    while (( attempts < max_attempts )); do
-        if lsblk -n "$expected_part" >/dev/null 2>&1; then
-            echo "→ Kernel now recognizes partitions."
+    expected_part="${DEV}${psuf}2"
+    for i in {1..6}; do
+        if lsblk -n "$expected_part" &>/dev/null; then
+            echo "✅ Kernel sees new partition table."
             break
         fi
-        echo "→ Kernel didn't pick up partitions yet (attempt $((attempts+1))/$max_attempts). Running partprobe/udevadm/partx..."
+        echo "→ Attempt $i: Forcing kernel to refresh partition table..."
         partprobe "$DEV" 2>/dev/null || true
         partx -u "$DEV" 2>/dev/null || true
         udevadm settle || true
         sleep 2
-        ((attempts++))
     done
-    if (( attempts >= max_attempts )); then
-        echo "⚠️ Kernel still didn't pick up the new partition table after ${max_attempts} attempts."
-        echo "This usually means the device or its partitions are still in use by the kernel/processes."
-        echo "Recommended actions:"
-        echo "  • Reboot the machine and re-run this script, or"
-        echo "  • Manually stop services that might be holding the device (e.g. lvm2, udisks2) and run 'partprobe $DEV' again."
-        read -rp "Press Enter to exit now (reboot recommended)..." _ || true
-        exit 1
+
+    if ! lsblk -n "$expected_part" &>/dev/null; then
+        echo -e "\n❌ Kernel still using old partition table!"
+        echo "Possible cause: device busy or process still holding /dev."
+        echo "Recommended action:"
+        echo "  - Run 'lsof /dev/sda' or 'fuser -v /dev/sda' to check usage"
+        echo "  - Stop any interfering services (udisks2, lvm2-monitor)"
+        echo "  - Then run 'partprobe $DEV' or REBOOT and retry"
+        die "Partition refresh failed — reboot required."
     fi
 
-    # 9) Format & mount partitions
-    echo -e "\n→ Formatting and mounting partitions (this will take a moment)..."
-    format_and_mount || die "format_and_mount failed. Aborting."
+    # Step 8: Format & mount
+    echo -e "\n→ Formatting and mounting partitions..."
+    format_and_mount || die "Formatting or mounting failed."
 
-    # 10) Prepare chroot (mount pseudo-filesystems) but ensure mountpoints exist
-    echo -e "\n→ Preparing chroot (mounting /proc, /sys, /dev, /run under /mnt)..."
-    # make sure /mnt and required directories exist before prepare_chroot
-    mkdir -p /mnt /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot || true
-    prepare_chroot || {
-        echo "❌ prepare_chroot failed. Attempting to display current /mnt mounts for debugging:"
-        mount | grep /mnt || true
-        die "prepare_chroot failed — cannot continue safely."
-    }
+    # Step 9: Prepare chroot (pseudo-filesystems)
+    echo -e "\n→ Preparing chroot environment..."
+    mkdir -p /mnt /mnt/{proc,sys,dev,run,boot,home,var,cache,.snapshots} || true
+    prepare_chroot || die "prepare_chroot failed."
 
-    # 11) Ask about GRUB installation
-    if confirm "Install GRUB now?"; then
-        echo -e "\n→ Installing GRUB..."
-        install_grub || die "install_grub failed."
+    # Step 10: GRUB installation
+    echo
+    if confirm "Install GRUB bootloader now?"; then
+        install_grub || die "GRUB installation failed."
     else
-        echo "→ Skipping GRUB installation as requested."
+        echo "→ Skipping GRUB installation."
     fi
 
-    # 12) Final message
-    echo -e "\n${GREEN}All done (partitioning & mount steps).${RESET}"
-    echo "Next recommended steps:"
-    echo "  1) pacstrap /mnt <packages>"
-    echo "  2) genfstab -U /mnt >> /mnt/etc/fstab"
-    echo "  3) arch-chroot /mnt and finish system config"
+    # Step 11: Completion message
+    echo -e "\n${GREEN}✅ Installation phase complete!${RESET}"
+    echo "Next steps:"
+    echo "  1️⃣  pacstrap /mnt base linux linux-firmware"
+    echo "  2️⃣  genfstab -U /mnt >> /mnt/etc/fstab"
+    echo "  3️⃣  arch-chroot /mnt"
+    echo "  4️⃣  Configure locale, timezone, hostname, and root password"
+    echo
 }
 
 #=========================================================================================================================================#
