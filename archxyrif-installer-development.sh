@@ -445,71 +445,65 @@ format_and_mount() {
 # -----------------------
 install_grub() {
     if [[ "$MODE" == "BIOS" ]]; then
-    
-                echo "Installing GRUB for BIOS..."
-                arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot "$DEV"
-            else
-                    echo "Detected UEFI environment — installing GRUB (UEFI)..."
-                
-                    # Ensure EFI system partition is mounted
-                    if ! mountpoint -q /mnt/boot/efi; then
-                        echo "→ Mounting EFI system partition..."
-                        mkdir -p /mnt/boot/efi
-                        mount "$P1" /mnt/boot/efi
-                    fi
-                
-                    GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-                
-                    # Install GRUB for UEFI
-                    arch-chroot /mnt grub-install \
-                        --target=x86_64-efi \
-                        --efi-directory=/boot/efi \
-                        --bootloader-id=GRUB \
-                        --modules="$GRUB_MODULES" \
-                        --recheck \
-                        --no-nvram
-                
-                    # Fallback EFI binary
-                    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-                
-                    # Clean old EFI boot entries
-                    DISK="${DEV}"
-                    PARTNUM=1
-                    LABEL="Arch Linux"
-                    LOADER='\EFI\GRUB\grubx64.efi'
-                
-                    for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-                        efibootmgr -b "$bootnum" -B || true
-                    done
-                
-                    efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-                
-                    # Generate GRUB config
-                    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-                
-                    # Secure Boot signing
-                    if command -v sbctl >/dev/null 2>&1; then
-                        echo "→ Signing EFI binaries for Secure Boot..."
-                        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-                        arch-chroot /mnt sbctl enroll-keys --microsoft
-                        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-                        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-                    fi
+        echo "Installing GRUB for BIOS..."
+        arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot "$DEV"
 
-    echo "✅ GRUB installation complete (UEFI)."
-    echo "Verifying EFI boot entries..."
-    efibootmgr -v || true
-            fi
-            
-            arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-            
-        fi
-        
     else
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || die "Failed to install GRUB (UEFI)"
+        echo "Detected UEFI environment — installing GRUB (UEFI)..."
+
+        # Ensure EFI system partition is mounted
+        if ! mountpoint -q /mnt/boot/efi; then
+            echo "→ Mounting EFI system partition..."
+            mkdir -p /mnt/boot/efi
+            mount "$P1" /mnt/boot/efi
+        fi
+
+        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+
+        # Install GRUB for UEFI
+        arch-chroot /mnt grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=GRUB \
+            --modules="$GRUB_MODULES" \
+            --recheck \
+            --no-nvram
+
+        # Fallback EFI binary
+        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+        # Clean old EFI boot entries
+        DISK="${DEV}"
+        PARTNUM=1
+        LABEL="Arch Linux"
+        LOADER='\EFI\GRUB\grubx64.efi'
+
+        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+            efibootmgr -b "$bootnum" -B || true
+        done
+
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+
+        # Generate GRUB config
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+        # Secure Boot signing
+        if command -v sbctl >/dev/null 2>&1; then
+            echo "→ Signing EFI binaries for Secure Boot..."
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+        fi
+
+        echo "✅ GRUB installation complete (UEFI)."
+        echo "Verifying EFI boot entries..."
+        efibootmgr -v || true
     fi
+
+    echo "✅ Generating final GRUB config..."
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate GRUB config"
-    echo "GRUB installed."
+    echo "✅ GRUB installed successfully."
 }
 
 #=========================================================================================================================================#
