@@ -99,48 +99,74 @@ part_suffix() {
 #=========================================================================================================================================#
 
 cleanup_device() {
-    local dev="$1"
-    echo -e "\n🧹 Cleaning device $dev ..."
+    local DEV="$1"
+    echo -e "\n🧹 Cleaning device $DEV ..."
 
-    # Turn off swap on this device
+    # 1️⃣ Turn off swap on this device
     mapfile -t SWAPS < <(swapon --show=NAME --noheadings || true)
     for s in "${SWAPS[@]}"; do
-        if [[ "$s" == "$dev"* ]]; then
+        if [[ "$s" == "$DEV"* ]]; then
             echo "→ Turning off swap $s"
             swapoff "$s" || true
         fi
     done
 
-    # Unmount all mounts on this device (deepest first)
-    mapfile -t MOUNTS < <(mount | awk -v d="$dev" '$1 ~ d { print $3 }' | sort -r)
+    # 2️⃣ Unmount all mounts on this device (deepest first)
+    mapfile -t MOUNTS < <(mount | awk -v d="$DEV" '$1 ~ d { print $3 }' | sort -r)
     for m in "${MOUNTS[@]}"; do
         echo "→ Unmounting $m"
         umount -l "$m" 2>/dev/null || true
     done
 
-    # Handle BTRFS subvolumes specifically
+    # 3️⃣ Handle BTRFS subvolumes specifically
     mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
     for bm in "${BTRFS_MOUNTS[@]}"; do
         src=$(findmnt -n -o SOURCE "$bm" 2>/dev/null || true)
-        if [[ "$src" == "$dev"* ]]; then
+        if [[ "$src" == "$DEV"* ]]; then
             echo "→ Unmounting BTRFS subvolume $bm"
             umount -l "$bm" 2>/dev/null || true
         fi
     done
 
-    # Remove leftover contents in /mnt
+    # 4️⃣ Close any LUKS or LVM mappings
+    for map in /dev/mapper/*; do
+        if [[ -L "$map" ]]; then
+            target=$(readlink -f "$map" || true)
+            if [[ "$target" == "$DEV"* ]]; then
+                name=$(basename "$map")
+                echo "→ Closing LUKS/LVM mapping $name (points at $target)"
+                cryptsetup luksClose "$name" 2>/dev/null || true
+                vgchange -an "$name" 2>/dev/null || true
+            fi
+        fi
+    done
+
+    # 5️⃣ Kill any lingering processes using the device
+    mapfile -t LSOF_PROCS < <(lsof "$DEV" 2>/dev/null | awk 'NR>1 {print $2}' | sort -u)
+    for pid in "${LSOF_PROCS[@]}"; do
+        echo "→ Killing process $pid using $DEV"
+        kill -9 "$pid" 2>/dev/null || true
+    done
+
+    # 6️⃣ Clear /mnt if mounted
     if mountpoint -q /mnt; then
         echo "→ Cleaning /mnt"
         umount -R /mnt 2>/dev/null || true
         rm -rf /mnt/* 2>/dev/null || true
     fi
 
-    # Notify kernel of partition table changes
-    echo "→ Informing kernel of partition table changes"
-    partprobe "$dev"
+    # 7️⃣ Notify kernel of changes
+    echo "→ Informing kernel of partition table changes..."
+    partprobe "$DEV" 2>/dev/null || true
     udevadm settle
 
-    echo "✅ Device $dev cleanup complete."
+    # 8️⃣ Wait a moment and re-check if device is free
+    sleep 2
+    if lsblk "$DEV" | grep -q part; then
+        echo "⚠️ Warning: kernel still sees partitions on $DEV. A reboot may be required."
+    else
+        echo "✅ Device $DEV cleanup complete and kernel sees no partitions."
+    fi
 }
 
 
