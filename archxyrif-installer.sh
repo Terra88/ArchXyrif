@@ -1,9 +1,6 @@
 #!/usr/bin/env bash
 #===========================================================================#
-#GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88
-#                                                                                    
-#===========================================================================#
-#===========================================================================
+# GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88        
 # Author  : Terra88 
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
@@ -37,37 +34,24 @@ echo "#                                                     Y88P                
 echo "#         Semi-Automated / Interactive - Arch Linux Installer                                       #"
 echo "#                                                                                                   #"
 echo "#        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88                        #"
-echo "#===================================================================================================#"
-echo "#-Table of Contents:                #"
-echo "#===================================#"
-echo "#-1)Disk Selection & Format         #"
-echo "#-2)Pacstrap:Installing Base system #"
-echo "#-3)Generating fstab                #"
-echo "#-4)Setting Basic variables         #"
-echo "#-5)Installing GRUB for UEFI        #"
-echo "#-6)Setting configs/enabling.srv    #"
-echo "#-7)Setting Pacman Mirror           #"
-echo "#-Optional:                         #"
-echo "#-8A)GPU-Guided install             #"
-echo "#-8B)Guided Window Manager Install  #"
-echo "#-8C)Guided Login Manager Install   #"   
+echo "#===================================================================================================#===================================#"
+echo "#-Table of Contents:                #-0) Disk Format INFO                                                                               #"
+echo "#===================================#===================================================================================================#"
+echo "#-1)Disk Selection & Format         #-archformat.sh                                                                                     #"
+echo "#-2)Pacstrap:Installing Base system #- shows lsblk and asks which device to use                                                         #"
+echo "#-3)Generating fstab                #- wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors should unmount disks etc)    #"
+echo "#-4)Setting Basic variables         #- Partitions: BOOT/EFI(1024MiB)||Opt.swap on/off:(2*ram<=16GB||1*>=16GB)                           #"
+echo "#-5)Installing GRUB for UEFI        #- (/ROOT)(/HOME)Opt:1Big Drive or Separate partitions  || Set Size Manually for Root and/or Home   #"
+echo "#-6)Setting configs/enabling.srv    #- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                                                    #"
+echo "#-7)Setting Pacman Mirror           #===================================================================================================#"
+echo "#-Optional:                         #-WARNING: destructive. Run as root. Double-check device before continuing.                         #"
+echo "#-8A)GPU-Guided install             #===================================================================================================#"
+echo "#-8B)Guided Window Manager Install  #-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                #"
+echo "#-8C)Guided Login Manager Install   #===================================================================================================#"
 echo "#-9)Extra Pacman & AUR PKG Install  #"
 echo "#-If Hyprland Selected As WM        #"
 echo "#-10)Optional Theme install         #"
-echo "#===================================================================================================#"
-echo "#-0) Disk Format INFO                                                                               # "
-echo "#===================================================================================================#"
-echo "#-archformat.sh                                                                                     #"
-echo "#- shows lsblk and asks which device to use                                                         #"
-echo "#- wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors should unmount disks etc)    #"
-echo "#- Partitions: BOOT/EFI(1024MiB)||Opt.swap on/off:(2*ram<=16GB||1*>=16GB)                           #"
-echo "#- (/ROOT)(/HOME)Opt:1Big Drive or Separate partitions  || Set Size Manually for Root and/or Home   #"
-echo "#- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                                                    #"
-echo "#===================================================================================================#"
-echo "#-WARNING: destructive. Run as root. Double-check device before continuing.                         #"
-echo "#===================================================================================================#"
-echo "#-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                #"
-echo "#===================================================================================================#"
+echo "#===================================#"
 echo
 #!/usr/bin/env bash
 set -euo pipefail
@@ -531,8 +515,8 @@ quick_partition_swap_on_root()
                 echo "#===================================================================================================#"
                 echo "#-Partition table (MiB):                                                                            #"
                 echo "#  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          #"
-                echo "#  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${SWAP_SIZE_MIB} MiB)                                #"
-                echo "#  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${ROOT_SIZE_GIB}, root)                              #"
+                echo "#  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB} GiB)                                #"
+                echo "#  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB}, MiB)                               #"
                 echo "#===================================================================================================#"
                 echo "#-Filesystem Partition Options                                                                      #"
                 echo "#===================================================================================================#"
@@ -556,13 +540,13 @@ quick_partition_swap_on_root()
                         case "$FS_CHOICE" in
                             1)
                                 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
                                 parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
                                 ;;
                             2)
                                 parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
                                 parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
                                 ;;
                             *)
                                 echo "Invalid choice"; exec "$0";;
@@ -1424,40 +1408,6 @@ install_with_retry() {
     return 1
 }
 
-# Conflict-preventing, retry-aware installer
-install_with_retry() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local CMD=("$@")
-    local MAX_RETRIES=3
-    local RETRY_DELAY=5
-    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
-
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
-        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
-            echo "✅ Installation succeeded"
-            return 0
-        else
-            echo "⚠️ Failed attempt $i"
-            if (( i < MAX_RETRIES )); then
-                "${CHROOT_CMD[@]}" bash -c '
-                    pacman-key --init
-                    pacman-key --populate archlinux
-                    pacman -Sy --noconfirm archlinux-keyring
-                '
-                [[ -n "$MIRROR_COUNTRY" ]] && \
-                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
-                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
-                sleep "$RETRY_DELAY"
-            fi
-        fi
-    done
-
-    echo "❌ Installation failed after $MAX_RETRIES attempts."
-    return 1
-}
-
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -1889,3 +1839,8 @@ echo "  swapoff ${P3} || true"
 echo "  reboot"
 echo
 echo "Done."
+echo "#===========================================================================#"
+echo "# -GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      #"
+echo "# -Author  : Terra88                                                        #"
+echo "# -GitHub  : http://github.com/Terra88                                      #"
+echo "#===========================================================================#"
