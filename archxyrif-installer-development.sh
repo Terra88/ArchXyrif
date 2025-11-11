@@ -361,6 +361,7 @@ format_and_mount() {
     mkswap "$P3"
     swapon "$P3" || true
 
+    # Root & Home formatting
     case "$FS_CHOICE" in
         1)
             mkfs.ext4 -F "$P2"
@@ -379,25 +380,23 @@ format_and_mount() {
             ;;
     esac
 
-    mkdir -p /mnt
-    # mount root & home
+    # Mount root & home
+    mkdir -p /mnt /mnt/home /mnt/boot
+
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mount "$P2" /mnt
         for sv in @ @home @snapshots @cache @log; do
-            btrfs subvolume create "/mnt/$sv" || true
+            btrfs subvolume create "/mnt/$sv"
         done
         umount /mnt
         mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-        mkdir -p /mnt/home
         mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
     else
         mount "$P2" /mnt
-        mkdir -p /mnt/home
         mount "$P4" /mnt/home
     fi
 
-    # boot/efi
-    mkdir -p /mnt/boot
+    # Boot / EFI
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1"
         mount "$P1" /mnt/boot
