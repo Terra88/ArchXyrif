@@ -354,7 +354,7 @@ format_and_mount() {
     local P1="${DEV}${ps}1"   # Boot/EFI
     local P2="${DEV}${ps}2"   # Root
     local P3="${DEV}${ps}3"   # Swap
-    local P4="${DEV}${ps}4"   # Home (EXT4 if separate)
+    local P4="${DEV}${ps}4"   # Home (if separate)
 
     echo -e "\n🧱 Formatting partitions..."
 
@@ -381,7 +381,7 @@ format_and_mount() {
             ;;
     esac
 
-    # Ensure main mount points exist
+    # Ensure base mount points exist
     mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi /mnt/{var,cache,.snapshots,log}
 
     # Mount root & home
@@ -408,12 +408,14 @@ format_and_mount() {
         mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/cache || die "Failed to mount subvolume @cache"
         mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/log || die "Failed to mount subvolume @log"
     else
-        # EXT4 root + home (or EXT4 home)
+        # EXT4 root + home
         mount "$P2" /mnt || die "Failed to mount root $P2 on /mnt"
+        mkdir -p /mnt/home
         mount "$P4" /mnt/home || die "Failed to mount home $P4 on /mnt/home"
     fi
 
-    # Mount boot/EFI
+    # **Mount boot/EFI after root is mounted**
+    mkdir -p /mnt/boot
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1" || die "Failed to format EFI $P1"
         mount "$P1" /mnt/boot || die "Failed to mount EFI $P1 on /mnt/boot"
@@ -424,6 +426,7 @@ format_and_mount() {
 
     echo "✅ All partitions formatted and mounted under /mnt successfully."
 }
+
 #=========================================================================================================================================#
 # -----------------------
 # GRUB installation
