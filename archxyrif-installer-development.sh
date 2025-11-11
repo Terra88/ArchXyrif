@@ -291,7 +291,7 @@ ask_partition_sizes() {
     DISK_GIB_INT=${DISK_GIB%.*}
     echo "💽 Disk detected: $DISK_GIB_INT GiB"
 
-    while true; do
+while true; do
         lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
         MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
         read -rp "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
@@ -312,8 +312,9 @@ ask_partition_sizes() {
         if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
         HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
         break
-        
-    done
+    fi
+    
+done
 }
 
 #=========================================================================================================================================#
