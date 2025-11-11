@@ -1327,18 +1327,6 @@ echo "Installing GRUB (UEFI)..."
 
 if [[ -d /sys/firmware/efi ]]; then
 
-        arch-chroot /mnt bash -euo pipefail<<'EOF'
-
-        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
-        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
-        
-        grub-mkconfig -o /boot/grub/grub.cfg
-        echo "✅ GRUB installation complete."
-
-EOF
-        
-else
-
         # Determine EFI partition mountpoint and ensure it’s /boot/efi
         if ! mountpoint -q /mnt/boot/efi; then
           echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
@@ -1392,6 +1380,23 @@ else
         echo
         echo "Verifying EFI boot entries..."
         efibootmgr -v || true
+        
+else
+
+        # EFI partition is expected to be mounted on /boot (as done before chroot)
+        echo "Installing GRUB (UEFI)..."
+
+        if [[ -d /sys/firmware/efi ]]; then
+
+        arch-chroot /mnt bash -euo pipefail<<'EOF'
+
+        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
+        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
+        
+        grub-mkconfig -o /boot/grub/grub.cfg
+        echo "✅ GRUB installation complete."
+
+EOF
 
 fi
 
