@@ -166,7 +166,8 @@ unmount_device() {
 #===================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
 #===================================================================================================#
-
+clear_partition_table_luks_lvmsignatures()
+{
         # Clear partition table / LUKS / LVM signatures
         echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
         which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
@@ -223,7 +224,7 @@ unmount_device() {
 
             # Clean up /mnt (optional)
             rm -rf /mnt/* 2>/dev/null || true
-
+}
 #=========================================================================================================================================#
 #----------------------------------------------#
 #-------------------MAPPER---------------------#
@@ -581,6 +582,7 @@ logo
     echo "Cleaning any old mounts from $DEV ..."
     unmount_device "$DEV"
     unmount_btrfs_and_swap "$DEV"
+    clear_partition_table_luks_lvmsignatures "$DEV"
 
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will destroy data)"; then
         die "User aborted."
