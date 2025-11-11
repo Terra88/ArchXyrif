@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #===========================================================================#
-# GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88        
+# GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88        
 # Author  : Terra88 
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
@@ -33,7 +33,7 @@ echo "#                                                   Y8b d88P              
 echo "#                                                     Y88P                                          #"  
 echo "#         Semi-Automated / Interactive - Arch Linux Installer                                       #"
 echo "#                                                                                                   #"
-echo "#        GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88                        #"
+echo "#        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               #"
 echo "#===================================================================================================#===================================#"
 echo "#-Table of Contents:                #-0) Disk Format INFO                                                                               #"
 echo "#===================================#===================================================================================================#"
@@ -1840,7 +1840,7 @@ echo "  reboot"
 echo
 echo "Done."
 echo "#===========================================================================#"
-echo "# -GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88      #"
+echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
 echo "# -Author  : Terra88                                                        #"
 echo "# -GitHub  : http://github.com/Terra88                                      #"
 echo "#===========================================================================#"
