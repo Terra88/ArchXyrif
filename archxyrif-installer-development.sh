@@ -307,28 +307,6 @@ ask_partition_sizes() {
     echo "Root: ${ROOT_SIZE_GIB} GiB, Home: ${HOME_SIZE_GIB} GiB, Swap: $((SWAP_SIZE_MIB/1024)) GiB, Boot reserved: $((BOOT_SIZE_MIB/1024)) GiB"
 }
 
-partition_disk() {
-    local ps
-    ps=$(part_suffix "$DEV")
-    parted -s "$DEV" mklabel gpt
-
-    if [[ "$MODE" == "BIOS" ]]; then
-        parted -s "$DEV" mkpart primary ext4 1MiB "${BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary linux-swap $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB+1)) 100%
-    else
-        parted -s "$DEV" mkpart primary fat32 1MiB "${BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary linux-swap $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB+1)) 100%
-    fi
-
-    partprobe "$DEV"
-    udevadm settle
-    echo "✅ Partitions created."
-}
 #=========================================================================================================================================#
 
 # -----------------------
