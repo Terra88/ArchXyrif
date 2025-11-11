@@ -285,46 +285,70 @@ calculate_swap() {
 #--------------------------------------#
 
 ask_partition_sizes() {
+    #---------------------------------------------
+    # Detect total disk size and basic info
+    #---------------------------------------------
     DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
-    DISK_SIZE_MIB=$((DISK_SIZE_MIB / 1024 / 1024))
-    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
+    DISK_SIZE_MIB=$((DISK_SIZE_MIB / 1024 / 1024))    # Convert bytes → MiB
+    DISK_GIB=$(awk -v s="$DISK_SIZE_MIB" 'BEGIN { printf "%.2f", s/1024 }')
     DISK_GIB_INT=${DISK_GIB%.*}
-    echo "💽 Disk detected: $DISK_GIB_INT GiB"
 
-while true; do
+    echo "💽 Disk detected: ${DISK_GIB_INT} GiB total."
+
+    #---------------------------------------------
+    # Ask interactively for partition sizes
+    #---------------------------------------------
+    while true; do
         lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+
         MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
         read -rp "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-        if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
-        if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then echo "❌ Too large. Max safe root: $MAX_ROOT_GIB GiB"; continue; fi
-        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-        
-    if [[ "$MODE" == "UEFI" ]]; then
-        # Compute remaining space for HOME
-        RESERVED=$(( (MODE=="UEFI" ? EFI_SIZE_MIB)/1024 ))
-        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - RESERVED - 1))
-        if (( REMAINING_HOME_GIB < 1 )); then echo "❌ Not enough space for HOME"; continue; fi
 
-        read -rp "Enter HOME partition size in GiB (ENTER for remaining $REMAINING_HOME_GIB GiB): " HOME_SIZE_GIB
+        # Basic input validation
+        if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+            echo "❌ Must be numeric"
+            continue
+        fi
+        if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
+            echo "❌ Too large. Max safe root: $MAX_ROOT_GIB GiB"
+            continue
+        fi
+
+        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
+
+        #---------------------------------------------
+        # Compute remaining space for HOME, depending on mode
+        #---------------------------------------------
+        if [[ "$MODE" == "UEFI" ]]; then
+            # EFI partition is typically 512–1024 MiB
+            RESERVED=$(( EFI_SIZE_MIB / 1024 ))
+        else
+            # BIOS /boot partition takes about 512 MiB
+            RESERVED=$(( BIOS_BOOT_SIZE_MIB / 1024 ))
+        fi
+
+        # Compute remaining GiB for HOME
+        REMAINING_HOME_GIB=$(( DISK_GIB_INT - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - RESERVED - 1 ))
+
+        if (( REMAINING_HOME_GIB < 1 )); then
+            echo "❌ Not enough space for HOME."
+            continue
+        fi
+
+        #---------------------------------------------
+        # Ask user for HOME size
+        #---------------------------------------------
+        read -rp "Enter HOME partition size in GiB (ENTER for remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
         HOME_SIZE_GIB="${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}"
-        if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
+
+        if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then
+            echo "❌ Must be numeric"
+            continue
+        fi
+
         HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
         break
-        
-    else [[ "$MODE" == "BIOS" ]];
-        # Compute remaining space for HOME
-        RESERVED=$(( (MODE=="BIOS" ? BIOS_BOOT_SIZE_MIB)/1024 ))
-        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - RESERVED - 1))
-        if (( REMAINING_HOME_GIB < 1 )); then echo "❌ Not enough space for HOME"; continue; fi
-        
-        read -rp "Enter HOME partition size in GiB (ENTER for remaining $REMAINING_HOME_GIB GiB): " HOME_SIZE_GIB
-        HOME_SIZE_GIB="${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}"
-        if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then echo "❌ Must be numeric"; continue; fi
-        HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
-        break
-    fi
-    
-done
+    done
 }
 
 #=========================================================================================================================================#
