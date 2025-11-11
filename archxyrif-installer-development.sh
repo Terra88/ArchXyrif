@@ -564,7 +564,7 @@ preview_partitions() {
 # Main interactive flow
 # -----------------------
 main_menu() {
-logo
+
     echo "Available block devices:"
     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
     read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
@@ -623,11 +623,10 @@ echo
 }
 
 #=========================================================================================================================================#
-echo
+logo
 echo "#===================================================================================================#"
-echo "# 1 Choose Partitioning Mode                                                                      #"
+echo "# 1 Choose Partitioning Mode                                                                        #"
 echo "#===================================================================================================#"
-echo
 echo
             echo "#==================================================#"
             echo "#     Select partitioning method for $DEV:         #"
