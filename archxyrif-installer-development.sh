@@ -187,41 +187,7 @@ unmount_device() {
     echo "✅ Device $dev unmounted."
 }
 
-#=========================================================================================================================================#    
-
-# --------------------------------------------
-# Define all helpers FIRST (no references yet)
-# --------------------------------------------
-unmount_btrfs_and_swap() {
-    local dev="$1"
-    echo "Unmounting any mounts and swap from $dev ..."
-    mapfile -t SWAPS < <(swapon --show=NAME --noheadings || true)
-    for s in "${SWAPS[@]}"; do
-        if [[ "$s" == "$dev"* ]]; then
-            swapoff "$s" || true
-        fi
-    done
-
-    mapfile -t MOUNTS < <(mount | awk -v d="$dev" '$1 ~ d { print $3 }' | sort -r || true)
-    for m in "${MOUNTS[@]}"; do
-        umount -l "$mnt" 2>/dev/null || true
-    done
-
-    mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r || true)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        src=$(findmnt -n -o SOURCE "$bm" 2>/dev/null || true)
-        if [[ "$src" == "$dev"* ]]; then
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
-
-    if mountpoint -q /mnt; then
-        echo "→ Unmounting /mnt ..."
-        umount -R /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
-    echo "✅ Done unmounting $dev."
-}
+#=========================================================================================================================================#  
     
 #=========================================================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
