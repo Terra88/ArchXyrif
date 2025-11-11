@@ -1325,17 +1325,18 @@ sleep 1
 
 
 if [[ -d /sys/firmware/efi ]]; then
-    echo "Installing GRUB (UEFI)..."
-    # EFI partition is expected to be mounted on /boot (as done before chroot)
-    
+    echo "Detected UEFI environment — installing GRUB (UEFI)..."
+
+    # Ensure EFI system partition is mounted
     if ! mountpoint -q /mnt/boot/efi; then
-        echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
+        echo "→ Mounting EFI system partition..."
         mkdir -p /mnt/boot/efi
         mount "$P1" /mnt/boot/efi
     fi
 
     GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
 
+    # Install GRUB for UEFI
     arch-chroot /mnt grub-install \
         --target=x86_64-efi \
         --efi-directory=/boot/efi \
@@ -1344,9 +1345,10 @@ if [[ -d /sys/firmware/efi ]]; then
         --recheck \
         --no-nvram
 
-    echo "→ Copying fallback EFI binary..."
+    # Fallback EFI binary
     arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
+    # Clean old EFI boot entries
     DISK="${DEV}"
     PARTNUM=1
     LABEL="Arch Linux"
@@ -1358,8 +1360,10 @@ if [[ -d /sys/firmware/efi ]]; then
 
     efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
 
+    # Generate GRUB config
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
+    # Secure Boot signing
     if command -v sbctl >/dev/null 2>&1; then
         echo "→ Signing EFI binaries for Secure Boot..."
         arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
@@ -1368,19 +1372,20 @@ if [[ -d /sys/firmware/efi ]]; then
         arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
     fi
 
-    echo "GRUB installation complete."
+    echo "✅ GRUB installation complete (UEFI)."
     echo "Verifying EFI boot entries..."
     efibootmgr -v || true
 
 else
     echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
 
-    # Compute the parent disk of the future root partition BEFORE chroot
+    # Detect root partition, strip Btrfs subvolume syntax if any
     ROOT_PART=$(findmnt -n -o SOURCE /mnt | sed 's/\[.*//')
     BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
-    
+
     echo "→ Installing GRUB on /dev/$BIOS_DISK (root partition: $ROOT_PART)..."
-    
+
+    # Install GRUB for BIOS
     arch-chroot /mnt grub-install --target=i386-pc --recheck /dev/"$BIOS_DISK"
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
 
