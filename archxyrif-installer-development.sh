@@ -1421,40 +1421,6 @@ install_with_retry() {
     return 1
 }
 
-# Conflict-preventing, retry-aware installer
-install_with_retry() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local CMD=("$@")
-    local MAX_RETRIES=3
-    local RETRY_DELAY=5
-    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
-
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
-        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
-            echo "✅ Installation succeeded"
-            return 0
-        else
-            echo "⚠️ Failed attempt $i"
-            if (( i < MAX_RETRIES )); then
-                "${CHROOT_CMD[@]}" bash -c '
-                    pacman-key --init
-                    pacman-key --populate archlinux
-                    pacman -Sy --noconfirm archlinux-keyring
-                '
-                [[ -n "$MIRROR_COUNTRY" ]] && \
-                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
-                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
-                sleep "$RETRY_DELAY"
-            fi
-        fi
-    done
-
-    echo "❌ Installation failed after $MAX_RETRIES attempts."
-    return 1
-}
-
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
     shift
