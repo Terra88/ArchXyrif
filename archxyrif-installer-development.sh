@@ -235,6 +235,8 @@ trap cleanup EXIT INT TERM
 #----------------------------------------------#
 #-------------------MAPPER---------------------#
 #----------------------------------------------#
+DEV="$DEV"                          # Target device
+partprobe "$DEV"
 
 MODE=""                        # UEFI or BIOS
 BIOS_BOOT_PART_CREATED=false    # Whether we need a BIOS boot partition
@@ -246,7 +248,6 @@ HOME_SIZE_MIB=0
 EFI_SIZE_MIB=1024               # Default EFI partition size
 BIOS_BOOT_SIZE_MIB=2            # Default BIOS boot partition size
 BUFFER_MIB=8                    # Safety buffer
-DEV="$DEV"                          # Target device
 
 #=========================================================================================================================================#
 
