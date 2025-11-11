@@ -70,10 +70,10 @@ set -euo pipefail
     confirm() {
     # ask Yes/No, return 0 if yes
     local msg="${1:-Continue?}"
-    read -r -p "$msg [yes/NO]: " ans
+    read -r -p "$msg [Y/n]: " ans
     case "$ans" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-       *) return 1 ;;
+        [Nn]|[Nn][Oo]) return 1 ;;
+       *) return 0 ;;
     esac
     }
 
@@ -162,10 +162,8 @@ unmount_device() {
 }
     
 #=========================================================================================================================================#
-
-#===================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
-#===================================================================================================#
+
 clear_partition_table_luks_lvmsignatures()
 {
         # Clear partition table / LUKS / LVM signatures
@@ -226,6 +224,22 @@ clear_partition_table_luks_lvmsignatures()
             rm -rf /mnt/* 2>/dev/null || true
 }
 #=========================================================================================================================================#
+
+#-------HELPER FOR CHROOT--------------------------------#
+
+prepare_chroot() {
+    echo "Mounting pseudo-filesystems for chroot..."
+    mount --types proc /proc /mnt/proc
+    mount --rbind /sys /mnt/sys
+    mount --make-rslave /mnt/sys
+    mount --rbind /dev /mnt/dev
+    mount --make-rslave /mnt/dev
+    mount --rbind /run /mnt/run
+    mount --make-rslave /mnt/run
+}
+
+#=========================================================================================================================================#
+
 #----------------------------------------------#
 #-------------------MAPPER---------------------#
 #----------------------------------------------#
@@ -595,6 +609,7 @@ main_menu() {
 
     partition_disk
     format_and_mount
+    prepare_chroot
 
     if confirm "Install GRUB now?"; then
         install_grub
