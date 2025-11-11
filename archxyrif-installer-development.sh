@@ -432,24 +432,47 @@ format_and_mount() {
 # GRUB installation
 # -----------------------
 install_grub() {
-    local ps
+    local ps base P1
     ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"
+    base=$(basename "$DEV")
+    P1="${DEV}${ps}1"
+
+    # Check that /mnt exists
+    if [[ ! -d /mnt ]]; then
+        die "/mnt does not exist. Cannot install GRUB."
+    fi
+
+    # Check that root is mounted
+    if ! mountpoint -q /mnt; then
+        die "/mnt is not a mount point. Cannot install GRUB."
+    fi
+
+    # Check that /mnt/boot exists
+    if [[ ! -d /mnt/boot ]]; then
+        mkdir -p /mnt/boot || die "Failed to create /mnt/boot"
+    fi
+
+    # If UEFI, ensure /mnt/boot/efi exists
+    if [[ "$MODE" == "UEFI" ]]; then
+        mkdir -p /mnt/boot/efi || die "Failed to create /mnt/boot/efi"
+    fi
+
+    # Prepare pseudo-filesystems for chroot
+    prepare_chroot || die "prepare_chroot failed"
+
     if [[ "$MODE" == "BIOS" ]]; then
         echo "Installing GRUB for BIOS..."
-        prepare_chroot
         arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" || die "grub-install (BIOS) failed"
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
     else
         echo "Installing GRUB for UEFI..."
-        prepare_chroot
-        # ensure EFI mounted inside chroot at /boot/efi
-        mkdir -p /mnt/boot/efi
-        mount "$P1" /mnt/boot/efi || true
+        # Mount EFI inside chroot
+        mount "$P1" /mnt/boot/efi || die "Failed to mount EFI partition $P1 on /mnt/boot/efi"
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck || die "grub-install (UEFI) failed"
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
     fi
-    echo "✅ GRUB installed."
+
+    echo "✅ GRUB installed successfully on $DEV ($MODE mode)."
 }
 
 #=========================================================================================================================================#
