@@ -229,7 +229,7 @@ clear_partition_table_luks_lvmsignatures()
 #----------------------------------------------#
 #-------------------MAPPER---------------------#
 #----------------------------------------------#
-DEV="$DEV"                          # Target device
+DEV=""                          # Target device
 # === Safe defaults (place near top, before any function that references these) ===
 MODE=""                         # "UEFI" or "BIOS"
 BIOS_BOOT_PART_CREATED=false    # whether BIOS boot partition was created/needed
