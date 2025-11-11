@@ -227,6 +227,7 @@ bios_uefi_check(){
 
                 if [[ ! -d /sys/firmware/efi ]]; then
                     echo "🧩 Creating BIOS Boot partition (for legacy GRUB on GPT)..."
+                    parted -s "$DEV" mklabel gpt
                     parted -s "$DEV" mkpart primary 1MiB 3MiB
                     parted -s "$DEV" set 1 bios_grub on
                     BIOS_BOOT_PART_CREATED=true
