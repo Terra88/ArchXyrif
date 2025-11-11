@@ -419,14 +419,20 @@ format_and_mount() {
         1)  # EXT4 root + home
             mkfs.ext4 -F "$P2"
             mkfs.ext4 -F "$P4"
+            ROOT_FS="ext4"
+            HOME_FS="ext4"
             ;;
         2)  # BTRFS root + home
             mkfs.btrfs -f "$P2"
             mkfs.btrfs -f "$P4"
+            ROOT_FS="btrfs"
+            HOME_FS="btrfs"
             ;;
         3)  # BTRFS root + EXT4 home
             mkfs.btrfs -f "$P2"
             mkfs.ext4 -F "$P4"
+            ROOT_FS="btrfs"
+            HOME_FS="ext4"
             ;;
         *)
             die "Invalid filesystem choice"
@@ -436,7 +442,7 @@ format_and_mount() {
     # Ensure /mnt exists
     mkdir -p /mnt
 
-    # Mount root
+    # Mount root and handle BTRFS subvolumes
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mount "$P2" /mnt
         echo "Creating BTRFS subvolumes..."
@@ -463,12 +469,11 @@ format_and_mount() {
         mount "$P1" /mnt/boot
     fi
 
-    # Optional: create standard directories
+    # Optional directories
     mkdir -p /mnt/{var,cache,.snapshots,boot}
 
     echo "All partitions formatted and mounted to /mnt."
 }
-
 #=========================================================================================================================================#
 # -----------------------
 # GRUB installation
