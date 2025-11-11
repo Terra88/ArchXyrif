@@ -1375,8 +1375,13 @@ if [[ -d /sys/firmware/efi ]]; then
 else
     # Legacy BIOS installation
     echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
-    arch-chroot /mnt bash -euo pipefail <<'EOF'
-grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
+
+    # Determine parent disk of root partition under /mnt
+    BIOS_DISK=$(lsblk -no pkname $(findmnt -no SOURCE /mnt))
+    echo "→ Installing GRUB on /dev/$BIOS_DISK..."
+
+    arch-chroot /mnt bash -euo pipefail <<EOF
+grub-install --target=i386-pc --recheck /dev/$BIOS_DISK
 grub-mkconfig -o /boot/grub/grub.cfg
 echo "✅ GRUB installation complete."
 EOF
