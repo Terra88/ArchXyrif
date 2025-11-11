@@ -235,16 +235,16 @@ bios_uefi_check() {
         echo "🧩 UEFI system detected."
         BOOT_IS_BIOS=false
         BIOS_BOOT_PART_CREATED=false
-        BIOS_BOOT_END=1
+        BIOS_BOOT_END=1             # No BIOS boot partition needed
         parted -s "$DEV" mklabel gpt
     else
         echo "🧩 Legacy BIOS detected — creating GPT label + BIOS /boot partition..."
         BOOT_IS_BIOS=true
         BIOS_BOOT_PART_CREATED=true
-        BIOS_BOOT_END=512  # 512MiB ext4 /boot for BIOS GRUB
+        BIOS_BOOT_END=512           # 512MiB ext4 /boot for GRUB
         parted -s "$DEV" mklabel gpt
         parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_END}MiB"
-        # BIOS GRUB embedding will happen here using /boot ext4
+        # /boot EXT4 for GRUB will be formatted later
     fi
 }
 #=========================================================================================================================================#
@@ -459,7 +459,7 @@ quick_partition_swap_on()
                     udevadm settle
                     sleep 1
                 
-                    PSUFF=$(part_suffix "$DEV")
+                    PSUFF=$(part_suffix "$DEV")  # Handles /dev/sda vs /dev/nvme0n1
                     
                     if [[ "$BOOT_IS_BIOS" == false ]]; then
                         P1="${DEV}${PSUFF}1"   # EFI
@@ -467,8 +467,7 @@ quick_partition_swap_on()
                         P3="${DEV}${PSUFF}3"   # swap
                         P4="${DEV}${PSUFF}4"   # home
                     else
-                        # In BIOS mode, partition #1 is bios_grub — skip it
-                        P1=""                  # none
+                        P1="${DEV}${PSUFF}1"   # BIOS /boot
                         P2="${DEV}${PSUFF}2"   # root
                         P3="${DEV}${PSUFF}3"   # swap
                         P4="${DEV}${PSUFF}4"   # home
@@ -477,56 +476,57 @@ quick_partition_swap_on()
                     #===================================================================================================#
                     # 1.6) Mounting and formatting
                     #===================================================================================================#
-                        # Format and activate swap
-                        mkswap "$P3"
-                        swapon "$P3"
-                        
-                        # Format and mount root/home
-                        case "$DEV_CHOICE" in
-                            1)
-                                mkfs.ext4 -F "$P2"
-                                mkfs.ext4 -F "$P4"
-                                mount "$P2" /mnt
-                                mkdir -p /mnt/{boot,home}
-                                mount "$P4" /mnt/home
-                        
-                                if [[ "$BOOT_IS_BIOS" == false ]]; then
-                                    mkfs.fat -F32 "$P1"
-                                    mount -t vfat "$P1" /mnt/boot
-                                fi
-                                ;;
-                            2)
-                                mkfs.btrfs -f --nodiscard "$P2"
-                                mkfs.btrfs -f --nodiscard "$P4"
-                                mount "$P2" /mnt
-                                for sv in @ @snapshots @cache @log; do
-                                    btrfs subvolume create "/mnt/$sv"
-                                done
-                                umount /mnt
-                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                                mount -o noatime,compress=zstd "$P4" /mnt/home
-                                if [[ "$BOOT_IS_BIOS" == false ]]; then
-                                    mount -t vfat "$P1" /mnt/boot
-                                fi
-                                ;;
-                            3)
-                                mkfs.btrfs -f --nodiscard "$P2"
-                                mkfs.ext4 -F "$P4"
-                                mount "$P2" /mnt
-                                for sv in @ @snapshots @cache @log; do
-                                    btrfs subvolume create "/mnt/$sv"
-                                done
-                                umount /mnt
-                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                                mount "$P4" /mnt/home
-                                if [[ "$BOOT_IS_BIOS" == false ]]; then
-                                    mount -t vfat "$P1" /mnt/boot
-                                fi
-                                ;;
-                        esac
-
+                    # Swap
+                    mkswap "$P3"
+                    swapon "$P3"
+                    
+                    # BIOS /boot or UEFI EFI
+                    if [[ "$BOOT_IS_BIOS" == true ]]; then
+                        echo "Formatting BIOS /boot partition as EXT4..."
+                        mkfs.ext4 -F "$P1"
+                        mkdir -p /mnt/boot
+                        mount "$P1" /mnt/boot
+                    else
+                        echo "Formatting EFI partition as FAT32..."
+                        mkfs.fat -F32 "$P1"
+                        mkdir -p /mnt/boot
+                        mount -t vfat "$P1" /mnt/boot
+                    fi
+                    
+                    # Root
+                    case "$DEV_CHOICE" in
+                        1)  # EXT4 root + home
+                            mkfs.ext4 -F "$P2"
+                            mkfs.ext4 -F "$P4"
+                            mount "$P2" /mnt
+                            mkdir -p /mnt/home
+                            mount "$P4" /mnt/home
+                            ;;
+                        2)  # BTRFS root + home
+                            mkfs.btrfs -f --nodiscard "$P2"
+                            mkfs.btrfs -f --nodiscard "$P4"
+                            mount "$P2" /mnt
+                            for sv in @ @snapshots @cache @log; do
+                                btrfs subvolume create "/mnt/$sv"
+                            done
+                            umount /mnt
+                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log}
+                            mount -o noatime,compress=zstd "$P4" /mnt/home
+                            ;;
+                        3)  # BTRFS root + EXT4 home
+                            mkfs.btrfs -f --nodiscard "$P2"
+                            mkfs.ext4 -F "$P4"
+                            mount "$P2" /mnt
+                            for sv in @ @snapshots @cache @log; do
+                                btrfs subvolume create "/mnt/$sv"
+                            done
+                            umount /mnt
+                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log}
+                            mount "$P4" /mnt/home
+                            ;;
+                    esac
 }
 #=========================================================================================================================================#
 quick_partition_swap_on_root()
@@ -1374,28 +1374,16 @@ if [[ -d /sys/firmware/efi ]]; then
 else
     echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
 
-    # BIOS + GPT + Btrfs root requires a small /boot ext4 partition
     if [[ "$BOOT_IS_BIOS" == true ]]; then
-        echo "→ BIOS mode detected. Root is Btrfs. Using dedicated ext4 /boot partition."
-
-        # Ensure /boot is mounted
-        if ! mountpoint -q /mnt/boot; then
-            mount "${DEV}1" /mnt/boot  # assuming partition 1 is ext4 /boot
-        fi
-
-        # Determine parent disk for GRUB
-        ROOT_PART=$(findmnt -n -o SOURCE /mnt/boot)
-        BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
-
-        echo "→ Installing GRUB on /dev/$BIOS_DISK using /boot ext4 for core.img..."
-        arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot /dev/"$BIOS_DISK"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-        echo "✅ BIOS GRUB installed successfully using /boot ext4 partition."
-
+        echo "Installing GRUB for BIOS..."
+        arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot "$DEV"
     else
-        echo "❌ Legacy BIOS installation skipped: Btrfs root without /boot ext4 or bios_grub partition will fail."
+        echo "Installing GRUB for UEFI..."
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
     fi
+    
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    
 fi
 
 
