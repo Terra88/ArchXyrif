@@ -394,7 +394,7 @@ preview_partitions() {
 #---------------------------
 # Main
 #---------------------------
-logo
+
 main() {
     echo -e "${CYAN}Arch Linux Installer${RESET}"
     lsblk -p
@@ -451,7 +451,7 @@ echo "#=========================================================================
 
                 case "$PART_CHOICE" in
                     1)
-                        main_menu  ;;
+                        main  ;;
                     2)
                         custom_partition  ;;
                     3)
