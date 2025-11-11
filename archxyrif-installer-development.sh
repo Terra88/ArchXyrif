@@ -169,6 +169,88 @@ cleanup_device() {
     fi
 }
 
+#===============================================================================================================#
+#====LIST BLOCKERS / BLOCKING SERVICES / DEACTIVATE VOLUME LAYERS / FORCE PARTITION REFRESH=====================#
+
+# list processes holding device
+list_blockers() {
+  local dev="$1"
+  echo ">>> lsof on $dev (may show nothing if lsof not installed):"
+  lsof "${dev}"* 2>/dev/null || true
+  echo ">>> fuser on $dev:"
+  fuser -v "${dev}"* 2>/dev/null || true
+}
+
+# Stop services that commonly auto-activate/hold disks (best-effort)
+stop_blocking_services() {
+  echo "→ Stopping likely interfering services (udisks2, lvm2-monitor, multipathd) — best-effort"
+  systemctl stop udisks2.service        2>/dev/null || true
+  systemctl stop lvm2-monitor.service   2>/dev/null || true
+  systemctl stop multipathd.service     2>/dev/null || true
+  # Add other services you know may run (udisks-daemon, wpa_supplicant isn't relevant, etc.)
+  sleep 0.5
+}
+
+# Deactivate LVM, close crypt mappings, turn off swaps on the target device (best-effort)
+deactivate_volume_layers() {
+  local dev="$1"
+  echo "→ Deactivating LVM/crypt and turning off swap entries for device: $dev"
+
+  # Turn off swap on entries pointing to this device
+  mapfile -t _swaps < <(swapon --show=NAME --noheadings || true)
+  for s in "${_swaps[@]}"; do
+    if [[ "$s" == "$dev"* ]]; then
+      echo "  - swapoff $s"
+      swapoff "$s" || true
+    fi
+  done
+
+  # Deactivate all volume groups (best-effort)
+  vgchange -an 2>/dev/null || true
+
+  # Close cryptsetup mappings that point to this device (best-effort)
+  for m in /dev/mapper/*; do
+    if [[ -e "$m" ]]; then
+      target=$(readlink -f "$m" 2>/dev/null || true)
+      if [[ "$target" == "$dev"* ]]; then
+        name=$(basename "$m")
+        echo "  - closing crypt mapping $name"
+        cryptsetup luksClose "$name" || true
+      fi
+    fi
+  done
+
+  # Give udev a moment
+  udevadm settle 2>/dev/null || true
+  sleep 0.5
+}
+
+# Force kernel to re-read the partition table with retries
+force_partition_refresh() {
+  local dev="$1"
+  local tries="${2:-6}"
+  local sleep_between="${3:-2}"
+  local ps
+  ps=$(part_suffix "$dev")
+
+  for i in $(seq 1 "$tries"); do
+    echo "→ force_partition_refresh attempt $i/$tries..."
+    partprobe "$dev"            2>/dev/null || true
+    partx -u "$dev"             2>/dev/null || true
+    blockdev --rereadpt "$dev"  2>/dev/null || true
+    udevadm settle              2>/dev/null || true
+    sleep "$sleep_between"
+
+    # Quick check: does partition 2 (root) now exist?
+    if lsblk -n "${dev}${ps}2" &>/dev/null; then
+      echo "✓ Kernel now sees partitions on $dev"
+      return 0
+    fi
+  done
+
+  echo "✗ Kernel still does not see partitions on $dev after $tries tries."
+  return 1
+}
 
 
 #=========================================================================#
@@ -528,75 +610,100 @@ preview_partitions() {
 # Main interactive flow
 # -----------------------
 main_menu() {
-    echo
-    echo -e "${CYAN}Available block devices:${RESET}"
-    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
-    echo
+  echo "Available block devices:"
+  lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
 
-    # Ask for device
-    read -rp $'\nEnter target disk (e.g. /dev/sda or /dev/nvme0n1): ' DEV
-    if [[ -z "$DEV" ]]; then
-        die "❌ No device entered. Aborting."
+  read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
+  DEV="${DEV:-}"
+  if [[ -z "$DEV" || ! -b "$DEV" ]]; then
+    die "No valid device supplied."
+  fi
+
+  echo -e "\n→ Target device: $DEV"
+  echo "→ Running pre-cleanup and safety checks..."
+
+  # 1) Stop obvious auto-activating services
+  stop_blocking_services
+
+  # 2) Best-effort cleanup/unmount of any mounts referencing the device
+  cleanup_device "$DEV" || true
+  unmount_device "$DEV"  || true
+
+  # 3) Deactivate LVM/crypt/swap layers that could hold the device
+  deactivate_volume_layers "$DEV"
+
+  # 4) Give udev a moment and ensure kernel is aware of current state
+  partprobe "$DEV" 2>/dev/null || true
+  udevadm settle 2>/dev/null || true
+
+  if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will DESTROY ALL DATA)"; then
+    die "User aborted."
+  fi
+
+  # Detect environment & prepare partition sizing
+  detect_boot_mode
+  calculate_swap
+  select_filesystem
+  ask_partition_sizes
+  preview_partitions
+
+  if ! confirm "Proceed to create partitions on $DEV?"; then
+    die "Aborted by user."
+  fi
+
+  # --- Partitioning step with kernel-refresh retries ---
+  echo "→ Creating partitions (writing GPT)..."
+  partition_disk || {
+    echo "Partitioning command returned non-zero. Attempting to force kernel refresh and retry..."
+    if force_partition_refresh "$DEV"; then
+      echo "Retrying partitioning..."
+      partition_disk || die "Partitioning failed on retry. Reboot and try again."
+    else
+      echo "Kernel refused to accept partition changes. Listing potential blockers and aborting:"
+      echo "---- Processes holding the device (fuser & lsof output) ----"
+      fuser -v "${DEV}"* 2>/dev/null || true
+      lsof "${DEV}"* 2>/dev/null || true
+      die "Kernel didn't accept new partition table. Reboot, ensure no services (udisks2/lvm) auto-start, and retry."
     fi
-    if [[ ! -b "$DEV" ]]; then
-        die "❌ '$DEV' is not a valid block device."
+  }
+
+  # After partitioning make sure kernel sees partitions
+  if ! force_partition_refresh "$DEV"; then
+    echo "✗ Kernel still doesn't see partitions after refresh attempts. Aborting."
+    die "Please reboot the machine and try again (or kill blocking processes that keep partitions busy)."
+  fi
+
+  # Now format and mount
+  format_and_mount || die "Formatting/mounting failed."
+
+  # Ensure /mnt and required pseudo dirs exist before chroot
+  mkdir -p /mnt
+  for d in proc sys dev run; do
+    mkdir -p "/mnt/$d"
+  done
+
+  # Pre-chroot mounts (will create the mountpoints if missing)
+  prepare_chroot || die "Failed to mount pseudo-filesystems for chroot."
+
+  echo -e "${GREEN}All done up to chroot stage.${RESET}"
+  if confirm "Install GRUB now?"; then
+    install_grub || die "GRUB install failed."
+  else
+    echo "Skipped GRUB install."
+  fi
+
+  echo -e "${GREEN}Done. Remember to continue with pacstrap/genfstab/chroot steps.${RESET}"
+}
+
+#======================
+#=================================================================================================#
+    # after partition_disk()
+    ps=$(part_suffix "$DEV")
+    if ! lsblk -n "${DEV}${ps}2" &>/dev/null; then
+      echo "ERROR: kernel doesn't see ${DEV}${ps}2 yet. Trying refresh..."
+      force_partition_refresh "$DEV" || die "Kernel didn't accept partitions; reboot and retry."
     fi
-
-    echo -e "\nSelected disk: ${YELLOW}$DEV${RESET}"
-    echo "⚠️  ALL DATA ON THIS DISK WILL BE ERASED!"
-    if ! confirm "Proceed with wiping and partitioning $DEV?"; then
-        die "User aborted installation."
-    fi
-
-    # Step 1: Cleanup
-    echo -e "\n→ Cleaning and unmounting all existing partitions on $DEV..."
-    cleanup_device "$DEV" || echo "⚠️ cleanup_device had warnings, continuing..."
-    unmount_device "$DEV" || true
-
-    # Double-check mounts
-    mapfile -t ACTIVE_MOUNTS < <(mount | awk -v d="$DEV" '$1 ~ d {print $3}' || true)
-    if (( ${#ACTIVE_MOUNTS[@]} > 0 )); then
-        echo "→ Still mounted: ${ACTIVE_MOUNTS[*]}"
-        echo "Force unmounting..."
-        for m in "${ACTIVE_MOUNTS[@]}"; do
-            umount -l "$m" 2>/dev/null || true
-        done
-        sleep 1
-    fi
-
-    # Step 2: Notify kernel
-    echo -e "\n→ Informing kernel of changes..."
-    udevadm settle || true
-    partprobe "$DEV" 2>/dev/null || true
-    partx -u "$DEV" 2>/dev/null || true
-    sleep 1
-
-    # Step 3: Clear old signatures
-    echo -e "\n→ Clearing LVM/LUKS/FS signatures..."
-    clear_partition_table_luks_lvmsignatures "$DEV" || echo "⚠️ Signature clearing non-critical."
-
-    # Step 4: Detect system mode
-    detect_boot_mode
-    calculate_swap
-    select_filesystem
-    ask_partition_sizes
-
-    # Step 5: Preview partitions
-    preview_partitions
-    if ! confirm "Confirm and write new partition table to $DEV?"; then
-        die "User canceled partition creation."
-    fi
-
-    # Step 6: Create partitions
-    echo -e "\n→ Creating partitions on $DEV..."
-    partition_disk || {
-        echo "⚠️ Partitioning failed once, retrying after reloading kernel..."
-        udevadm settle || true
-        partprobe "$DEV" || true
-        partx -u "$DEV" || true
-        sleep 2
-        partition_disk || die "❌ Partition creation failed twice. Reboot and retry."
-    }
+#================================================================================================#
 
     # Step 7: Wait for kernel to see partitions
     echo -e "\n→ Waiting for kernel to recognize new partitions..."
