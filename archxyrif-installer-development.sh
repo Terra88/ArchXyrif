@@ -244,6 +244,13 @@ bios_uefi_check() {
         BIOS_BOOT_PART_CREATED=false
         BIOS_BOOT_END=1
     fi
+
+        if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+            # Shift partition indexes: skip EFI
+            BOOT_IS_BIOS=true
+        else
+            BOOT_IS_BIOS=false
+        fi
 }
 #=========================================================================================================================================#
 quick_partition_swap_on() 
@@ -349,6 +356,15 @@ quick_partition_swap_on()
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
                         bios_uefi_check
+
+                        # BIOS vs UEFI partitioning mode flags
+                        if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+                            echo "→ BIOS mode detected: skipping EFI partition, /boot will reside in root."
+                            BOOT_IS_BIOS=true
+                        else
+                            echo "→ UEFI mode detected: creating EFI partition on /boot."
+                            BOOT_IS_BIOS=false
+                        fi
                     
                         # Calculate partition boundaries (MiB)
                         p1_start=$((BIOS_BOOT_END + 1))
@@ -397,35 +413,50 @@ quick_partition_swap_on()
                 echo "#-------------------------------------------------------------------------------#"
                 read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
                 DEV_CHOICE="${DEV_CHOICE:-1}"
-                
+
+                    # Partition creation
                     case "$DEV_CHOICE" in
                         1)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" "${p4_end}MiB"
+                            if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                # UEFI mode: create EFI, root, swap, home
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4  "${p4_start}MiB" "${p4_end}MiB"
+                            else
+                                # BIOS mode: skip EFI/FAT32
+                                parted -s "$DEV" mkpart primary ext4  "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4  "${p4_start}MiB" "${p4_end}MiB"
+                            fi
                             ;;
                         2)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" "${p4_end}MiB"
+                            if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" "${p4_end}MiB"
+                            else
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" "${p4_end}MiB"
+                            fi
                             ;;
                         3)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" "${p4_end}MiB"
-                            ;;
-                        4)
-                            exec "$0"
-                            ;;
-                        *)
-                            cleanup_and_restart
-                            echo "Invalid choice."
-                            exec "$0"
+                            if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4  "${p4_start}MiB" "${p4_end}MiB"
+                            else
+                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
+                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
+                                parted -s "$DEV" mkpart primary ext4  "${p4_start}MiB" "${p4_end}MiB"
+                            fi
                             ;;
                     esac
+                    
+ 
                 
                     # Boot flag and device nodes
                     parted -s "$DEV" set 1 boot on
@@ -434,54 +465,73 @@ quick_partition_swap_on()
                     sleep 1
                 
                     PSUFF=$(part_suffix "$DEV")
-                    P1="${DEV}${PSUFF}1"
-                    P2="${DEV}${PSUFF}2"
-                    P3="${DEV}${PSUFF}3"
-                    P4="${DEV}${PSUFF}4"
+                    
+                    if [[ "$BOOT_IS_BIOS" == false ]]; then
+                        P1="${DEV}${PSUFF}1"   # EFI
+                        P2="${DEV}${PSUFF}2"   # root
+                        P3="${DEV}${PSUFF}3"   # swap
+                        P4="${DEV}${PSUFF}4"   # home
+                    else
+                        # In BIOS mode, partition #1 is bios_grub — skip it
+                        P1=""                  # none
+                        P2="${DEV}${PSUFF}2"   # root
+                        P3="${DEV}${PSUFF}3"   # swap
+                        P4="${DEV}${PSUFF}4"   # home
+                    fi
                 
                     #===================================================================================================#
                     # 1.6) Mounting and formatting
                     #===================================================================================================#
-                    mkfs.fat -F32 "$P1"
-                    mkswap "$P3"
-                    swapon "$P3"
-                
-                    case "$DEV_CHOICE" in
-                        1)
-                            mkfs.ext4 -F "$P2"
-                            mkfs.ext4 -F "$P4"
-                            mount "$P2" /mnt
-                            mkdir -p /mnt/{boot,home}
-                            mount -t vfat "$P1" /mnt/boot
-                            mount "$P4" /mnt/home
-                            ;;
-                        2)
-                            mkfs.btrfs -f --nodiscard "$P2"
-                            mkfs.btrfs -f --nodiscard "$P4"
-                            mount "$P2" /mnt
-                            for sv in @ @snapshots @cache @log; do
-                                btrfs subvolume create "/mnt/$sv"
-                            done
-                            umount /mnt
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                            mount -o noatime,compress=zstd "$P4" /mnt/home
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                        3)
-                            mkfs.btrfs -f --nodiscard "$P2"
-                            mkfs.ext4 -F "$P4"
-                            mount "$P2" /mnt
-                            for sv in @ @snapshots @cache @log; do
-                                btrfs subvolume create "/mnt/$sv"
-                            done
-                            umount /mnt
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                            mount "$P4" /mnt/home
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                    esac
+                        # Format and activate swap
+                        mkswap "$P3"
+                        swapon "$P3"
+                        
+                        # Format and mount root/home
+                        case "$DEV_CHOICE" in
+                            1)
+                                mkfs.ext4 -F "$P2"
+                                mkfs.ext4 -F "$P4"
+                                mount "$P2" /mnt
+                                mkdir -p /mnt/{boot,home}
+                                mount "$P4" /mnt/home
+                        
+                                if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                    mkfs.fat -F32 "$P1"
+                                    mount -t vfat "$P1" /mnt/boot
+                                fi
+                                ;;
+                            2)
+                                mkfs.btrfs -f --nodiscard "$P2"
+                                mkfs.btrfs -f --nodiscard "$P4"
+                                mount "$P2" /mnt
+                                for sv in @ @snapshots @cache @log; do
+                                    btrfs subvolume create "/mnt/$sv"
+                                done
+                                umount /mnt
+                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+                                mount -o noatime,compress=zstd "$P4" /mnt/home
+                                if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                    mount -t vfat "$P1" /mnt/boot
+                                fi
+                                ;;
+                            3)
+                                mkfs.btrfs -f --nodiscard "$P2"
+                                mkfs.ext4 -F "$P4"
+                                mount "$P2" /mnt
+                                for sv in @ @snapshots @cache @log; do
+                                    btrfs subvolume create "/mnt/$sv"
+                                done
+                                umount /mnt
+                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+                                mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
+                                mount "$P4" /mnt/home
+                                if [[ "$BOOT_IS_BIOS" == false ]]; then
+                                    mount -t vfat "$P1" /mnt/boot
+                                fi
+                                ;;
+                        esac
+
 }
 #=========================================================================================================================================#
 quick_partition_swap_on_root()
@@ -541,6 +591,16 @@ quick_partition_swap_on_root()
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
                         bios_uefi_check
+
+                        # BIOS vs UEFI partitioning mode flags
+                        if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+                            echo "→ BIOS mode detected: skipping EFI partition, /boot will reside in root."
+                            BOOT_IS_BIOS=true
+                        else
+                            echo "→ UEFI mode detected: creating EFI partition on /boot."
+                            BOOT_IS_BIOS=false
+                        fi
+                        
                         p1_start=$((BIOS_BOOT_END + 1))
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                         p2_start=$p1_end
@@ -718,7 +778,16 @@ quick_partition_swap_off()
                                 
                                     which parted >/dev/null 2>&1 || die "parted required but not found."
                                     bios_uefi_check
-                                
+                
+                                        # BIOS vs UEFI partitioning mode flags
+                                        if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+                                            echo "→ BIOS mode detected: skipping EFI partition, /boot will reside in root."
+                                            BOOT_IS_BIOS=true
+                                        else
+                                            echo "→ UEFI mode detected: creating EFI partition on /boot."
+                                            BOOT_IS_BIOS=false
+                                        fi
+                                    
                                     # Partition layout with buffer
                                     p1_start=$((BIOS_BOOT_END + 1))
                                     p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
@@ -869,7 +938,20 @@ quick_partition_swap_off_root()
                             done
                         
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
-                        
+
+                            # create label and partitions
+                            which parted >/dev/null 2>&1 || die "parted required but not found."
+                            bios_uefi_check
+                                       
+                                # BIOS vs UEFI partitioning mode flags
+                                if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+                                   echo "→ BIOS mode detected: skipping EFI partition, /boot will reside in root."
+                                    BOOT_IS_BIOS=true
+                               else
+                                   echo "→ UEFI mode detected: creating EFI partition on /boot."
+                                   BOOT_IS_BIOS=false
+                               fi
+                            
                             # Partition boundaries
                             p1_start=$((BIOS_BOOT_END + 1))
                             p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
@@ -913,10 +995,7 @@ echo "#=========================================================================
                         echo "#---------------------------------------------------------#" 
                          read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
                             FS_CHOICE="${FS_CHOICE:-1}"
-                        
-                            # create label and partitions
-                            which parted >/dev/null 2>&1 || die "parted required but not found."
-                            bios_uefi_check
+            
                         
                             case "$FS_CHOICE" in
                                 1)
