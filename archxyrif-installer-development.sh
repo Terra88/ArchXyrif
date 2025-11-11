@@ -223,19 +223,21 @@ trap cleanup EXIT INT TERM
 
 #=========================================================================================================================================#
 # PRE PARTITION HELPER - BIOS OR UEFI CHEKER
-bios_uefi_check(){
-
-                if [[ ! -d /sys/firmware/efi ]]; then
-                    echo "🧩 Creating BIOS Boot partition (for legacy GRUB on GPT)..."
-                    parted -s "$DEV" mklabel gpt
-                    parted -s "$DEV" mkpart primary 1MiB 3MiB
-                    parted -s "$DEV" set 1 bios_grub on
-                    BIOS_BOOT_PART_CREATED=true
-                else
-                    BIOS_BOOT_PART_CREATED=false
-                fi
+bios_uefi_check() {
+    if [[ ! -d /sys/firmware/efi ]]; then
+        echo "🧩 Legacy BIOS detected — creating GPT label + BIOS Boot partition..."
+        parted -s "$DEV" mklabel gpt
+        parted -s "$DEV" mkpart primary 1MiB 3MiB
+        parted -s "$DEV" set 1 bios_grub on
+        BIOS_BOOT_PART_CREATED=true
+        BIOS_BOOT_END=3
+    else
+        echo "🧩 UEFI system detected."
+        parted -s "$DEV" mklabel gpt
+        BIOS_BOOT_PART_CREATED=false
+        BIOS_BOOT_END=1
+    fi
 }
-
 #=========================================================================================================================================#
 quick_partition_swap_on() 
 {
@@ -339,10 +341,10 @@ quick_partition_swap_on()
                     
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
-                        parted -s "$DEV" mklabel gpt
+                        
                     
                         # Calculate partition boundaries (MiB)
-                        p1_start=1
+                        p1_start=$BIOS_BOOT_END
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))      # EFI
                         p2_start=$p1_end                                      # Root
                         p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -531,8 +533,8 @@ quick_partition_swap_on_root()
                     
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
-                        parted -s "$DEV" mklabel gpt
-                        p1_start=1
+                        
+                        p1_start=$BIOS_BOOT_END
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                         p2_start=$p1_end
                         p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -708,10 +710,10 @@ quick_partition_swap_off()
                                     echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
                                 
                                     which parted >/dev/null 2>&1 || die "parted required but not found."
-                                    parted -s "$DEV" mklabel gpt
+                                    
                                 
                                     # Partition layout with buffer
-                                    p1_start=1
+                                    p1_start=$BIOS_BOOT_END
                                     p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                                     p2_start=$p1_end
                                     p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -862,7 +864,7 @@ quick_partition_swap_off_root()
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
                         
                             # Partition boundaries
-                            p1_start=1
+                            p1_start=$BIOS_BOOT_END
                             p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                             p2_start=$p1_end
                             p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -907,7 +909,7 @@ echo "#=========================================================================
                         
                             # create label and partitions
                             which parted >/dev/null 2>&1 || die "parted required but not found."
-                            parted -s "$DEV" mklabel gpt
+                            
                         
                             case "$FS_CHOICE" in
                                 1)
@@ -1146,6 +1148,19 @@ sleep 1
 echo "Installing GRUB (UEFI)..."
 
 if [[ -d /sys/firmware/efi ]]; then
+
+        arch-chroot /mnt bash -euo pipefail<<'EOF'
+
+        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
+        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
+        
+        grub-mkconfig -o /boot/grub/grub.cfg
+        echo "✅ GRUB installation complete."
+
+EOF
+        
+else
+
         # Determine EFI partition mountpoint and ensure it’s /boot/efi
         if ! mountpoint -q /mnt/boot/efi; then
           echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
@@ -1199,18 +1214,6 @@ if [[ -d /sys/firmware/efi ]]; then
         echo
         echo "Verifying EFI boot entries..."
         efibootmgr -v || true
-        
-else
-
-arch-chroot /mnt bash -euo pipefail<<'EOF'
-
-        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
-        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
-        
-grub-mkconfig -o /boot/grub/grub.cfg
-echo "✅ GRUB installation complete."
-
-EOF
 
 fi
 
