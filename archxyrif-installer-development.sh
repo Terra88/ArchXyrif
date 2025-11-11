@@ -116,11 +116,12 @@ trap cleanup EXIT INT TERM
 
 #=========================================================================================================================================#    
 
-# Unmount any mounts on device (best-effort)
+# --------------------------------------------
+# Define all helpers FIRST (no references yet)
+# --------------------------------------------
 unmount_btrfs_and_swap() {
     local dev="$1"
     echo "Unmounting any mounts and swap from $dev ..."
-    # disable swap on this device
     mapfile -t SWAPS < <(swapon --show=NAME --noheadings || true)
     for s in "${SWAPS[@]}"; do
         if [[ "$s" == "$dev"* ]]; then
@@ -128,13 +129,11 @@ unmount_btrfs_and_swap() {
         fi
     done
 
-    # unmount mounts that reference this device
     mapfile -t MOUNTS < <(mount | awk -v d="$dev" '$1 ~ d { print $3 }' | sort -r || true)
     for m in "${MOUNTS[@]}"; do
-        umount -l "$m" 2>/dev/null || true
+        umount -l "$mnt" 2>/dev/null || true
     done
 
-    # also unmount any btrfs mounts belonging to this device
     mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r || true)
     for bm in "${BTRFS_MOUNTS[@]}"; do
         src=$(findmnt -n -o SOURCE "$bm" 2>/dev/null || true)
@@ -144,44 +143,29 @@ unmount_btrfs_and_swap() {
     done
 
     if mountpoint -q /mnt; then
-        umount -l /mnt 2>/dev/null || true
+        echo "→ Unmounting /mnt ..."
+        umount -R /mnt 2>/dev/null || true
         rm -rf /mnt/* 2>/dev/null || true
     fi
-    echo "Done."
+    echo "✅ Done unmounting $dev."
 }
-    
-#=========================================================================================================================================#
-unmount(){
 
-  # Unmount all mountpoints on this device, deepest first
+unmount_device() {
+    local dev="$1"
+    echo "→ Cleaning up mounts for $dev ..."
     mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
     for mnt in "${MOUNTS[@]}"; do
         echo "→ Unmounting $mnt ..."
         umount -l "$mnt" 2>/dev/null || true
     done
-
-    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
-    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
-            echo "→ Unmounting BTRFS subvolume $bm ..."
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
-
-    # Clean up /mnt
-    if mountpoint -q /mnt; then
-        echo "→ Cleaning /mnt ..."
-        umount -l /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
-
-    echo "→ Unmounting completed for $dev."
-    }
+    echo "→ Done cleaning $dev."
+}
     
 #=========================================================================================================================================#
-    unmount 
-    unmount_btrfs_and_swap 
+
+echo "Cleaning any old mounts from $DEV ..."
+unmount_device "$DEV"
+unmount_btrfs_and_swap "$DEV"
 
 #=========================================================================================================================================#
 #===================================================================================================#
