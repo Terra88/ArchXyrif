@@ -1326,79 +1326,62 @@ sleep 1
 echo "Installing GRUB (UEFI)..."
 
 if [[ -d /sys/firmware/efi ]]; then
+    echo "Installing GRUB (UEFI)..."
 
-        # Determine EFI partition mountpoint and ensure it’s /boot/efi
-        if ! mountpoint -q /mnt/boot/efi; then
-          echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-          mkdir -p /mnt/boot/efi
-          mount "$P1" /mnt/boot/efi
-        fi
-        
-        # Basic, minimal GRUB modules needed for UEFI boot
-        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-        
-        # Run grub-install safely inside chroot
-        arch-chroot /mnt grub-install \
-          --target=x86_64-efi \
-          --efi-directory=/boot/efi \
-          --bootloader-id=GRUB \
-          --modules="$GRUB_MODULES" \
-          --recheck \
-          --no-nvram
-        
-        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-        echo "→ Copying fallback EFI binary..."
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-        
-        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
-        DISK="${DEV}"
-        PARTNUM=1
-        LABEL="Arch Linux"
-        LOADER='\EFI\GRUB\grubx64.efi'
-        
-        # Delete stale entries with same label to avoid duplicates
-        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-          efibootmgr -b "$bootnum" -B || true
-        done
-        
-        # Create new entry
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-        
-        # Generate GRUB config inside chroot
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-        
-        # Secure Boot Integration
-        if command -v sbctl >/dev/null 2>&1; then
-          echo "→ Signing EFI binaries for Secure Boot..."
-          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-          arch-chroot /mnt sbctl enroll-keys --microsoft
-          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-        fi
-        
-        echo "GRUB installation complete."
-        echo
-        echo "Verifying EFI boot entries..."
-        efibootmgr -v || true
-        
+    if ! mountpoint -q /mnt/boot/efi; then
+        echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
+        mkdir -p /mnt/boot/efi
+        mount "$P1" /mnt/boot/efi
+    fi
+
+    GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+
+    arch-chroot /mnt grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=GRUB \
+        --modules="$GRUB_MODULES" \
+        --recheck \
+        --no-nvram
+
+    echo "→ Copying fallback EFI binary..."
+    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+    DISK="${DEV}"
+    PARTNUM=1
+    LABEL="Arch Linux"
+    LOADER='\EFI\GRUB\grubx64.efi'
+
+    for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+        efibootmgr -b "$bootnum" -B || true
+    done
+
+    efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+    if command -v sbctl >/dev/null 2>&1; then
+        echo "→ Signing EFI binaries for Secure Boot..."
+        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+        arch-chroot /mnt sbctl enroll-keys --microsoft
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+    fi
+
+    echo "GRUB installation complete."
+    echo "Verifying EFI boot entries..."
+    efibootmgr -v || true
+
 else
-
-        # EFI partition is expected to be mounted on /boot (as done before chroot)
-        echo "Installing GRUB (UEFI)..."
-
-        if [[ -d /sys/firmware/efi ]]; then
-
-        arch-chroot /mnt bash -euo pipefail<<'EOF'
-
-        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
-        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
-        
-        grub-mkconfig -o /boot/grub/grub.cfg
-        echo "✅ GRUB installation complete."
-
+    # Legacy BIOS installation
+    echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
+    arch-chroot /mnt bash -euo pipefail <<'EOF'
+grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
+grub-mkconfig -o /boot/grub/grub.cfg
+echo "✅ GRUB installation complete."
 EOF
-
 fi
+
 
 
 #=========================================================================================================================================#
