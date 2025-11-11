@@ -213,13 +213,32 @@ clear_partition_table_luks_lvmsignatures() {
     echo "→ Finished clearing signatures on $dev."
 }
 #=========================================================================================================================================#
-# 1.1) Clearing Partition Tables / Luks / LVM Signatures
+ CHROOT PACSTRAPIT
 #=========================================================================================================================================#
+
+pacstrap_base() {
+    echo "📦 Installing base system packages..."
+    PKGS=(
+      base base-devel linux linux-zen linux-headers linux-firmware
+      vim nano sudo bash git networkmanager grub
+      intel-ucode amd-ucode btrfs-progs
+    )
+
+    pacstrap /mnt "${PKGS[@]}"
+    echo "✅ Base system installed."
+}
+
+
+generate_fstab() {
+    echo "📝 Generating /etc/fstab..."
+    genfstab -U /mnt > /mnt/etc/fstab
+    echo "✅ fstab generated:"
+    cat /mnt/etc/fstab
+}
 
 #-------HELPER FOR CHROOT--------------------------------#
 prepare_chroot() {
-    echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
-    mkdir -p /mnt /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot /mnt/home
+    mkdir -p /mnt/{proc,sys,dev,run}
     mount --types proc /proc /mnt/proc
     mount --rbind /sys /mnt/sys
     mount --make-rslave /mnt/sys
@@ -227,8 +246,9 @@ prepare_chroot() {
     mount --make-rslave /mnt/dev
     mount --rbind /run /mnt/run
     mount --make-rslave /mnt/run
-    echo "✅ Pseudo-filesystems mounted into /mnt."
+    echo "✅ Pseudo-filesystems mounted."
 }
+
 
 
 #=========================================================================================================================================#
@@ -255,16 +275,15 @@ FS_CHOICE=1
 # Detect boot mode
 # -----------------------
 detect_boot_mode() {
+    # Detect if system is booted in UEFI or BIOS
     if [[ -d /sys/firmware/efi ]]; then
         MODE="UEFI"
-        BIOS_BOOT_PART_CREATED=false
-        BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI${RESET} detected."
+        BOOT_SIZE_MIB=512
+        echo "💻 UEFI detected."
     else
         MODE="BIOS"
-        BIOS_BOOT_PART_CREATED=true
-        BOOT_SIZE_MIB=$BIOS_BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS${RESET} detected."
+        BOOT_SIZE_MIB=512
+        echo "💻 BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -349,69 +368,65 @@ partition_disk() {
 }
 
 format_and_mount() {
-    local ps
-    ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"   # Boot/EFI
-    local P2="${DEV}${ps}2"   # Root
-    local P3="${DEV}${ps}3"   # Swap
-    local P4="${DEV}${ps}4"   # Home (if separate)
+    local DEV="$1"
+    detect_boot_mode
 
-    echo -e "\n🧱 Formatting partitions..."
+    # Partition suffix for NVMe vs SATA
+    local ps=""
+    [[ "$DEV" =~ nvme|mmcblk ]] && ps="p"
 
-    # Swap
-    mkswap "$P3" && swapon "$P3"
+    # Partition paths
+    local BIOS_PART="${DEV}${ps}1"
+    local BOOT_PART="${DEV}${ps}2"
+    local SWAP_PART="${DEV}${ps}3"
+    local ROOT_PART="${DEV}${ps}4"
+    local HOME_PART="${DEV}${ps}5"
 
-    # Format root and home
-    case "$FS_CHOICE" in
-        1)
-            mkfs.ext4 -F "$P2"
-            mkfs.ext4 -F "$P4"
-            ;;
-        2)
-            mkfs.btrfs -f "$P2"
-            mkfs.btrfs -f "$P4"
-            ;;
-        3)
-            mkfs.btrfs -f "$P2"
-            mkfs.ext4 -F "$P4"
-            ;;
-    esac
+    echo "🧱 Formatting partitions..."
 
-    # Ensure base mount points exist
-    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi /mnt/{var,cache,.snapshots,log}
-
-    # Mount root & home
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mount "$P2" /mnt
-        # Create subvolumes if they don't exist
-        for sv in @ @home @snapshots @cache @log; do
-            [[ ! -d "/mnt/$sv" ]] && btrfs subvolume create "/mnt/$sv"
-        done
-
-        umount /mnt
-        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-        mkdir -p /mnt/home /mnt/.snapshots /mnt/cache /mnt/log
-        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
-        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
-        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/cache
-        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/log
-    else
-        mount "$P2" /mnt
-        mkdir -p /mnt/home
-        mount "$P4" /mnt/home
-    fi
-
-    # Mount boot/EFI after root is mounted
-    mkdir -p /mnt/boot
+    # BIOS or EFI partition
     if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 "$P1"
-        mount "$P1" /mnt/boot
-    else
-        mkfs.ext4 -F "$P1"
-        mount "$P1" /mnt/boot
+        mkfs.fat -F32 -n EFI "$BIOS_PART"
     fi
 
-    echo "✅ All partitions formatted and mounted."
+    mkfs.ext4 -L "boot" "$BOOT_PART"
+    mkswap -L "swap" "$SWAP_PART"
+    swapon "$SWAP_PART"
+    mkfs.btrfs -f -L "root" "$ROOT_PART"
+    mkfs.ext4 -L "home" "$HOME_PART"
+
+    echo "✅ Partitions formatted."
+
+    # Mount root partition
+    mount "$ROOT_PART" /mnt
+
+    # Create BTRFS subvolumes
+    for sv in @ @home @snapshots @cache @log; do
+        [[ ! -d "/mnt/$sv" ]] && btrfs subvolume create "/mnt/$sv"
+    done
+
+    # Remount root subvolume
+    umount /mnt
+    mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
+
+    # Mount other subvolumes
+    mkdir -p /mnt/home /mnt/.snapshots /mnt/cache /mnt/log
+    mount -o noatime,compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
+    mount -o noatime,compress=zstd,subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
+    mount -o noatime,compress=zstd,subvol=@cache "$ROOT_PART" /mnt/cache
+    mount -o noatime,compress=zstd,subvol=@log "$ROOT_PART" /mnt/log
+
+    # Mount /boot
+    mkdir -p /mnt/boot
+    mount "$BOOT_PART" /mnt/boot
+
+    # Mount EFI partition if UEFI
+    if [[ "$MODE" == "UEFI" ]]; then
+        mkdir -p /mnt/boot/efi
+        mount "$BIOS_PART" /mnt/boot/efi
+    fi
+
+    echo "✅ Partitions mounted successfully."
 }
 
 #=========================================================================================================================================#
@@ -419,49 +434,27 @@ format_and_mount() {
 # GRUB installation
 # -----------------------
 install_grub() {
-    local ps base P1
-    ps=$(part_suffix "$DEV")
-    base=$(basename "$DEV")
-    P1="${DEV}${ps}1"
+    local DEV="$1"
 
-    echo -e "\n💾 Installing GRUB bootloader..."
+    [[ ! -d /mnt ]] && die "/mnt does not exist"
+    mountpoint -q /mnt || die "/mnt is not mounted"
+    [[ ! -d /mnt/boot ]] && mkdir -p /mnt/boot
 
-    # Ensure /mnt exists and is a mountpoint
-    if [[ ! -d /mnt ]] || ! mountpoint -q /mnt; then
-        die "/mnt does not exist or is not mounted. Cannot install GRUB."
-    fi
+    prepare_chroot
 
-    # Ensure /mnt/boot exists
-    mkdir -p /mnt/boot
-
-    # For UEFI, ensure /mnt/boot/efi exists and is mounted
-    if [[ "$MODE" == "UEFI" ]]; then
-        mkdir -p /mnt/boot/efi
-        if ! mountpoint -q /mnt/boot/efi; then
-            mount "$P1" /mnt/boot/efi || die "Failed to mount EFI partition $P1 on /mnt/boot/efi"
-        fi
-    fi
-
-    # Prepare pseudo-filesystems for chroot
-    prepare_chroot || die "prepare_chroot failed"
-
-    # BIOS vs UEFI GRUB install
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" \
-            || die "grub-install (BIOS) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
-            || die "grub-mkconfig failed"
+        echo "💾 Installing GRUB for BIOS..."
+        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install failed"
     else
-        echo "Installing GRUB for UEFI..."
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi \
-            --bootloader-id=GRUB --recheck || die "grub-install (UEFI) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
-            || die "grub-mkconfig failed"
+        echo "💾 Installing GRUB for UEFI..."
+        [[ ! -d /mnt/boot/efi ]] && mkdir -p /mnt/boot/efi
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck || die "grub-install failed"
     fi
 
-    echo "✅ GRUB installed successfully on $DEV ($MODE mode)."
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+    echo "✅ GRUB installed successfully ($MODE)."
 }
+
 
 #=========================================================================================================================================#
 
