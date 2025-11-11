@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+#===COLOR-MAPPER===#
+# Color codes
+GREEN="\e[32m"
+YELLOW="\e[33m"
+CYAN="\e[36m"
+RESET="\e[0m"
+#===COLOR-MAPPER===#
 #===========================================================================#
 # GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88        
 # Author  : Terra88 
@@ -13,6 +20,7 @@
 #===========================================================================
 # Arch logo: Edited manually by Terra88
 #===========================================================================
+echo="GREEN"
 clear
 loadkeys fi
 timedatectl set-ntp true
@@ -248,14 +256,6 @@ EFI_SIZE_MIB=1024               # EFI partition size in MiB for UEFI
 BIOS_BOOT_SIZE_MIB=512         # /boot ext4 size in MiB for BIOS mode (your chosen default)
 BOOT_SIZE_MIB=0                # canonical boot-part size used by previews (always set)
 BUFFER_MIB=8                   # safety buffer
-
-#===COLOR-MAPPER===#
-# Color codes
-GREEN="\e[32m"
-YELLOW="\e[33m"
-CYAN="\e[36m"
-RESET="\e[0m"
-#===COLOR-MAPPER===#
 
 #=========================================================================================================================================#
 detect_boot_mode() {
