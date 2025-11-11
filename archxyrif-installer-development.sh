@@ -185,7 +185,14 @@ trap cleanup EXIT INT TERM
             name=$(basename "$map")
             echo "  Closing mapper $name (points at $target)"
             cryptsetup luksClose "$name" || true
+        fi
+            
+            if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+                BIOS_BOOT_SIZE_MIB=2
+            else
+                BIOS_BOOT_SIZE_MIB=0
             fi
+        
         fi
         done
 
