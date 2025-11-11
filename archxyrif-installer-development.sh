@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+cleanup_device "$DEV"
 #===COLOR-MAPPER===#
 # Color codes
 GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
@@ -637,7 +638,6 @@ main_menu() {
 
     echo "Cleaning any old mounts from $DEV ..."
     unmount_device "$DEV"
-    unmount_btrfs_and_swap "$DEV"
     clear_partition_table_luks_lvmsignatures "$DEV"
 
     if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will destroy data)"; then
