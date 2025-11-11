@@ -399,6 +399,8 @@ partition_disk() {
 # Helper: Format and mount partitions
 #--------------------------------------#
 format_and_mount() {
+    echo "🔧 Formatting and mounting partitions..."
+
     # Construct partition device names
     if [[ "$MODE" == "UEFI" ]]; then
         EFI_PART="${DEV}1"
@@ -413,10 +415,12 @@ format_and_mount() {
     fi
 
     # Activate swap
+    echo "🌀 Enabling swap..."
     mkswap "$SWAP_PART"
     swapon "$SWAP_PART"
 
-    # Format partitions based on chosen filesystem
+    # Format partitions
+    echo "🧱 Formatting partitions..."
     case "$FS_CHOICE" in
         1)  # EXT4 root + home
             mkfs.ext4 -F "$ROOT_PART"
@@ -432,34 +436,47 @@ format_and_mount() {
             ;;
     esac
 
-    # Mount root
+    # Mount root first
+    echo "📂 Mounting root partition..."
     mount "$ROOT_PART" /mnt
+
+    # Ensure essential directories exist
+    mkdir -p /mnt/{boot,home,var,cache,.snapshots}
 
     # Handle BTRFS subvolumes
     if [[ "$ROOT_FS" == "btrfs" ]]; then
+        echo "🧩 Creating BTRFS subvolumes..."
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv"
         done
+
+        # Re-mount subvolumes
         umount /mnt
         mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
+
+        mkdir -p /mnt/{home,boot,var/cache,var/log,.snapshots}
         mount -o noatime,compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
     else
+        # EXT4 root
+        echo "📁 Mounting home partition..."
         mkdir -p /mnt/home
         mount "$HOME_PART" /mnt/home
     fi
 
-    mkdir -p /mnt/{boot,var/log,var/cache,.snapshots}
-
-    # EFI or BIOS boot mount
+    # Mount boot/EFI partition
     if [[ "$MODE" == "UEFI" ]]; then
+        echo "🧠 Mounting EFI partition..."
         mkfs.fat -F32 "$EFI_PART"
         mkdir -p /mnt/boot
         mount "$EFI_PART" /mnt/boot
     elif [[ "$MODE" == "BIOS" ]]; then
+        echo "⚙️ Mounting /boot partition..."
         mkfs.ext4 -F "$BOOT_PART"
         mkdir -p /mnt/boot
         mount "$BOOT_PART" /mnt/boot
     fi
+
+    echo "✅ All partitions formatted and mounted successfully!"
 }
 
 #=========================================================================================================================================#
