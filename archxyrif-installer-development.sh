@@ -152,31 +152,31 @@ unmount_btrfs_and_swap() {
     
 #=========================================================================================================================================#
 
-  #  # Unmount all mountpoints on this device, deepest first
-  #  mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
-  #  for mnt in "${MOUNTS[@]}"; do
-  #      echo "→ Unmounting $mnt ..."
-  #      umount -l "$mnt" 2>/dev/null || true
-  #  done
+  # Unmount all mountpoints on this device, deepest first
+    mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
+    for mnt in "${MOUNTS[@]}"; do
+        echo "→ Unmounting $mnt ..."
+        umount -l "$mnt" 2>/dev/null || true
+    done
 
-  #  # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
-  #  mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
-  #  for bm in "${BTRFS_MOUNTS[@]}"; do
-  #      if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
-  #          echo "→ Unmounting BTRFS subvolume $bm ..."
-  #          umount -l "$bm" 2>/dev/null || true
-  #      fi
-  #  done
+    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
+    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
+    for bm in "${BTRFS_MOUNTS[@]}"; do
+        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
+            echo "→ Unmounting BTRFS subvolume $bm ..."
+            umount -l "$bm" 2>/dev/null || true
+        fi
+    done
 
     # Clean up /mnt
-  #  if mountpoint -q /mnt; then
-  #      echo "→ Cleaning /mnt ..."
-  #      umount -l /mnt 2>/dev/null || true
-  #      rm -rf /mnt/* 2>/dev/null || true
-  #  fi
+    if mountpoint -q /mnt; then
+        echo "→ Cleaning /mnt ..."
+        umount -l /mnt 2>/dev/null || true
+        rm -rf /mnt/* 2>/dev/null || true
+    fi
 
-  #  echo "→ Unmounting completed for $dev."
-  #  }
+    echo "→ Unmounting completed for $dev."
+    }
     
 #=========================================================================================================================================#
 
@@ -491,7 +491,66 @@ format_and_mount() {
 # -----------------------
 install_grub() {
     if [[ "$MODE" == "BIOS" ]]; then
-        grub-install --target=i386-pc "$DEV" || die "Failed to install GRUB (BIOS)"
+    
+                echo "Installing GRUB for BIOS..."
+                arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot "$DEV"
+            else
+                    echo "Detected UEFI environment — installing GRUB (UEFI)..."
+                
+                    # Ensure EFI system partition is mounted
+                    if ! mountpoint -q /mnt/boot/efi; then
+                        echo "→ Mounting EFI system partition..."
+                        mkdir -p /mnt/boot/efi
+                        mount "$P1" /mnt/boot/efi
+                    fi
+                
+                    GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+                
+                    # Install GRUB for UEFI
+                    arch-chroot /mnt grub-install \
+                        --target=x86_64-efi \
+                        --efi-directory=/boot/efi \
+                        --bootloader-id=GRUB \
+                        --modules="$GRUB_MODULES" \
+                        --recheck \
+                        --no-nvram
+                
+                    # Fallback EFI binary
+                    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+                
+                    # Clean old EFI boot entries
+                    DISK="${DEV}"
+                    PARTNUM=1
+                    LABEL="Arch Linux"
+                    LOADER='\EFI\GRUB\grubx64.efi'
+                
+                    for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+                        efibootmgr -b "$bootnum" -B || true
+                    done
+                
+                    efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+                
+                    # Generate GRUB config
+                    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+                
+                    # Secure Boot signing
+                    if command -v sbctl >/dev/null 2>&1; then
+                        echo "→ Signing EFI binaries for Secure Boot..."
+                        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+                        arch-chroot /mnt sbctl enroll-keys --microsoft
+                        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+                        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+                    fi
+
+    echo "✅ GRUB installation complete (UEFI)."
+    echo "Verifying EFI boot entries..."
+    efibootmgr -v || true
+            fi
+            
+            arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+            
+        fi
+        
     else
         arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB || die "Failed to install GRUB (UEFI)"
     fi
@@ -728,82 +787,7 @@ read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 #=========================================================================================================================================#
-clear
-sleep 1
-echo
-echo "#===================================================================================================#"
-echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)                     #"
-echo "#===================================================================================================#"
-echo
-sleep 1
 
-
-if [[ -d /sys/firmware/efi ]]; then
-    echo "Detected UEFI environment — installing GRUB (UEFI)..."
-
-    # Ensure EFI system partition is mounted
-    if ! mountpoint -q /mnt/boot/efi; then
-        echo "→ Mounting EFI system partition..."
-        mkdir -p /mnt/boot/efi
-        mount "$P1" /mnt/boot/efi
-    fi
-
-    GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-
-    # Install GRUB for UEFI
-    arch-chroot /mnt grub-install \
-        --target=x86_64-efi \
-        --efi-directory=/boot/efi \
-        --bootloader-id=GRUB \
-        --modules="$GRUB_MODULES" \
-        --recheck \
-        --no-nvram
-
-    # Fallback EFI binary
-    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-    # Clean old EFI boot entries
-    DISK="${DEV}"
-    PARTNUM=1
-    LABEL="Arch Linux"
-    LOADER='\EFI\GRUB\grubx64.efi'
-
-    for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-        efibootmgr -b "$bootnum" -B || true
-    done
-
-    efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-
-    # Generate GRUB config
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-    # Secure Boot signing
-    if command -v sbctl >/dev/null 2>&1; then
-        echo "→ Signing EFI binaries for Secure Boot..."
-        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-        arch-chroot /mnt sbctl enroll-keys --microsoft
-        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-    fi
-
-    echo "✅ GRUB installation complete (UEFI)."
-    echo "Verifying EFI boot entries..."
-    efibootmgr -v || true
-
-else
-    echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
-
-    if [[ "$BOOT_IS_BIOS" == true ]]; then
-        echo "Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot "$DEV"
-    else
-        echo "Installing GRUB for UEFI..."
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB
-    fi
-    
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-    
-fi
 
 
 
