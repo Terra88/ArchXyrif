@@ -236,10 +236,17 @@ trap cleanup EXIT INT TERM
 #-------------------MAPPER---------------------#
 #----------------------------------------------#
 
-DEV="$DEV"
-BUFFER_MIB=8
-EFI_SIZE_MIB=1024
-BIOS_BOOT_SIZE_MIB=512
+MODE=""                        # UEFI or BIOS
+BIOS_BOOT_PART_CREATED=false    # Whether we need a BIOS boot partition
+SWAP_SIZE_MIB=0
+ROOT_FS=""
+HOME_FS=""
+ROOT_SIZE_MIB=0
+HOME_SIZE_MIB=0
+EFI_SIZE_MIB=1024               # Default EFI partition size
+BIOS_BOOT_SIZE_MIB=2            # Default BIOS boot partition size
+BUFFER_MIB=8                    # Safety buffer
+DEV="$DEV"                          # Target device
 
 #=========================================================================================================================================#
 
@@ -249,9 +256,16 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
     else
-        echo "🧩 Legacy BIOS detected."
+        echo "🧩 Legacy BIOS system detected."
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
+    fi
+
+    # Set BIOS_BOOT_SIZE_MIB safely
+    if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
+        BIOS_BOOT_SIZE_MIB=2
+    else
+        BIOS_BOOT_SIZE_MIB=0
     fi
 }
 
@@ -308,21 +322,29 @@ ask_partition_sizes() {
 #--------------------------------------#
 partition_disk() {
     parted -s "$DEV" mklabel gpt
+
     if [[ "$MODE" == "BIOS" ]]; then
+        # BIOS boot partition (tiny, 1-2 MiB)
         parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$ROOT_START"MiB "$ROOT_END"MiB
-        parted -s "$DEV" mkpart primary linux-swap "$SWAP_START"MiB "$SWAP_END"MiB
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$HOME_START"MiB "$HOME_END"MiB
+        P1="${DEV}1"
+
+        # Root, swap, home partitions
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((BIOS_BOOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary linux-swap "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary "$HOME_FS" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
+
     else
-        parted -s "$DEV" mkpart primary fat32 1MiB "$EFI_SIZE_MIB"MiB
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$ROOT_START"MiB "$ROOT_END"MiB
-        parted -s "$DEV" mkpart primary linux-swap "$SWAP_START"MiB "$SWAP_END"MiB
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$HOME_START"MiB "$HOME_END"MiB
+        # UEFI: EFI partition first
+        parted -s "$DEV" mkpart primary fat32 1MiB "${EFI_SIZE_MIB}MiB"
+        parted -s "$DEV" set 1 boot on
+        P1="${DEV}1"
+
+        # Root, swap, home
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((EFI_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary linux-swap "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary "$HOME_FS" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
     fi
 
-    if [[ "$MODE" == "UEFI" ]]; then
-        parted -s "$DEV" set 1 boot on
-    fi
     partprobe "$DEV"
     udevadm settle
 }
@@ -333,57 +355,66 @@ partition_disk() {
 # Helper: Format and mount partitions
 #--------------------------------------#
 format_and_mount() {
-    # Construct device names
+    # Construct partition device names
     if [[ "$MODE" == "UEFI" ]]; then
-        P1="${DEV}1"  # EFI
-        P2="${DEV}2"  # ROOT
-        P3="${DEV}3"  # SWAP
-        P4="${DEV}4"  # HOME
+        EFI_PART="${DEV}1"
+        ROOT_PART="${DEV}2"
+        SWAP_PART="${DEV}3"
+        HOME_PART="${DEV}4"
     else
-        P1="${DEV}1"  # /boot
-        P2="${DEV}2"  # ROOT
-        P3="${DEV}3"  # SWAP
-        P4="${DEV}4"  # HOME
+        BOOT_PART="${DEV}1"
+        ROOT_PART="${DEV}2"
+        SWAP_PART="${DEV}3"
+        HOME_PART="${DEV}4"
     fi
 
     # Activate swap
-    mkswap "$P3"
-    swapon "$P3"
+    mkswap "$SWAP_PART"
+    swapon "$SWAP_PART"
 
-    # Format root & home
+    # Format partitions based on chosen filesystem
     case "$FS_CHOICE" in
-        1)
-            mkfs.ext4 -F "$P2"
-            mkfs.ext4 -F "$P4"
+        1)  # EXT4 root + home
+            mkfs.ext4 -F "$ROOT_PART"
+            mkfs.ext4 -F "$HOME_PART"
             ;;
-        2)
-            mkfs.btrfs -f --nodiscard "$P2"
-            mkfs.btrfs -f --nodiscard "$P4"
+        2)  # BTRFS root + home
+            mkfs.btrfs -f "$ROOT_PART"
+            mkfs.btrfs -f "$HOME_PART"
             ;;
-        3)
-            mkfs.btrfs -f --nodiscard "$P2"
-            mkfs.ext4 -F "$P4"
+        3)  # BTRFS root + EXT4 home
+            mkfs.btrfs -f "$ROOT_PART"
+            mkfs.ext4 -F "$HOME_PART"
             ;;
     esac
 
     # Mount root
-    mount "$P2" /mnt
+    mount "$ROOT_PART" /mnt
+
+    # Handle BTRFS subvolumes
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv"
         done
         umount /mnt
-        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
+        mount -o noatime,compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
     else
         mkdir -p /mnt/home
-        mount "$P4" /mnt/home
+        mount "$HOME_PART" /mnt/home
     fi
 
     mkdir -p /mnt/{boot,var/log,var/cache,.snapshots}
+
+    # EFI or BIOS boot mount
     if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 "$P1"
-        mount "$P1" /mnt/boot
+        mkfs.fat -F32 "$EFI_PART"
+        mkdir -p /mnt/boot
+        mount "$EFI_PART" /mnt/boot
+    elif [[ "$MODE" == "BIOS" ]]; then
+        mkfs.ext4 -F "$BOOT_PART"
+        mkdir -p /mnt/boot
+        mount "$BOOT_PART" /mnt/boot
     fi
 }
 
@@ -393,11 +424,14 @@ format_and_mount() {
 #--------------------------------------#
 install_grub() {
     if [[ "$MODE" == "BIOS" ]]; then
-        grub-install --target=i386-pc "$DEV"
+        grub-install --target=i386-pc "$DEV" || die "Failed to install GRUB (BIOS)"
     else
-        grub-install --target=x86_64-efi --efi-directory=/mnt/boot --bootloader-id=GRUB
+        grub-install --target=x86_64-efi --efi-directory=/mnt/boot --bootloader-id=GRUB || die "Failed to install GRUB (UEFI)"
     fi
-    grub-mkconfig -o /mnt/boot/grub/grub.cfg
+
+    # Generate GRUB config
+    grub-mkconfig -o /mnt/boot/grub/grub.cfg || die "Failed to generate GRUB config"
+    echo "✅ GRUB installed successfully!"
 }
 
 #=========================================================================================================================================#
@@ -466,27 +500,23 @@ preview_partitions() {
 }
 
 #=========================================================================================================================================#
-quick_partition()
-{
+quick_partition() {
+    detect_boot_mode       # Detect BIOS or UEFI
+    calculate_swap         # Compute swap size
+    select_filesystem      # Ask user which FS to use
+    ask_partition_sizes    # Ask user root/home sizes
+    preview_partitions     # Show partition plan
 
-            #--------------------------------------#
-            # Main execution
-            #--------------------------------------#
-            detect_boot_mode
-            calculate_swap
-            select_filesystem
-            ask_partition_sizes
-            preview_partitions
-            
-            if ! confirm "Proceed to partition, format, and install GRUB on $DEV?"; then
-                echo "Aborted."; exit 1
-            fi
-            
-            partition_disk
-            format_and_mount
-            install_grub
-            
-            echo "✅ Partitioning, formatting, and GRUB installation completed successfully!"
+    if ! confirm "Proceed to partition, format, and install GRUB on $DEV?"; then
+        echo "Aborted."
+        exit 1
+    fi
+
+    partition_disk         # Create partitions
+    format_and_mount       # Format filesystems and mount them
+    install_grub           # Install GRUB bootloader
+
+    echo "✅ Partitioning, formatting, and GRUB installation completed successfully!"
 }
 
 #=========================================================================================================================================#
