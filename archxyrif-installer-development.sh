@@ -231,26 +231,21 @@ trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
 # PRE PARTITION HELPER - BIOS OR UEFI CHEKER
 bios_uefi_check() {
-    if [[ ! -d /sys/firmware/efi ]]; then
-        echo "🧩 Legacy BIOS detected — creating GPT label + BIOS Boot partition..."
-        parted -s "$DEV" mklabel gpt
-        parted -s "$DEV" mkpart primary 1MiB 3MiB
-        parted -s "$DEV" set 1 bios_grub on
-        BIOS_BOOT_PART_CREATED=true
-        BIOS_BOOT_END=3
-    else
+    if [[ -d /sys/firmware/efi ]]; then
         echo "🧩 UEFI system detected."
-        parted -s "$DEV" mklabel gpt
+        BOOT_IS_BIOS=false
         BIOS_BOOT_PART_CREATED=false
         BIOS_BOOT_END=1
+        parted -s "$DEV" mklabel gpt
+    else
+        echo "🧩 Legacy BIOS detected — creating GPT label + BIOS /boot partition..."
+        BOOT_IS_BIOS=true
+        BIOS_BOOT_PART_CREATED=true
+        BIOS_BOOT_END=512  # 512MiB ext4 /boot for BIOS GRUB
+        parted -s "$DEV" mklabel gpt
+        parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_END}MiB"
+        # BIOS GRUB embedding will happen here using /boot ext4
     fi
-
-        if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
-            # Shift partition indexes: skip EFI
-            BOOT_IS_BIOS=true
-        else
-            BOOT_IS_BIOS=false
-        fi
 }
 #=========================================================================================================================================#
 quick_partition_swap_on() 
@@ -1379,17 +1374,28 @@ if [[ -d /sys/firmware/efi ]]; then
 else
     echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
 
-    # Detect root partition, strip Btrfs subvolume syntax if any
-    ROOT_PART=$(findmnt -n -o SOURCE /mnt | sed 's/\[.*//')
-    BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
+    # BIOS + GPT + Btrfs root requires a small /boot ext4 partition
+    if [[ "$BOOT_IS_BIOS" == true ]]; then
+        echo "→ BIOS mode detected. Root is Btrfs. Using dedicated ext4 /boot partition."
 
-    echo "→ Installing GRUB on /dev/$BIOS_DISK (root partition: $ROOT_PART)..."
+        # Ensure /boot is mounted
+        if ! mountpoint -q /mnt/boot; then
+            mount "${DEV}1" /mnt/boot  # assuming partition 1 is ext4 /boot
+        fi
 
-    # Install GRUB for BIOS
-    arch-chroot /mnt grub-install --target=i386-pc --recheck /dev/"$BIOS_DISK"
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        # Determine parent disk for GRUB
+        ROOT_PART=$(findmnt -n -o SOURCE /mnt/boot)
+        BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
 
-    echo "✅ GRUB installation complete (BIOS)."
+        echo "→ Installing GRUB on /dev/$BIOS_DISK using /boot ext4 for core.img..."
+        arch-chroot /mnt grub-install --target=i386-pc --boot-directory=/boot /dev/"$BIOS_DISK"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+        echo "✅ BIOS GRUB installed successfully using /boot ext4 partition."
+
+    else
+        echo "❌ Legacy BIOS installation skipped: Btrfs root without /boot ext4 or bios_grub partition will fail."
+    fi
 fi
 
 
