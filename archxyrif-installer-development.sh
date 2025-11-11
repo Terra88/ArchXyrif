@@ -151,6 +151,7 @@ unmount_btrfs_and_swap() {
 }
     
 #=========================================================================================================================================#
+unmount(){
 
   # Unmount all mountpoints on this device, deepest first
     mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
@@ -179,36 +180,9 @@ unmount_btrfs_and_swap() {
     }
     
 #=========================================================================================================================================#
-
-    #Helpers-2
-    
-    # Show devices
-    echo "Available block devices (lsblk):"
-    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
-
-    # Ask device
-    read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-    DEV="${DEV:-}"
-
-    if [[ -z "$DEV" ]]; then
-    exec "$0" "No device given. Exiting."
-    fi
-
-    if [[ ! -b "$DEV" ]]; then
-    exec "$0" "Device '$DEV' not found or not a block device."
-    fi
-
-    echo
-    echo "You selected: $DEV"
-    echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
-
-    # Unmount everything on the device before partitioning
+    unmount "$DEV"
     unmount_btrfs_and_swap "$DEV"
 
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-    exec "$0"
-    fi
-    
 #=========================================================================================================================================#
 #===================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
