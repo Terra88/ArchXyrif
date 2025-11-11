@@ -221,10 +221,25 @@ trap cleanup EXIT INT TERM
             rm -rf /mnt/* 2>/dev/null || true
 
 #=========================================================================================================================================#
+# PRE PARTITION HELPER - BIOS OR UEFI CHEKER
+bios_uefi_check(){
+
+                if [[ ! -d /sys/firmware/efi ]]; then
+                    echo "🧩 Creating BIOS Boot partition (for legacy GRUB on GPT)..."
+                    parted -s "$DEV" mkpart primary 1MiB 3MiB
+                    parted -s "$DEV" set 1 bios_grub on
+                    BIOS_BOOT_PART_CREATED=true
+                else
+                    BIOS_BOOT_PART_CREATED=false
+                fi
+}
+
+#=========================================================================================================================================#
 quick_partition_swap_on() 
 {
                         partprobe "$DEV" || true
-                    
+                        bios_uefi_check
+                        
                         # Detect RAM in MiB
                         ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
                         ram_mib=$(( (ram_kb + 1023) / 1024 ))
@@ -461,7 +476,8 @@ quick_partition_swap_on()
 quick_partition_swap_on_root()
 {
                         partprobe "$DEV" || true
-                    
+                        bios_uefi_check
+                        
                         # RAM in MiB
                         ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
                         [[ -z "$ram_kb" ]] && die "Failed to read RAM"
@@ -613,7 +629,8 @@ quick_partition_swap_on_root()
 quick_partition_swap_off() 
 {
                                     partprobe "$DEV" || true
-                                
+                                    bios_uefi_check
+                                    
                                     # Disk sizes
                                     DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
                                     DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
@@ -812,7 +829,8 @@ quick_partition_swap_off()
 quick_partition_swap_off_root() 
 {
                             partprobe "$DEV" || true
-                        
+                            bios_uefi_check
+                            
                             # Disk sizes
                             DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
                             DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
@@ -1125,59 +1143,75 @@ sleep 1
 # EFI partition is expected to be mounted on /boot (as done before chroot)
 echo "Installing GRUB (UEFI)..."
 
-# Determine EFI partition mountpoint and ensure it’s /boot/efi
-if ! mountpoint -q /mnt/boot/efi; then
-  echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-  mkdir -p /mnt/boot/efi
-  mount "$P1" /mnt/boot/efi
+if [[ -d /sys/firmware/efi ]]; then
+        # Determine EFI partition mountpoint and ensure it’s /boot/efi
+        if ! mountpoint -q /mnt/boot/efi; then
+          echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
+          mkdir -p /mnt/boot/efi
+          mount "$P1" /mnt/boot/efi
+        fi
+        
+        # Basic, minimal GRUB modules needed for UEFI boot
+        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+        
+        # Run grub-install safely inside chroot
+        arch-chroot /mnt grub-install \
+          --target=x86_64-efi \
+          --efi-directory=/boot/efi \
+          --bootloader-id=GRUB \
+          --modules="$GRUB_MODULES" \
+          --recheck \
+          --no-nvram
+        
+        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
+        echo "→ Copying fallback EFI binary..."
+        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+        
+        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
+        DISK="${DEV}"
+        PARTNUM=1
+        LABEL="Arch Linux"
+        LOADER='\EFI\GRUB\grubx64.efi'
+        
+        # Delete stale entries with same label to avoid duplicates
+        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+          efibootmgr -b "$bootnum" -B || true
+        done
+        
+        # Create new entry
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+        
+        # Generate GRUB config inside chroot
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        
+        # Secure Boot Integration
+        if command -v sbctl >/dev/null 2>&1; then
+          echo "→ Signing EFI binaries for Secure Boot..."
+          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+          arch-chroot /mnt sbctl enroll-keys --microsoft
+          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+        fi
+        
+        echo "GRUB installation complete."
+        echo
+        echo "Verifying EFI boot entries..."
+        efibootmgr -v || true
+        
+else
+
+arch-chroot /mnt bash -euo pipefail<<'EOF'
+
+        echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
+        grub-install --target=i386-pc --recheck /dev/$(lsblk -no pkname $(findmnt -no SOURCE /))
+        
+grub-mkconfig -o /boot/grub/grub.cfg
+echo "✅ GRUB installation complete."
+
+EOF
+
 fi
 
-# Basic, minimal GRUB modules needed for UEFI boot
-GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-
-# Run grub-install safely inside chroot
-arch-chroot /mnt grub-install \
-  --target=x86_64-efi \
-  --efi-directory=/boot/efi \
-  --bootloader-id=GRUB \
-  --modules="$GRUB_MODULES" \
-  --recheck \
-  --no-nvram
-
-# Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-echo "→ Copying fallback EFI binary..."
-arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-# Ensure a clean efibootmgr entry (use the parent disk of $P1)
-DISK="${DEV}"
-PARTNUM=1
-LABEL="Arch Linux"
-LOADER='\EFI\GRUB\grubx64.efi'
-
-# Delete stale entries with same label to avoid duplicates
-for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-  efibootmgr -b "$bootnum" -B || true
-done
-
-# Create new entry
-efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-
-# Generate GRUB config inside chroot
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-# Secure Boot Integration
-if command -v sbctl >/dev/null 2>&1; then
-  echo "→ Signing EFI binaries for Secure Boot..."
-  arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-  arch-chroot /mnt sbctl enroll-keys --microsoft
-  arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-  arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-fi
-
-echo "GRUB installation complete."
-echo
-echo "Verifying EFI boot entries..."
-efibootmgr -v || true
 
 #=========================================================================================================================================#
 sleep 1
