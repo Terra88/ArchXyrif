@@ -249,6 +249,14 @@ BIOS_BOOT_SIZE_MIB=512         # /boot ext4 size in MiB for BIOS mode (your chos
 BOOT_SIZE_MIB=0                # canonical boot-part size used by previews (always set)
 BUFFER_MIB=8                   # safety buffer
 
+#===COLOR-MAPPER===#
+# Color codes
+GREEN="\e[32m"
+YELLOW="\e[33m"
+CYAN="\e[36m"
+RESET="\e[0m"
+#===COLOR-MAPPER===#
+
 #=========================================================================================================================================#
 detect_boot_mode() {
     if [[ -d /sys/firmware/efi ]]; then
@@ -512,12 +520,16 @@ preview_partitions() {
         P1_START=1
         P1_END=$BOOT_SIZE_MIB
         ROOT_START=$((P1_END + 1))
+        BOOT_COLOR=$YELLOW
+        P1_NOTE="Legacy BIOS Boot Partition"
     else
         P1_LABEL="EFI"
         P1_FS="FAT32"
         P1_START=1
         P1_END=$BOOT_SIZE_MIB
         ROOT_START=$((P1_END + 1))
+        BOOT_COLOR=$GREEN
+        P1_NOTE="UEFI EFI System Partition"
     fi
 
     ROOT_END=$((ROOT_START + ROOT_SIZE_MIB - BUFFER_MIB))
