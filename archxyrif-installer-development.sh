@@ -65,11 +65,15 @@ timedatectl set-ntp true
 set -euo pipefail
 #=========================================================================================================================================#
     # Helpers
-#---------------------------------------
-# Helpers & safety
-#---------------------------------------
+#---------------------------
+# Helpers
+#---------------------------
+die() {
+    echo -e "${YELLOW}ERROR:${RESET} $*" >&2
+    exit 1
+}
+
 confirm() {
-    # ask Yes/No, default Y
     local msg="${1:-Continue?}"
     read -r -p "$msg [Y/n]: " ans
     case "$ans" in
@@ -78,84 +82,20 @@ confirm() {
     esac
 }
 
-die() {
-    echo -e "${YELLOW}ERROR:${RESET} $*" >&2
-    exit 1
-}
-
 part_suffix() {
     local dev="$1"
-    if [[ "$dev" =~ nvme|mmcblk ]]; then
-        echo "p"
-    else
-        echo ""
-    fi
+    [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
-
-# safe cleanup at script exit
-cleanup() {
-    echo -e "\n🧹 Running cleanup..."
-    swapoff -a 2>/dev/null || true
-    if mountpoint -q /mnt; then
-        umount -R /mnt 2>/dev/null || true
-    fi
-    sync
-    echo "✅ Cleanup done."
-}
-trap cleanup EXIT INT TERM
     
 #=========================================================================================================================================#
 
-#---------------------------------------
-# Robust device cleanup helpers
-#---------------------------------------
 cleanup_device() {
     local dev="$1"
-    echo -e "\n🧹 Cleaning device $dev ..."
-
-    # turn off swaps referring to device
-    mapfile -t SWAPS < <(swapon --show=NAME --noheadings || true)
-    for s in "${SWAPS[@]}"; do
-        if [[ "$s" == "$dev"* ]]; then
-            echo "→ swapoff $s"
-            swapoff "$s" || true
-        fi
-    done
-
-    # unmount mounts referencing device, deepest first
-    mapfile -t MOUNTS < <(mount | awk -v d="$dev" '$1 ~ d { print $3 }' | sort -r)
-    for m in "${MOUNTS[@]}"; do
-        echo "→ umount -l $m"
-        umount -l "$m" 2>/dev/null || true
-    done
-
-    # handle btrfs mounts specifically
-    mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        src=$(findmnt -n -o SOURCE "$bm" 2>/dev/null || true)
-        if [[ "$src" == "$dev"* ]]; then
-            echo "→ umount -l $bm"
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
-
-    # clear /mnt contents if mounted
-    if mountpoint -q /mnt; then
-        echo "→ Cleaning /mnt"
-        umount -R /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
-
-    # inform kernel
-    echo "→ partprobe $dev ; udevadm settle"
-    partprobe "$dev" 2>/dev/null || true
-    udevadm settle --timeout=5 2>/dev/null || true
-
-    echo "✅ Device $dev cleaned."
+    echo "Cleaning device $dev..."
+    swapoff -a 2>/dev/null || true
+    umount -R /mnt 2>/dev/null || true
+    sync
 }
-
-
-
 
 #=========================================================================#
 # Wrapper to unmount a device (simpler for quick unmount)
@@ -181,36 +121,11 @@ unmount_device() {
 # Partition table wipe helper
 #---------------------------------------
 clear_partition_table_luks_lvmsignatures() {
-    local dev="$1"
-    echo -e "\n⚠️  Wiping partition table & signatures on $dev (sgdisk/wipefs/dd)..."
-    which sgdisk >/dev/null 2>&1 || die "sgdisk required"
-    which wipefs >/dev/null 2>&1 || die "wipefs required"
-
-    # close any LUKS pointing to the device
-    for map in /dev/mapper/*; do
-        if [[ -L "$map" ]]; then
-            target=$(readlink -f "$map" || true)
-            if [[ "$target" == "$dev"* ]]; then
-                name=$(basename "$map")
-                echo "→ cryptsetup luksClose $name"
-                cryptsetup luksClose "$name" || true
-            fi
-        fi
-    done
-
-    # Zap and wipe
-    sgdisk --zap-all "$dev" 2>/dev/null || true
-    wipefs -a "$dev" 2>/dev/null || true
-
-    # zero first and last MiB
-    dd if=/dev/zero of="$dev" bs=1M count=2 oflag=direct status=none || true
-    devsize_bytes=$(blockdev --getsize64 "$dev" 2>/dev/null || true)
-    if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-        dd if=/dev/zero of="$dev" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
-    fi
-
-    swapoff -a 2>/dev/null || true
-    echo "→ Finished clearing signatures on $dev."
+    local DEV="$1"
+    echo "Wiping $DEV..."
+    sgdisk --zap-all "$DEV" 2>/dev/null || true
+    wipefs -a "$DEV" 2>/dev/null || true
+    dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
 }
 #=========================================================================================================================================#
  CHROOT PACSTRAPIT
@@ -275,15 +190,14 @@ FS_CHOICE=1
 # Detect boot mode
 # -----------------------
 detect_boot_mode() {
-    # Detect if system is booted in UEFI or BIOS
     if [[ -d /sys/firmware/efi ]]; then
         MODE="UEFI"
         BOOT_SIZE_MIB=512
-        echo "💻 UEFI detected."
+        echo -e "${CYAN}UEFI${RESET} detected"
     else
         MODE="BIOS"
         BOOT_SIZE_MIB=512
-        echo "💻 BIOS detected."
+        echo -e "${CYAN}BIOS${RESET} detected"
     fi
 }
 #=========================================================================================================================================#
@@ -291,15 +205,10 @@ detect_boot_mode() {
 # Swap calculation
 # -----------------------
 calculate_swap() {
-    local ram_kb
-    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    local ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     local ram_mib=$(( (ram_kb + 1023) / 1024 ))
-    if (( ram_mib <= 8192 )); then
-        SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-    else
-        SWAP_SIZE_MIB=$ram_mib
-    fi
-    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
+    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib * 2 : ram_mib ))
+    echo "Detected RAM ${ram_mib} MiB → swap ${SWAP_SIZE_MIB} MiB"
 }
 
 #=========================================================================================================================================#
@@ -345,114 +254,87 @@ ask_partition_sizes() {
 # Partition disk
 # -----------------------
 partition_disk() {
-    local ps
-    ps=$(part_suffix "$DEV")
+    local DEV="$1"
+    local ps=$(part_suffix "$DEV")
+    echo "Partitioning $DEV..."
+
     parted -s "$DEV" mklabel gpt
 
     if [[ "$MODE" == "BIOS" ]]; then
-        parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((BIOS_BOOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary linux-swap "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
+        parted -s "$DEV" mkpart primary ext4 1MiB 512MiB
+        parted -s "$DEV" mkpart primary linux-swap 512MiB $((512 + SWAP_SIZE_MIB))MiB
+        parted -s "$DEV" mkpart primary btrfs $((512 + SWAP_SIZE_MIB))MiB $((512 + SWAP_SIZE_MIB + 66*1024))MiB
+        parted -s "$DEV" mkpart primary ext4 $((512 + SWAP_SIZE_MIB + 66*1024))MiB 100%
+        parted -s "$DEV" set 1 bios_grub on
     else
-        parted -s "$DEV" mkpart primary fat32 1MiB "${EFI_SIZE_MIB}MiB"
+        parted -s "$DEV" mkpart primary fat32 1MiB 512MiB
         parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((EFI_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary linux-swap "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
+        parted -s "$DEV" mkpart primary linux-swap 512MiB $((512 + SWAP_SIZE_MIB))MiB
+        parted -s "$DEV" mkpart primary btrfs $((512 + SWAP_SIZE_MIB))MiB $((512 + SWAP_SIZE_MIB + 66*1024))MiB
+        parted -s "$DEV" mkpart primary ext4 $((512 + SWAP_SIZE_MIB + 66*1024))MiB 100%
     fi
 
-    # Inform kernel
-    partprobe "$DEV" 2>/dev/null || true
-    udevadm settle --timeout=5 2>/dev/null || true
+    partprobe "$DEV"
+    udevadm settle
 }
 
 format_and_mount() {
     local DEV="$1"
-    detect_boot_mode
+    local ps=$(part_suffix "$DEV")
 
-    # Partition suffix for NVMe vs SATA
-    local ps=""
-    [[ "$DEV" =~ nvme|mmcblk ]] && ps="p"
-
-    # Partition paths
     local BIOS_PART="${DEV}${ps}1"
-    local BOOT_PART="${DEV}${ps}2"
-    local SWAP_PART="${DEV}${ps}3"
-    local ROOT_PART="${DEV}${ps}4"
-    local HOME_PART="${DEV}${ps}5"
+    local SWAP_PART="${DEV}${ps}2"
+    local ROOT_PART="${DEV}${ps}3"
+    local HOME_PART="${DEV}${ps}4"
 
-    echo "🧱 Formatting partitions..."
-
-    # BIOS or EFI partition
-    if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 -n EFI "$BIOS_PART"
-    fi
-
-    mkfs.ext4 -L "boot" "$BOOT_PART"
-    mkswap -L "swap" "$SWAP_PART"
+    echo "Formatting partitions..."
+    [[ "$MODE" == "UEFI" ]] && mkfs.fat -F32 "$BIOS_PART"
+    mkfs.ext4 -F "$HOME_PART"
+    mkfs.btrfs -f "$ROOT_PART"
+    mkswap "$SWAP_PART"
     swapon "$SWAP_PART"
-    mkfs.btrfs -f -L "root" "$ROOT_PART"
-    mkfs.ext4 -L "home" "$HOME_PART"
 
-    echo "✅ Partitions formatted."
-
-    # Mount root partition
+    # Mount BTRFS root
     mount "$ROOT_PART" /mnt
 
-    # Create BTRFS subvolumes
     for sv in @ @home @snapshots @cache @log; do
-        [[ ! -d "/mnt/$sv" ]] && btrfs subvolume create "/mnt/$sv"
+        btrfs subvolume create "/mnt/$sv" || true
     done
 
-    # Remount root subvolume
     umount /mnt
     mount -o noatime,compress=zstd,subvol=@ "$ROOT_PART" /mnt
-
-    # Mount other subvolumes
-    mkdir -p /mnt/home /mnt/.snapshots /mnt/cache /mnt/log
+    mkdir -p /mnt/{home,.snapshots,cache,log}
     mount -o noatime,compress=zstd,subvol=@home "$ROOT_PART" /mnt/home
-    mount -o noatime,compress=zstd,subvol=@snapshots "$ROOT_PART" /mnt/.snapshots
-    mount -o noatime,compress=zstd,subvol=@cache "$ROOT_PART" /mnt/cache
-    mount -o noatime,compress=zstd,subvol=@log "$ROOT_PART" /mnt/log
+    mount -o noatime,compress=zstd,subvol=@snapshots "$ROOT_PART"/.snapshots
+    mount -o noatime,compress=zstd,subvol=@cache "$ROOT_PART"/cache
+    mount -o noatime,compress=zstd,subvol=@log "$ROOT_PART"/log
 
-    # Mount /boot
+    # Boot
     mkdir -p /mnt/boot
-    mount "$BOOT_PART" /mnt/boot
-
-    # Mount EFI partition if UEFI
-    if [[ "$MODE" == "UEFI" ]]; then
-        mkdir -p /mnt/boot/efi
-        mount "$BIOS_PART" /mnt/boot/efi
-    fi
-
-    echo "✅ Partitions mounted successfully."
+    [[ "$MODE" == "UEFI" ]] && mount "$BIOS_PART" /mnt/boot || mount "$BIOS_PART" /mnt/boot
 }
 
 #=========================================================================================================================================#
 # -----------------------
 # GRUB installation
 # -----------------------
+
 install_grub() {
     local DEV="$1"
-
-    [[ ! -d /mnt ]] && die "/mnt does not exist"
-    mountpoint -q /mnt || die "/mnt is not mounted"
+    [[ ! -d /mnt ]] && die "/mnt not mounted"
     [[ ! -d /mnt/boot ]] && mkdir -p /mnt/boot
+    [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
 
     prepare_chroot
 
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "💾 Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install failed"
+        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV"
     else
-        echo "💾 Installing GRUB for UEFI..."
-        [[ ! -d /mnt/boot/efi ]] && mkdir -p /mnt/boot/efi
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck || die "grub-install failed"
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck
     fi
 
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-    echo "✅ GRUB installed successfully ($MODE)."
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+    echo "✅ GRUB installed ($MODE)"
 }
 
 
@@ -508,119 +390,31 @@ preview_partitions() {
 }
 
 #=========================================================================================================================================#
-#---------------------------------------
-# Robust main menu (simple + careful)
-#---------------------------------------
-main_menu() {
-    
-    echo "Available block devices:"
-    lsblk -p -o NAME,MODEL,SIZE,TYPE,MOUNTPOINT || true
-    read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-    DEV="${DEV:-}"
-    if [[ -z "$DEV" || ! -b "$DEV" ]]; then
-        die "No valid device supplied."
-    fi
 
-    echo -e "\n→ Target device: ${DEV}"
-    cleanup_device "$DEV" || true
-    unmount_device "$DEV" || true
+#---------------------------
+# Main
+#---------------------------
+logo
+main() {
+    echo -e "${CYAN}Arch Linux Installer${RESET}"
+    lsblk -p
+    read -rp "Enter disk to install (e.g. /dev/sda): " DEV
+    [[ ! -b "$DEV" ]] && die "Invalid device"
 
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? This WILL DESTROY DATA"; then
-        die "User aborted."
-    fi
-
-    clear_partition_table_luks_lvmsignatures "$DEV" || true
+    cleanup_device "$DEV"
+    confirm "All data on $DEV will be lost. Continue?" || die "Aborted"
 
     detect_boot_mode
     calculate_swap
-    select_filesystem
-    ask_partition_sizes
-    preview_partitions
+    clear_partition_table_luks_lvmsignatures "$DEV"
+    partition_disk "$DEV"
+    format_and_mount "$DEV"
+    pacstrap_base
+    generate_fstab
+    install_grub "$DEV"
 
-    if ! confirm "Proceed to create partitions on $DEV?"; then
-        die "Aborted by user."
-    fi
-
-    echo -e "\n→ Creating partitions..."
-    partition_disk || { echo "partition_disk reported failure"; }
-
-    # Ensure kernel sees partitions (retry loop)
-    local base ok i
-    base=$(basename "$DEV")
-    ok=false
-    for i in {1..8}; do
-        echo "→ kernel rescan attempt $i"
-        partprobe "$DEV" 2>/dev/null || true
-        partx -u "$DEV" 2>/dev/null || true
-        blockdev --rereadpt "$DEV" 2>/dev/null || true
-        udevadm settle --timeout=5 2>/dev/null || true
-        sleep 1
-        if [[ $(lsblk -n "$DEV" | wc -l) -gt 1 ]]; then
-            ok=true
-            break
-        fi
-    done
-
-    if ! $ok; then
-        echo "→ Trying aggressive device delete + rescan..."
-        if [[ -w /sys/block/"$base"/device/delete ]]; then
-            echo 1 > /sys/block/"$base"/device/delete 2>/dev/null || true
-            sleep 2
-        fi
-        for host in /sys/class/scsi_host/host*; do
-            if [[ -w "$host/scan" ]]; then
-                echo "- - -" > "$host/scan" 2>/dev/null || true
-            fi
-        done
-        udevadm settle --timeout=5 2>/dev/null || true
-        sleep 2
-
-        for i in {1..6}; do
-            partprobe "$DEV" 2>/dev/null || true
-            partx -u "$DEV" 2>/dev/null || true
-            blockdev --rereadpt "$DEV" 2>/dev/null || true
-            udevadm settle --timeout=5 2>/dev/null || true
-            sleep 1
-            if [[ $(lsblk -n "$DEV" | wc -l) -gt 1 ]]; then
-                ok=true
-                break
-            fi
-        done
-    fi
-
-    if ! $ok; then
-        cat <<EOF
-ERROR: Kernel refused to accept new partition table for $DEV.
-Common causes:
- - device busy (mounted or used by dm/crypt/LVM)
- - running installer from the target disk (use USB)
-Recommended actions:
- - Ensure you are running from USB (archiso)
- - Run: swapoff -a; vgchange -an; dmsetup remove_all; udevadm settle
- - If still failing: reboot the machine and run installer again
-EOF
-        die "Kernel did not accept partition table. Aborting."
-    fi
-
-    echo -e "\n→ Formatting and mounting partitions..."
-    format_and_mount || die "format_and_mount failed"
-
-    # ensure chroot dirs exist
-    mkdir -p /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot /mnt/home
-
-    if confirm "Mount pseudo-filesystems for chroot now?"; then
-        prepare_chroot || die "prepare_chroot failed"
-    fi
-
-    if confirm "Install GRUB now?"; then
-        install_grub || die "install_grub failed"
-    else
-        echo "You chose to skip GRUB. Continue manually later."
-    fi
-
-    echo -e "${GREEN}All done up to GRUB. Continue with pacstrap/fstab/chroot as needed.${RESET}"
+    echo -e "${GREEN}Installation completed up to GRUB. You can chroot and configure users, network, etc.${RESET}"
 }
-
 #=========================================================================================================================================#
 
 custom_partition()
