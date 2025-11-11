@@ -315,24 +315,50 @@ ask_partition_sizes() {
 partition_disk() {
     local ps
     ps=$(part_suffix "$DEV")
-    parted -s "$DEV" mklabel gpt
 
+    echo "🔧 Preparing to create new partitions on $DEV..."
+    echo "→ Ensuring device is not in use..."
+    cleanup_device "$DEV"
+
+    echo "→ Flushing disk caches..."
+    sync && blockdev --flushbufs "$DEV" || true
+    udevadm settle
+
+    echo "→ Creating new GPT partition table..."
+    parted -s "$DEV" mklabel gpt || {
+        echo "⚠️ parted failed to refresh device state, retrying after 2s..."
+        sleep 2
+        parted -s "$DEV" mklabel gpt || die "Failed to create GPT label on $DEV"
+    }
+
+    echo "→ Creating partitions..."
     if [[ "$MODE" == "BIOS" ]]; then
-        parted -s "$DEV" mkpart primary ext4 1MiB "${BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary linux-swap $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB+1)) 100%
+        parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_SIZE_MIB}MiB"
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((BIOS_BOOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary linux-swap "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary "$HOME_FS" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
     else
-        parted -s "$DEV" mkpart primary fat32 1MiB "${BOOT_SIZE_MIB}MiB"
+        parted -s "$DEV" mkpart primary fat32 1MiB "${EFI_SIZE_MIB}MiB"
         parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary linux-swap $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+1)) $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB))MiB
-        parted -s "$DEV" mkpart primary ext4 $((BOOT_SIZE_MIB+ROOT_SIZE_MIB+SWAP_SIZE_MIB+1)) 100%
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((EFI_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary linux-swap "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
+        parted -s "$DEV" mkpart primary "$HOME_FS" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
     fi
 
-    partprobe "$DEV"
-    udevadm settle
-    echo "✅ Partitions created."
+    echo "→ Informing kernel of new partition table..."
+    partprobe "$DEV" || true
+    udevadm settle || true
+    sleep 2
+
+    # Verify kernel reloaded table
+    if ! lsblk "$DEV" | grep -q "${DEV}${ps}2"; then
+        echo "⚠️ Kernel still using old partition table!"
+        echo "💡 Please reboot your system before continuing."
+        read -rp "Press Enter to acknowledge and exit..."
+        exit 1
+    fi
+
+    echo "✅ Partitioning complete and kernel updated successfully."
 }
 
 format_and_mount() {
@@ -503,96 +529,137 @@ preview_partitions() {
 # -----------------------
 main_menu() {
     echo
-    echo "============================================"
-    echo "         Arch Linux Installer"
-    echo "============================================"
-
-    # Step 1: List all available block devices
-    echo "🔹 Listing all available block devices:"
+    echo -e "${CYAN}Available block devices:${RESET}"
     lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
     echo
 
-    # Step 2: Ask the user to select a target disk
-    read -rp "Enter the block device to use (example: /dev/sda or /dev/nvme0n1): " DEV
-    DEV="${DEV:-}"  # default to empty string if nothing entered
-
-    # Step 3: Validate user input
-    if [[ -z "$DEV" || ! -b "$DEV" ]]; then
-        die "❌ No valid block device supplied. Exiting."
+    # Ask for device and validate
+    read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
+    DEV="${DEV:-}"
+    if [[ -z "$DEV" ]]; then
+        die "No device provided. Aborting."
+    fi
+    if [[ ! -b "$DEV" ]]; then
+        die "Device '$DEV' not found or not a block device."
     fi
 
-    echo -e "Selected disk: ${CYAN}$DEV${RESET}"
-    echo
-
-    # Step 4: Run cleanup on the selected device
-    echo "🧹 Cleaning any existing mounts, swap, and BTRFS subvolumes on $DEV..."
-    cleanup_device "$DEV"
-    echo "✅ Cleanup finished."
-    echo
-
-    # Step 5: Confirm with the user before wiping data
-    if ! confirm "⚠️ WARNING: This will wipe all data on $DEV. Are you absolutely sure?"; then
+    # Confirm selection
+    echo -e "\nYou selected: ${YELLOW}$DEV${RESET}"
+    echo "This WILL DESTROY ALL DATA on $DEV (partitions, LUKS, LVM, etc)."
+    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
         die "User aborted."
     fi
 
-    # Step 6: Detect boot mode (UEFI or BIOS)
-    echo "🔍 Detecting system boot mode..."
-    detect_boot_mode
-    echo "Boot mode detected: ${CYAN}$MODE${RESET}"
-    echo
+    # 1) Robust cleanup of the device to remove mounts, subvolumes, swap, and notify kernel
+    echo -e "\n→ Running robust cleanup on $DEV (unmounts, swapoff, partprobe) ..."
+    cleanup_device "$DEV" || echo "Warning: cleanup_device returned non-zero, continuing cautiously."
+    unmount_device "$DEV" || true
 
-    # Step 7: Calculate recommended swap size based on system RAM
-    echo "💾 Calculating recommended swap size..."
-    calculate_swap
-    echo "Swap size set to: ${CYAN}$((SWAP_SIZE_MIB/1024)) GiB${RESET}"
-    echo
-
-    # Step 8: Select filesystem for root and home
-    echo "🗄️  Selecting filesystem type for root and home partitions..."
-    select_filesystem
-    echo "Root FS: ${CYAN}$ROOT_FS${RESET}, Home FS: ${CYAN}$HOME_FS${RESET}"
-    echo
-
-    # Step 9: Ask user for partition sizes
-    echo "📏 Enter partition sizes for root and home:"
-    ask_partition_sizes
-    echo "Partition sizes preview:"
-    echo "Root: ${CYAN}${ROOT_SIZE_MIB} MiB${RESET}, Home: ${CYAN}${HOME_SIZE_MIB} MiB${RESET}, Swap: ${CYAN}${SWAP_SIZE_MIB} MiB${RESET}, Boot reserved: ${CYAN}${BOOT_SIZE_MIB} MiB${RESET}"
-    echo
-
-    # Step 10: Final confirmation before creating partitions
-    if ! confirm "Proceed to create partitions on $DEV?"; then
-        die "User aborted before partitioning."
+    # Double-check no mounts remain on this device
+    mapfile -t _left_mnts < <(mount | awk -v d="$DEV" '$1 ~ d {print $3}' || true)
+    if (( ${#_left_mnts[@]} > 0 )); then
+        echo "⚠️  Found mounts still referencing $DEV:"
+        printf "   %s\n" "${_left_mnts[@]}"
+        echo "Attempting to unmount them forcefully..."
+        for m in "${_left_mnts[@]}"; do
+            umount -l "$m" 2>/dev/null || true
+        done
+        sleep 1
     fi
 
-    # Step 11: Partition the disk
-    echo "🛠️  Creating partitions..."
-    partition_disk
-    echo "✅ Partitions successfully created."
-    echo
+    # 2) Re-notify udev & kernel (safe extra attempt)
+    echo "→ Notifying udev and kernel..."
+    udevadm settle || true
+    partprobe "$DEV" || true
+    partx -u "$DEV" 2>/dev/null || true
+    sleep 1
 
-    # Step 12: Format partitions and mount them
-    echo "🗃️  Formatting partitions and mounting to /mnt..."
-    format_and_mount
-    echo "✅ Partitions formatted and mounted."
-    echo
+    # 3) Clear signatures / LUKS / LVM - best-effort
+    echo "→ Clearing partition table signatures and old mappings (best-effort)..."
+    clear_partition_table_luks_lvmsignatures "$DEV" || echo "Warning: clearing signatures failed or returned non-zero."
 
-    # Step 13: Prepare chroot environment (pseudo-filesystems)
-    echo "🖥️  Preparing chroot environment..."
-    prepare_chroot
-    echo "✅ Chroot environment ready."
-    echo
+    # 4) Detect boot mode & calculate swap
+    detect_boot_mode
+    calculate_swap
 
-    # Step 14: Summary
-    echo "============================================"
-    echo "✅ Disk preparation complete for $DEV"
-    echo "Root FS: $ROOT_FS, Home FS: $HOME_FS"
-    echo "Swap size: $((SWAP_SIZE_MIB/1024)) GiB"
-    echo "Boot mode: $MODE"
-    echo "Root mounted at /mnt"
-    echo "Home mounted at /mnt/home"
-    echo "Pseudo-filesystems mounted under /mnt"
-    echo "============================================"
+    # 5) Filesystem choice & partition size prompts
+    select_filesystem
+    ask_partition_sizes
+
+    # 6) Show preview and require confirmation
+    preview_partitions
+    if ! confirm "Proceed to create partitions on $DEV as shown above?"; then
+        die "User canceled partition creation."
+    fi
+
+    # 7) Create partitions (partition_disk handles actual parted calls)
+    echo -e "\n→ Creating partition table and partitions on $DEV ..."
+    partition_disk || {
+        echo "❌ partition_disk failed. Attempting to re-run kernel notification and retry once..."
+        udevadm settle || true
+        partprobe "$DEV" || true
+        partx -u "$DEV" 2>/dev/null || true
+        sleep 2
+        # Try partitioning one more time
+        partition_disk || die "partition_disk failed a second time. Kernel believes partitions in use — reboot recommended."
+    }
+
+    # 8) Ensure kernel sees the new partitions: retry several times
+    echo "→ Ensuring kernel recognizes the new partition table..."
+    attempts=0
+    max_attempts=6
+    psuf=$(part_suffix "$DEV")
+    expected_part="${DEV}${psuf}2"   # root partition presence check (part 2)
+    while (( attempts < max_attempts )); do
+        if lsblk -n "$expected_part" >/dev/null 2>&1; then
+            echo "→ Kernel now recognizes partitions."
+            break
+        fi
+        echo "→ Kernel didn't pick up partitions yet (attempt $((attempts+1))/$max_attempts). Running partprobe/udevadm/partx..."
+        partprobe "$DEV" 2>/dev/null || true
+        partx -u "$DEV" 2>/dev/null || true
+        udevadm settle || true
+        sleep 2
+        ((attempts++))
+    done
+    if (( attempts >= max_attempts )); then
+        echo "⚠️ Kernel still didn't pick up the new partition table after ${max_attempts} attempts."
+        echo "This usually means the device or its partitions are still in use by the kernel/processes."
+        echo "Recommended actions:"
+        echo "  • Reboot the machine and re-run this script, or"
+        echo "  • Manually stop services that might be holding the device (e.g. lvm2, udisks2) and run 'partprobe $DEV' again."
+        read -rp "Press Enter to exit now (reboot recommended)..." _ || true
+        exit 1
+    fi
+
+    # 9) Format & mount partitions
+    echo -e "\n→ Formatting and mounting partitions (this will take a moment)..."
+    format_and_mount || die "format_and_mount failed. Aborting."
+
+    # 10) Prepare chroot (mount pseudo-filesystems) but ensure mountpoints exist
+    echo -e "\n→ Preparing chroot (mounting /proc, /sys, /dev, /run under /mnt)..."
+    # make sure /mnt and required directories exist before prepare_chroot
+    mkdir -p /mnt /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot || true
+    prepare_chroot || {
+        echo "❌ prepare_chroot failed. Attempting to display current /mnt mounts for debugging:"
+        mount | grep /mnt || true
+        die "prepare_chroot failed — cannot continue safely."
+    }
+
+    # 11) Ask about GRUB installation
+    if confirm "Install GRUB now?"; then
+        echo -e "\n→ Installing GRUB..."
+        install_grub || die "install_grub failed."
+    else
+        echo "→ Skipping GRUB installation as requested."
+    fi
+
+    # 12) Final message
+    echo -e "\n${GREEN}All done (partitioning & mount steps).${RESET}"
+    echo "Next recommended steps:"
+    echo "  1) pacstrap /mnt <packages>"
+    echo "  2) genfstab -U /mnt >> /mnt/etc/fstab"
+    echo "  3) arch-chroot /mnt and finish system config"
 }
 
 #=========================================================================================================================================#
