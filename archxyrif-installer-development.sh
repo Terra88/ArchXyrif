@@ -359,25 +359,21 @@ format_and_mount() {
     echo -e "\n🧱 Formatting partitions..."
 
     # Swap
-    mkswap "$P3" || die "Failed to create swap $P3"
-    swapon "$P3" || die "Failed to enable swap $P3"
+    mkswap "$P3" && swapon "$P3"
 
     # Format root and home
     case "$FS_CHOICE" in
-        1)  # EXT4 root + EXT4 home
-            mkfs.ext4 -F "$P2" || die "Failed to format root $P2"
-            mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
+        1)
+            mkfs.ext4 -F "$P2"
+            mkfs.ext4 -F "$P4"
             ;;
-        2)  # BTRFS root + BTRFS home
-            mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
-            mkfs.btrfs -f "$P4" || die "Failed to format home $P4"
+        2)
+            mkfs.btrfs -f "$P2"
+            mkfs.btrfs -f "$P4"
             ;;
-        3)  # BTRFS root + EXT4 home
-            mkfs.btrfs -f "$P2" || die "Failed to format root $P2"
-            mkfs.ext4 -F "$P4" || die "Failed to format home $P4"
-            ;;
-        *)
-            die "Invalid FS choice"
+        3)
+            mkfs.btrfs -f "$P2"
+            mkfs.ext4 -F "$P4"
             ;;
     esac
 
@@ -386,45 +382,36 @@ format_and_mount() {
 
     # Mount root & home
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mount "$P2" /mnt || die "Failed to mount $P2 on /mnt"
-
-        # Create BTRFS subvolumes
+        mount "$P2" /mnt
+        # Create subvolumes if they don't exist
         for sv in @ @home @snapshots @cache @log; do
-            btrfs subvolume create "/mnt/$sv" || die "Failed to create subvolume $sv"
+            [[ ! -d "/mnt/$sv" ]] && btrfs subvolume create "/mnt/$sv"
         done
 
-        # Unmount root before mounting subvolumes
         umount /mnt
-
-        # Mount root subvolume
-        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt || die "Failed to mount subvolume @"
-
-        # Ensure directories exist for other subvolumes
+        mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
         mkdir -p /mnt/home /mnt/.snapshots /mnt/cache /mnt/log
-
-        # Mount other subvolumes
-        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home || die "Failed to mount subvolume @home"
-        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots || die "Failed to mount subvolume @snapshots"
-        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/cache || die "Failed to mount subvolume @cache"
-        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/log || die "Failed to mount subvolume @log"
+        mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
+        mount -o noatime,compress=zstd,subvol=@snapshots "$P2" /mnt/.snapshots
+        mount -o noatime,compress=zstd,subvol=@cache "$P2" /mnt/cache
+        mount -o noatime,compress=zstd,subvol=@log "$P2" /mnt/log
     else
-        # EXT4 root + home
-        mount "$P2" /mnt || die "Failed to mount root $P2 on /mnt"
+        mount "$P2" /mnt
         mkdir -p /mnt/home
-        mount "$P4" /mnt/home || die "Failed to mount home $P4 on /mnt/home"
+        mount "$P4" /mnt/home
     fi
 
-    # **Mount boot/EFI after root is mounted**
+    # Mount boot/EFI after root is mounted
     mkdir -p /mnt/boot
     if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 "$P1" || die "Failed to format EFI $P1"
-        mount "$P1" /mnt/boot || die "Failed to mount EFI $P1 on /mnt/boot"
+        mkfs.fat -F32 "$P1"
+        mount "$P1" /mnt/boot
     else
-        mkfs.ext4 -F "$P1" || die "Failed to format BIOS boot $P1"
-        mount "$P1" /mnt/boot || die "Failed to mount BIOS boot $P1 on /mnt/boot"
+        mkfs.ext4 -F "$P1"
+        mount "$P1" /mnt/boot
     fi
 
-    echo "✅ All partitions formatted and mounted under /mnt successfully."
+    echo "✅ All partitions formatted and mounted."
 }
 
 #=========================================================================================================================================#
@@ -437,39 +424,40 @@ install_grub() {
     base=$(basename "$DEV")
     P1="${DEV}${ps}1"
 
-    # Check that /mnt exists
-    if [[ ! -d /mnt ]]; then
-        die "/mnt does not exist. Cannot install GRUB."
+    echo -e "\n💾 Installing GRUB bootloader..."
+
+    # Ensure /mnt exists and is a mountpoint
+    if [[ ! -d /mnt ]] || ! mountpoint -q /mnt; then
+        die "/mnt does not exist or is not mounted. Cannot install GRUB."
     fi
 
-    # Check that root is mounted
-    if ! mountpoint -q /mnt; then
-        die "/mnt is not a mount point. Cannot install GRUB."
-    fi
+    # Ensure /mnt/boot exists
+    mkdir -p /mnt/boot
 
-    # Check that /mnt/boot exists
-    if [[ ! -d /mnt/boot ]]; then
-        mkdir -p /mnt/boot || die "Failed to create /mnt/boot"
-    fi
-
-    # If UEFI, ensure /mnt/boot/efi exists
+    # For UEFI, ensure /mnt/boot/efi exists and is mounted
     if [[ "$MODE" == "UEFI" ]]; then
-        mkdir -p /mnt/boot/efi || die "Failed to create /mnt/boot/efi"
+        mkdir -p /mnt/boot/efi
+        if ! mountpoint -q /mnt/boot/efi; then
+            mount "$P1" /mnt/boot/efi || die "Failed to mount EFI partition $P1 on /mnt/boot/efi"
+        fi
     fi
 
     # Prepare pseudo-filesystems for chroot
     prepare_chroot || die "prepare_chroot failed"
 
+    # BIOS vs UEFI GRUB install
     if [[ "$MODE" == "BIOS" ]]; then
         echo "Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" || die "grub-install (BIOS) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" \
+            || die "grub-install (BIOS) failed"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
+            || die "grub-mkconfig failed"
     else
         echo "Installing GRUB for UEFI..."
-        # Mount EFI inside chroot
-        mount "$P1" /mnt/boot/efi || die "Failed to mount EFI partition $P1 on /mnt/boot/efi"
-        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi --bootloader-id=GRUB --recheck || die "grub-install (UEFI) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+        arch-chroot /mnt grub-install --target=x86_64-efi --efi-directory=/boot/efi \
+            --bootloader-id=GRUB --recheck || die "grub-install (UEFI) failed"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
+            || die "grub-mkconfig failed"
     fi
 
     echo "✅ GRUB installed successfully on $DEV ($MODE mode)."
