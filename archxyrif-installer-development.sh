@@ -1373,18 +1373,18 @@ if [[ -d /sys/firmware/efi ]]; then
     efibootmgr -v || true
 
 else
-    # Legacy BIOS installation
-    echo "Detected Legacy BIOS environment — installing GRUB for BIOS..."
+    echo "Detected Legacy BIOS environment — installing GRUB (BIOS)..."
 
-    # Determine parent disk of root partition under /mnt
-    BIOS_DISK=$(lsblk -no pkname $(findmnt -no SOURCE /mnt))
-    echo "→ Installing GRUB on /dev/$BIOS_DISK..."
+    # Compute the parent disk of the future root partition BEFORE chroot
+    ROOT_PART=$(findmnt -n -o SOURCE /mnt)
+    BIOS_DISK=$(lsblk -no pkname "$ROOT_PART")
+    echo "→ Installing GRUB on /dev/$BIOS_DISK (root partition: $ROOT_PART)..."
 
-    arch-chroot /mnt bash -euo pipefail <<EOF
-grub-install --target=i386-pc --recheck /dev/$BIOS_DISK
-grub-mkconfig -o /boot/grub/grub.cfg
-echo "✅ GRUB installation complete."
-EOF
+    # Install GRUB inside chroot
+    arch-chroot /mnt grub-install --target=i386-pc --recheck /dev/"$BIOS_DISK"
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+
+    echo "✅ GRUB installation complete (BIOS)."
 fi
 
 
