@@ -151,31 +151,31 @@ unmount_btrfs_and_swap() {
     
 #=========================================================================================================================================#
 
-    # Unmount all mountpoints on this device, deepest first
-    mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
-    for mnt in "${MOUNTS[@]}"; do
-        echo "→ Unmounting $mnt ..."
-        umount -l "$mnt" 2>/dev/null || true
-    done
+  #  # Unmount all mountpoints on this device, deepest first
+  #  mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
+  #  for mnt in "${MOUNTS[@]}"; do
+  #      echo "→ Unmounting $mnt ..."
+  #      umount -l "$mnt" 2>/dev/null || true
+  #  done
 
-    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
-    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
-            echo "→ Unmounting BTRFS subvolume $bm ..."
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
+  #  # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
+  #  mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
+  #  for bm in "${BTRFS_MOUNTS[@]}"; do
+  #      if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
+  #          echo "→ Unmounting BTRFS subvolume $bm ..."
+  #          umount -l "$bm" 2>/dev/null || true
+  #      fi
+  #  done
 
     # Clean up /mnt
-    if mountpoint -q /mnt; then
-        echo "→ Cleaning /mnt ..."
-        umount -l /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
+  #  if mountpoint -q /mnt; then
+  #      echo "→ Cleaning /mnt ..."
+  #      umount -l /mnt 2>/dev/null || true
+  #      rm -rf /mnt/* 2>/dev/null || true
+  #  fi
 
-    echo "→ Unmounting completed for $dev."
-    }
+  #  echo "→ Unmounting completed for $dev."
+  #  }
     
 #=========================================================================================================================================#
 
