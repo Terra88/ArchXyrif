@@ -229,6 +229,16 @@ clear_partition_table_luks_lvmsignatures()
 
 prepare_chroot() {
     echo "Mounting pseudo-filesystems for chroot..."
+
+    # Ensure base mount exists
+    mkdir -p /mnt
+
+    # Ensure all required subdirectories exist
+    for dir in proc sys dev run; do
+        mkdir -p "/mnt/$dir"
+    done
+
+    # Mount pseudo-filesystems
     mount --types proc /proc /mnt/proc
     mount --rbind /sys /mnt/sys
     mount --make-rslave /mnt/sys
@@ -236,6 +246,8 @@ prepare_chroot() {
     mount --make-rslave /mnt/dev
     mount --rbind /run /mnt/run
     mount --make-rslave /mnt/run
+
+    echo "✅ Pseudo-filesystems mounted successfully."
 }
 
 #=========================================================================================================================================#
