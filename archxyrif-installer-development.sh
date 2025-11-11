@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-cleanup_device "$DEV"
 #===COLOR-MAPPER===#
 # Color codes
 GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
@@ -20,9 +19,9 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #===========================================================================
 clear
 logo(){
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 echo "| The Great Monolith of Installing Arch Linux!                                                      |"
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 echo "|                                                                                                   |"
 echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
 echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
@@ -38,9 +37,9 @@ echo "|                                                     Y88P                
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
 echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               |"
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
@@ -55,9 +54,9 @@ echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom install
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
 echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 echo "-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                 |"
-echo "${GREEN}#===================================================================================================#${RESET}"
+echo "#===================================================================================================#"
 
 }
 #!/usr/bin/env bash
@@ -637,6 +636,7 @@ main_menu() {
     fi
 
     echo "Cleaning any old mounts from $DEV ..."
+    cleanup_device "$DEV"
     unmount_device "$DEV"
     clear_partition_table_luks_lvmsignatures "$DEV"
 
