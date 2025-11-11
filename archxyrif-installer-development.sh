@@ -236,37 +236,33 @@ trap cleanup EXIT INT TERM
 #-------------------MAPPER---------------------#
 #----------------------------------------------#
 DEV="$DEV"                          # Target device
-partprobe "$DEV"
-
-MODE=""                        # UEFI or BIOS
-BIOS_BOOT_PART_CREATED=false    # Whether we need a BIOS boot partition
+# === Safe defaults (place near top, before any function that references these) ===
+MODE=""                         # "UEFI" or "BIOS"
+BIOS_BOOT_PART_CREATED=false    # whether BIOS boot partition was created/needed
 SWAP_SIZE_MIB=0
 ROOT_FS=""
 HOME_FS=""
 ROOT_SIZE_MIB=0
 HOME_SIZE_MIB=0
-EFI_SIZE_MIB=1024               # Default EFI partition size
-BIOS_BOOT_SIZE_MIB=2            # Default BIOS boot partition size
-BUFFER_MIB=8                    # Safety buffer
+EFI_SIZE_MIB=1024               # EFI partition size in MiB for UEFI
+BIOS_BOOT_SIZE_MIB=512         # /boot ext4 size in MiB for BIOS mode (your chosen default)
+BOOT_SIZE_MIB=0                # canonical boot-part size used by previews (always set)
+BUFFER_MIB=8                   # safety buffer
 
 #=========================================================================================================================================#
-
 detect_boot_mode() {
     if [[ -d /sys/firmware/efi ]]; then
         echo "🧩 UEFI system detected."
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
+        # For convenience, canonical BOOT_SIZE_MIB will represent the first partition size:
+        BOOT_SIZE_MIB=$EFI_SIZE_MIB
     else
         echo "🧩 Legacy BIOS system detected."
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
-    fi
-
-    # Set BIOS_BOOT_SIZE_MIB safely
-    if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
-        BIOS_BOOT_SIZE_MIB=2
-    else
-        BIOS_BOOT_SIZE_MIB=0
+        # In BIOS mode we will create an ext4 /boot partition; set canonical size:
+        BOOT_SIZE_MIB=$BIOS_BOOT_SIZE_MIB
     fi
 }
 
@@ -467,19 +463,24 @@ preview_partitions() {
     echo "| Partition Table Preview                                                       |"
     echo "#===============================================================================#"
 
+    # Ensure detect_boot_mode was run; fallback to safe default if not
+    MODE="${MODE:-}"
+    BOOT_SIZE_MIB="${BOOT_SIZE_MIB:-0}"
+
     if [[ "$MODE" == "BIOS" ]]; then
         P1_LABEL="/boot"
         P1_FS="ext4"
         P1_START=1
         P1_END=$BOOT_SIZE_MIB
-        ROOT_START=$((P1_END+1))
+        ROOT_START=$((P1_END + 1))
     else
         P1_LABEL="EFI"
         P1_FS="FAT32"
         P1_START=1
-        P1_END=$EFI_SIZE_MIB
-        ROOT_START=$((P1_END+1))
+        P1_END=$BOOT_SIZE_MIB
+        ROOT_START=$((P1_END + 1))
     fi
+
     ROOT_END=$((ROOT_START + ROOT_SIZE_MIB - BUFFER_MIB))
     SWAP_START=$ROOT_END
     SWAP_END=$((SWAP_START + SWAP_SIZE_MIB - BUFFER_MIB))
@@ -489,14 +490,11 @@ preview_partitions() {
     echo "#__________________________________________________________________________________________#"
     echo "| Part.| Start MiB | End MiB   | Size GiB                     | FS       | Purpose         |"
     echo "|------|-----------|-----------|------------------------------|----------|-----------------|"
-    echo "| 1    |$P1_START  | $P1_END   | $(( (P1_END-P1_START)/1024 ))| $P1_FS   | $P1_LABEL       |"
-    echo "|______|___________|___________|______________________________|__________|_________________|"
-    echo "| 2    |$ROOT_START| $ROOT_END | $ROOT_SIZE_GIB               | $ROOT_FS | Root            |"
-    echo "|______|_______________________|______________________________|__________|_________________|"
-    echo "| 3    |$SWAP_START| $SWAP_END | $((SWAP_SIZE_MIB/1024))      | swap     | Swap            |"
-    echo "|______|___________|___________|______________________________|__________|_________________|"
-    echo "| 4    |$HOME_START| $HOME_END | $HOME_SIZE_GIB               | $HOME_FS | Home            |"
-    echo "|______|___________|___________|______________________________|__________|_________________|"
+  printf "| 1    | %8s | %8s | %8s GiB   | %-7s | %-15s |\n" "$P1_START" "$P1_END" "$(( (P1_END-P1_START)/1024 ))" "$P1_FS" "$P1_LABEL"
+  printf "| 2    | %8s | %8s | %8s GiB   | %-7s | %-15s |\n" "$ROOT_START" "$ROOT_END" "$ROOT_SIZE_GIB" "$ROOT_FS" "Root"
+  printf "| 3    | %8s | %8s | %8s GiB   | %-7s | %-15s |\n" "$SWAP_START" "$SWAP_END" "$((SWAP_SIZE_MIB/1024))" "swap" "Swap"
+  printf "| 4    | %8s | %8s | %8s GiB   | %-7s | %-15s |\n" "$HOME_START" "$HOME_END" "$HOME_SIZE_GIB" "$HOME_FS" "Home"
+    echo "#__________________________________________________________________________________________#"
     
 }
 
