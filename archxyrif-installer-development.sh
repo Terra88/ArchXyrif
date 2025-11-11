@@ -249,7 +249,7 @@ bios_uefi_check() {
 quick_partition_swap_on() 
 {
                         partprobe "$DEV" || true
-                        bios_uefi_check
+                        
                         
                         # Detect RAM in MiB
                         ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
@@ -348,7 +348,7 @@ quick_partition_swap_on()
                     
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
-                        
+                        bios_uefi_check
                     
                         # Calculate partition boundaries (MiB)
                         p1_start=$BIOS_BOOT_END
@@ -487,7 +487,7 @@ quick_partition_swap_on()
 quick_partition_swap_on_root()
 {
                         partprobe "$DEV" || true
-                        bios_uefi_check
+                        
                         
                         # RAM in MiB
                         ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
@@ -540,7 +540,7 @@ quick_partition_swap_on_root()
                     
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
-                        
+                        bios_uefi_check
                         p1_start=$BIOS_BOOT_END
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                         p2_start=$p1_end
@@ -640,7 +640,7 @@ quick_partition_swap_on_root()
 quick_partition_swap_off() 
 {
                                     partprobe "$DEV" || true
-                                    bios_uefi_check
+                                    
                                     
                                     # Disk sizes
                                     DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
@@ -717,7 +717,7 @@ quick_partition_swap_off()
                                     echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
                                 
                                     which parted >/dev/null 2>&1 || die "parted required but not found."
-                                    
+                                    bios_uefi_check
                                 
                                     # Partition layout with buffer
                                     p1_start=$BIOS_BOOT_END
@@ -840,7 +840,7 @@ quick_partition_swap_off()
 quick_partition_swap_off_root() 
 {
                             partprobe "$DEV" || true
-                            bios_uefi_check
+                            
                             
                             # Disk sizes
                             DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
@@ -916,7 +916,7 @@ echo "#=========================================================================
                         
                             # create label and partitions
                             which parted >/dev/null 2>&1 || die "parted required but not found."
-                            
+                            bios_uefi_check
                         
                             case "$FS_CHOICE" in
                                 1)
