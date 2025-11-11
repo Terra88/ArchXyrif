@@ -115,54 +115,74 @@ set -euo pipefail
 
 trap cleanup EXIT INT TERM
 
-#=========================================================================#
-# Robust cleanup: unmount all partitions/subvolumes and turn off swap
-#=========================================================================#
+#!/usr/bin/env bash
 
-cleanup_device() {
-    local dev="$1"
-    echo -e "\n🧹 Cleaning device $dev ..."
+robust_cleanup_device() {
+    local DEV="$1"
+    echo -e "\n🧹 Starting robust cleanup of $DEV ..."
 
-    # 1️⃣ Turn off swap on this device
+    # 1️⃣ Turn off all swap on this device
     mapfile -t SWAPS < <(swapon --show=NAME --noheadings || true)
     for s in "${SWAPS[@]}"; do
-        if [[ "$s" == "$dev"* ]]; then
+        if [[ "$s" == "$DEV"* ]]; then
             echo "→ Turning off swap $s"
             swapoff "$s" || true
         fi
     done
 
-    # 2️⃣ Unmount all mounts on this device (deepest first)
-    mapfile -t MOUNTS < <(mount | awk -v d="$dev" '$1 ~ d { print $3 }' | sort -r)
+    # 2️⃣ Close any active LUKS/LVM mappings
+    for m in /dev/mapper/*; do
+        [[ -e "$m" ]] || continue
+        target=$(readlink -f "$m" || true)
+        if [[ "$target" == "$DEV"* ]]; then
+            echo "→ Closing LUKS/LVM mapping $(basename "$m")"
+            cryptsetup luksClose "$(basename "$m")" || true
+        fi
+    done
+
+    # 3️⃣ Unmount all partitions on this device (deepest first)
+    mapfile -t MOUNTS < <(lsblk -ln -o MOUNTPOINT "$DEV" | grep -v '^$' | sort -r)
     for m in "${MOUNTS[@]}"; do
         echo "→ Unmounting $m"
         umount -l "$m" 2>/dev/null || true
     done
 
-    # 3️⃣ Handle BTRFS subvolumes specifically
+    # 4️⃣ Handle BTRFS subvolumes specifically
     mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
     for bm in "${BTRFS_MOUNTS[@]}"; do
         src=$(findmnt -n -o SOURCE "$bm" 2>/dev/null || true)
-        if [[ "$src" == "$dev"* ]]; then
+        if [[ "$src" == "$DEV"* ]]; then
             echo "→ Unmounting BTRFS subvolume $bm"
             umount -l "$bm" 2>/dev/null || true
         fi
     done
 
-    # 4️⃣ Remove leftover contents in /mnt if mounted
+    # 5️⃣ Ensure /mnt is clean
     if mountpoint -q /mnt; then
         echo "→ Cleaning /mnt"
         umount -R /mnt 2>/dev/null || true
         rm -rf /mnt/* 2>/dev/null || true
     fi
 
-    # 5️⃣ Notify kernel of changes
-    echo "→ Informing kernel of partition table changes"
-    partprobe "$dev"
+    # 6️⃣ Clear partition table & filesystem signatures
+    echo "→ Clearing partition table and filesystem signatures..."
+    sgdisk --zap-all "$DEV" || true
+    wipefs -a "$DEV" || true
+    dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
+    devsize_bytes=$(blockdev --getsize64 "$DEV")
+    if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
+        dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
+    fi
+
+    # 7️⃣ Notify kernel of partition table changes
+    echo "→ Informing kernel of partition table changes..."
+    partprobe "$DEV"
     udevadm settle
 
-    echo "✅ Device $dev cleanup complete."
+    echo "✅ Robust cleanup of $DEV complete."
 }
+
+
 
 #=========================================================================#
 # Wrapper to unmount a device (simpler for quick unmount)
@@ -191,66 +211,6 @@ unmount_device() {
     
 #=========================================================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
-
-clear_partition_table_luks_lvmsignatures()
-{
-        # Clear partition table / LUKS / LVM signatures
-        echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
-        which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
-        which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
-
-        # try to shut down any open LUKS mappings referring to this device (best-effort)
-        echo "Attempting to close any open LUKS mappings referencing $DEV..."
-        for map in /dev/mapper/*; do
-        if [[ -L "$map" ]]; then
-            target=$(readlink -f "$map" || true)
-            if [[ "$target" == "$DEV"* ]]; then
-            name=$(basename "$map")
-            echo "  Closing mapper $name (points at $target)"
-            cryptsetup luksClose "$name" || true
-        fi
-            
-            if [[ "$BIOS_BOOT_PART_CREATED" == true ]]; then
-                BIOS_BOOT_SIZE_MIB=2
-            else
-                BIOS_BOOT_SIZE_MIB=0
-            fi
-        
-        fi
-        done
-
-        # Zap GPT, MBR, etc.
-        sgdisk --zap-all "$DEV" || true
-
-        # Wipe filesystem signatures on whole device
-        wipefs -a "$DEV" || true
-
-        # Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
-        echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
-        dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
-
-        # If device supports it, also zero last MiB (LVM metadata sometimes at end)
-        devsize_bytes=$(blockdev --getsize64 "$DEV")
-        if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-        last_offset=$((devsize_bytes - 1*1024*1024))
-        dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
-        fi
-
-            # Turn off swap if any
-            swapoff -a 2>/dev/null || true
-
-           # Unmount /mnt recursively but handle BTRFS subvolumes safely
-        if mountpoint -q /mnt; then
-            # Get all mounts under /mnt sorted by depth (deepest first)
-            mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
-            for mnt in "${MOUNTS[@]}"; do
-            umount -l "$mnt" 2>/dev/null || true
-            done
-        fi
-
-            # Clean up /mnt (optional)
-            rm -rf /mnt/* 2>/dev/null || true
-}
 #=========================================================================================================================================#
 
 #-------HELPER FOR CHROOT--------------------------------#
@@ -635,16 +595,14 @@ main_menu() {
         die "No valid device supplied."
     fi
 
-    echo "Cleaning any old mounts from $DEV ..."
-    cleanup_device "$DEV"
-    unmount_device "$DEV"
-    clear_partition_table_luks_lvmsignatures "$DEV"
+    echo "🧹 Running robust cleanup of $DEV before partitioning..."
+    robust_cleanup_device "$DEV"
 
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will destroy data)"; then
+    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? (this will destroy all data)"; then
         die "User aborted."
     fi
 
-    # run flow
+    # Detect boot mode, RAM, and filesystem choices
     detect_boot_mode
     calculate_swap
     select_filesystem
@@ -655,6 +613,7 @@ main_menu() {
         die "Aborted by user."
     fi
 
+    # Partition, format, and mount
     partition_disk
     format_and_mount
     prepare_chroot
@@ -665,7 +624,7 @@ main_menu() {
         echo "Skipped GRUB install."
     fi
 
-    echo -e "${GREEN}Done. Remember to continue with pacstrap, fstab, and chroot steps.${RESET}"
+    echo -e "${GREEN}Done. Continue with pacstrap, fstab, and chroot steps.${RESET}"
 }
 
 #=========================================================================================================================================#
