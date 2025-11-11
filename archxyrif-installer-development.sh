@@ -396,61 +396,78 @@ format_and_mount() {
     local P4="${DEV}${ps}4"
 
     echo "Formatting partitions..."
-    # swap
+
+    # -----------------------------
+    # Format Swap
+    # -----------------------------
     mkswap "$P3"
     swapon "$P3"
 
+    # -----------------------------
+    # Format Root and Home
+    # -----------------------------
     case "$FS_CHOICE" in
-        1)
+        1)  # EXT4 root + home
             mkfs.ext4 -F "$P2"
             mkfs.ext4 -F "$P4"
             ;;
-        2)
+        2)  # BTRFS root + home
             mkfs.btrfs -f "$P2"
             mkfs.btrfs -f "$P4"
             ;;
-        3)
+        3)  # BTRFS root + EXT4 home
             mkfs.btrfs -f "$P2"
             mkfs.ext4 -F "$P4"
             ;;
         *)
-            die "Invalid FS choice"
+            die "Invalid filesystem choice"
             ;;
     esac
 
-    # mount root
+    # -----------------------------
+    # Mount Root
+    # -----------------------------
     mkdir -p /mnt
-    mount "$P2" /mnt
-
-    # ensure mount dirs exist
-    mkdir -p /mnt/{boot,home,var,cache,.snapshots}
-
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        echo "Creating btrfs subvolumes..."
+        mount "$P2" /mnt
+
+        # Create subvolumes
+        echo "Creating BTRFS subvolumes..."
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv" || true
         done
+
+        # Remount root subvolume
         umount /mnt
         mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
+
+        # Mount home subvolume
         mkdir -p /mnt/home
         mount -o noatime,compress=zstd,subvol=@home "$P2" /mnt/home
     else
+        mount "$P2" /mnt
         mkdir -p /mnt/home
         mount "$P4" /mnt/home
     fi
 
-    # boot/efi partition mount
+    # -----------------------------
+    # Mount Boot / EFI
+    # -----------------------------
+    mkdir -p /mnt/boot
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1"
-        mkdir -p /mnt/boot
         mount "$P1" /mnt/boot
     else
         mkfs.ext4 -F "$P1"
-        mkdir -p /mnt/boot
         mount "$P1" /mnt/boot
     fi
 
-    echo "All partitions formatted and mounted to /mnt."
+    # -----------------------------
+    # Create other directories
+    # -----------------------------
+    mkdir -p /mnt/{var,cache,.snapshots}
+
+    echo "✅ All partitions formatted and mounted to /mnt."
 }
 
 #=========================================================================================================================================#
