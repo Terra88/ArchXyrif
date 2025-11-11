@@ -351,7 +351,7 @@ quick_partition_swap_on()
                         bios_uefi_check
                     
                         # Calculate partition boundaries (MiB)
-                        p1_start=$BIOS_BOOT_END
+                        p1_start=$((BIOS_BOOT_END + 1))
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))      # EFI
                         p2_start=$p1_end                                      # Root
                         p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -541,7 +541,7 @@ quick_partition_swap_on_root()
                         # Partitioning
                         which parted >/dev/null 2>&1 || die "parted required but not found."
                         bios_uefi_check
-                        p1_start=$BIOS_BOOT_END
+                        p1_start=$((BIOS_BOOT_END + 1))
                         p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                         p2_start=$p1_end
                         p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -720,7 +720,7 @@ quick_partition_swap_off()
                                     bios_uefi_check
                                 
                                     # Partition layout with buffer
-                                    p1_start=$BIOS_BOOT_END
+                                    p1_start=$((BIOS_BOOT_END + 1))
                                     p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                                     p2_start=$p1_end
                                     p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
@@ -871,7 +871,7 @@ quick_partition_swap_off_root()
                             echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
                         
                             # Partition boundaries
-                            p1_start=$BIOS_BOOT_END
+                            p1_start=$((BIOS_BOOT_END + 1))
                             p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
                             p2_start=$p1_end
                             p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
