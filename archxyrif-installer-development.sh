@@ -420,29 +420,29 @@ format_and_mount() {
         mkfs.ext4 -F "$P1"
         mount "$P1" /mnt/boot
     fi
-}
+
 # --- Generate fstab safely ---
 mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
 
-{
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        echo "# BTRFS subvolumes"
-        echo "UUID=$(blkid -s UUID -o value $P3) /               btrfs   defaults,noatime,compress=zstd,subvol=@               0 1"
-        echo "UUID=$(blkid -s UUID -o value $P3) /home           btrfs   defaults,noatime,compress=zstd,subvol=@home           0 2"
-        echo "UUID=$(blkid -s UUID -o value $P3) /.snapshots     btrfs   defaults,noatime,compress=zstd,subvol=@snapshots     0 2"
-        echo "UUID=$(blkid -s UUID -o value $P3) /cache          btrfs   defaults,noatime,compress=zstd,subvol=@cache          0 2"
-        echo "UUID=$(blkid -s UUID -o value $P3) /log            btrfs   defaults,noatime,compress=zstd,subvol=@log            0 2"
-        echo "UUID=$(blkid -s UUID -o value $P2) none            swap    sw                                                  0 0"
-    else
-        echo "# EXT4 root + home"
-        echo "UUID=$(blkid -s UUID -o value $P3) /       ext4    defaults,noatime 0 1"
-        echo "UUID=$(blkid -s UUID -o value $P4) /home   ext4    defaults,noatime 0 2"
-        echo "UUID=$(blkid -s UUID -o value $P2) none    swap    sw 0 0"
-    fi
-} > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
+    {
+        if [[ "$ROOT_FS" == "btrfs" ]]; then
+            echo "# BTRFS subvolumes"
+            echo "UUID=$(blkid -s UUID -o value $P3) /               btrfs   defaults,noatime,compress=zstd,subvol=@               0 1"
+            echo "UUID=$(blkid -s UUID -o value $P3) /home           btrfs   defaults,noatime,compress=zstd,subvol=@home           0 2"
+            echo "UUID=$(blkid -s UUID -o value $P3) /.snapshots     btrfs   defaults,noatime,compress=zstd,subvol=@snapshots     0 2"
+            echo "UUID=$(blkid -s UUID -o value $P3) /cache          btrfs   defaults,noatime,compress=zstd,subvol=@cache          0 2"
+            echo "UUID=$(blkid -s UUID -o value $P3) /log            btrfs   defaults,noatime,compress=zstd,subvol=@log            0 2"
+            echo "UUID=$(blkid -s UUID -o value $P2) none            swap    sw                                                  0 0"
+        else
+            echo "# EXT4 root + home"
+            echo "UUID=$(blkid -s UUID -o value $P3) /       ext4    defaults,noatime 0 1"
+            echo "UUID=$(blkid -s UUID -o value $P4) /home   ext4    defaults,noatime 0 2"
+            echo "UUID=$(blkid -s UUID -o value $P2) none    swap    sw 0 0"
+        fi
+    } > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
 
-echo "✅ /etc/fstab generated successfully."
-
+    echo "✅ /etc/fstab generated successfully."
+}
 #=========================================================================================================================================#
 # -----------------------
 # GRUB installation
