@@ -71,6 +71,7 @@ DEV=""            # set later by main_menu
 MODE=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
+SWAP_ON=""
 ROOT_FS=""
 HOME_FS=""
 ROOT_SIZE_MIB=0
