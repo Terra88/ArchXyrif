@@ -407,6 +407,9 @@ ask_partition_sizes() {
 # Partition disk
 # -----------------------
 partition_disk() {
+
+    partprobe $DEV
+    
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
 
     echo "→ Creating partition table on $DEV ..."
@@ -1410,6 +1413,13 @@ sleep 1
     read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
     [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
 
+    echo
+    echo " clean_up_device & clear partition & luks etc."
+    unmount_device
+    clear_partition_table_luks_lvmsignatures
+    cleanup_device
+    
+    
     echo "🧭 Partitioning $DEV ..."
     partition_disk "$DEV" || die "Partitioning failed."
 
