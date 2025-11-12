@@ -173,7 +173,13 @@ initialize_cleanup() {
             echo 1 > "$dev/device/delete" 2>/dev/null || true
         fi
     done
+    
+    # 🌟 FIX 1: Add re-scan and delay to ensure the system recognizes the block devices.
+    echo "🔄 Re-scanning devices..."
+    partprobe 2>/dev/null || true
     udevadm settle --timeout=5 2>/dev/null || true
+    sleep 2 # Small delay to let the kernel update its view
+    # END FIX 1
 
     echo "✅ Full system cleanup complete. Disks ready for partitioning."
 }
