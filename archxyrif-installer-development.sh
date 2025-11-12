@@ -117,7 +117,6 @@ part_suffix() {
 prepare_chroot() {
     echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
     mkdir -p /mnt /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot /mnt/home
-    mkdir -p /mnt/@ /mnt/@home 
     mount --types proc /proc /mnt/proc
     mount --rbind /sys /mnt/sys
     mount --make-rslave /mnt/sys
