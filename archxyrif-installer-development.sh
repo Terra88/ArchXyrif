@@ -483,8 +483,6 @@ ask_partition_sizes() {
 # Partition disk
 # -----------------------
 partition_disk() {
-
-    partprobe $DEV
     
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
 
