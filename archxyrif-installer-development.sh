@@ -573,116 +573,55 @@ preview_partitions() {
 #---------------------------------------
 # Robust main menu (simple + careful)
 #---------------------------------------
-main_menu() {
-    logo
-    echo "Available block devices:"
-    lsblk -p -o NAME,MODEL,SIZE,TYPE,MOUNTPOINT || true
-    read -rp $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-    DEV="${DEV:-}"
-    if [[ -z "$DEV" || ! -b "$DEV" ]]; then
-        die "No valid device supplied."
-    fi
+    main() {
+    clear
+    echo "======================================"
+    echo "      ⚙️  Automated Arch Installer      "
+    echo "======================================"
+    echo
 
-    echo -e "\n→ Target device: ${DEV}"
-    cleanup_device "$DEV" || true
-    unmount_device "$DEV" || true
+    detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
+    echo "Detected boot mode: $MODE"
 
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV? This WILL DESTROY DATA"; then
-        die "User aborted."
-    fi
+    # Ask which disk to use
+    echo
+    lsblk -d -o NAME,SIZE,MODEL
+    read -rp "Enter target disk (e.g. /dev/sda): " DEV
+    [[ -b "$DEV" ]] || die "Invalid device: $DEV"
 
-    clear_partition_table_luks_lvmsignatures "$DEV" || true
+    echo
+    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
 
-    detect_boot_mode
-    calculate_swap
-    select_filesystem
-    ask_partition_sizes
-    preview_partitions
+    echo "🧭 Partitioning $DEV ..."
+    partition_disk "$DEV" || die "Partitioning failed."
 
-    if ! confirm "Proceed to create partitions on $DEV?"; then
-        die "Aborted by user."
-    fi
+    echo
+    echo "💾 Asking for partition sizes..."
+    ask_partition_sizes "$DEV"
 
-    echo -e "\n→ Creating partitions..."
-    partition_disk || { echo "partition_disk reported failure"; }
+    echo
+    echo "🧱 Formatting and mounting partitions..."
+    format_and_mount "$DEV" || die "Formatting/mounting failed."
 
-    # Ensure kernel sees partitions (retry loop)
-    local base ok i
-    base=$(basename "$DEV")
-    ok=false
-    for i in {1..8}; do
-        echo "→ kernel rescan attempt $i"
-        partprobe "$DEV" 2>/dev/null || true
-        partx -u "$DEV" 2>/dev/null || true
-        blockdev --rereadpt "$DEV" 2>/dev/null || true
-        udevadm settle --timeout=5 2>/dev/null || true
-        sleep 1
-        if [[ $(lsblk -n "$DEV" | wc -l) -gt 1 ]]; then
-            ok=true
-            break
-        fi
-    done
+    echo
+    echo "📦 Installing base system..."
+    install_base_system || die "Base install failed."
 
-    if ! $ok; then
-        echo "→ Trying aggressive device delete + rescan..."
-        if [[ -w /sys/block/"$base"/device/delete ]]; then
-            echo 1 > /sys/block/"$base"/device/delete 2>/dev/null || true
-            sleep 2
-        fi
-        for host in /sys/class/scsi_host/host*; do
-            if [[ -w "$host/scan" ]]; then
-                echo "- - -" > "$host/scan" 2>/dev/null || true
-            fi
-        done
-        udevadm settle --timeout=5 2>/dev/null || true
-        sleep 2
+    echo
+    echo "⚙️  Configuring system..."
+    configure_system || die "Configuration failed."
 
-        for i in {1..6}; do
-            partprobe "$DEV" 2>/dev/null || true
-            partx -u "$DEV" 2>/dev/null || true
-            blockdev --rereadpt "$DEV" 2>/dev/null || true
-            udevadm settle --timeout=5 2>/dev/null || true
-            sleep 1
-            if [[ $(lsblk -n "$DEV" | wc -l) -gt 1 ]]; then
-                ok=true
-                break
-            fi
-        done
-    fi
+    echo
+    echo "🧩 Installing GRUB bootloader..."
+    install_grub "$DEV" || die "GRUB installation failed."
 
-    if ! $ok; then
-        cat <<EOF
-ERROR: Kernel refused to accept new partition table for $DEV.
-Common causes:
- - device busy (mounted or used by dm/crypt/LVM)
- - running installer from the target disk (use USB)
-Recommended actions:
- - Ensure you are running from USB (archiso)
- - Run: swapoff -a; vgchange -an; dmsetup remove_all; udevadm settle
- - If still failing: reboot the machine and run installer again
-EOF
-        die "Kernel did not accept partition table. Aborting."
-    fi
-
-    echo -e "\n→ Formatting and mounting partitions..."
-    format_and_mount || die "format_and_mount failed"
-
-    # ensure chroot dirs exist
-    mkdir -p /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot /mnt/home
-
-    if confirm "Mount pseudo-filesystems for chroot now?"; then
-        prepare_chroot || die "prepare_chroot failed"
-    fi
-
-    if confirm "Install GRUB now?"; then
-        install_grub || die "install_grub failed"
-    else
-        echo "You chose to skip GRUB. Continue manually later."
-    fi
-
-    echo -e "${GREEN}All done up to GRUB. Continue with pacstrap/fstab/chroot as needed.${RESET}"
+    echo
+    echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
 }
 
+# Run the main function
+#main "$@"
 #=========================================================================================================================================#
 
 custom_partition()
@@ -719,7 +658,7 @@ echo "#=========================================================================
 
                 case "$PART_CHOICE" in
                     1)
-                        main_menu  ;;
+                        main  ;;
                     2)
                         custom_partition  ;;
                     3)
