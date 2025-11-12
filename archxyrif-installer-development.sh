@@ -346,31 +346,130 @@ install_base_system() {
 # Configure system
 #========================#
 configure_system() {
-    read -rp "Enter timezone [Europe/Helsinki]: " TZ
-    TZ="${TZ:-Europe/Helsinki}"
-    read -rp "Enter locale [fi_FI.UTF-8]: " LANG_LOCALE
-    LANG_LOCALE="${LANG_LOCALE:-fi_FI.UTF-8}"
-    read -rp "Enter hostname [archbox]: " HOSTNAME
-    HOSTNAME="${HOSTNAME:-archbox}"
-    read -rp "Enter username [user]: " NEWUSER
-    NEWUSER="${NEWUSER:-user}"
+    #read -rp "Enter timezone [Europe/Helsinki]: " TZ
+    #TZ="${TZ:-Europe/Helsinki}"
+    #read -rp "Enter locale [fi_FI.UTF-8]: " LANG_LOCALE
+    #LANG_LOCALE="${LANG_LOCALE:-fi_FI.UTF-8}"
+    #read -rp "Enter hostname [archbox]: " HOSTNAME
+    #HOSTNAME="${HOSTNAME:-archbox}"
+    #read -rp "Enter username [user]: " NEWUSER
+    #NEWUSER="${NEWUSER:-user}"
 
     cat > /mnt/root/postinstall.sh <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
-ln -sf "/usr/share/zoneinfo/$TZ" /etc/localtime
+#========================================================#
+# Variables injected by main installer
+#========================================================#
+TZ="{{TIMEZONE}}"
+LANG_LOCALE="{{LANG_LOCALE}}"
+HOSTNAME="{{HOSTNAME}}"
+NEWUSER="{{NEWUSER}}"
+
+#========================================================#
+# 1) Timezone & hardware clock
+#========================================================#
+ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
-echo "$LANG_LOCALE UTF-8" >> /etc/locale.gen
+#========================================================#
+# 2) Locale
+#========================================================#
+if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+fi
 locale-gen
-echo "LANG=$LANG_LOCALE" > /etc/locale.conf
-echo "$HOSTNAME" > /etc/hostname
-echo -e "127.0.0.1\tlocalhost\n::1\tlocalhost\n127.0.1.1\t$HOSTNAME.localdomain $HOSTNAME" > /etc/hosts
+echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
+
+#========================================================#
+# 3) Hostname & /etc/hosts
+#========================================================#
+echo "${HOSTNAME}" > /etc/hostname
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+
+#========================================================#
+# 4) Keyboard layout
+#========================================================#
 echo "KEYMAP=fi" > /etc/vconsole.conf
-useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
+echo "FONT=lat9w-16" >> /etc/vconsole.conf
+localectl set-keymap fi
+localectl set-x11-keymap fi
+
+#========================================================#
+# 5) Initramfs
+#========================================================#
+mkinitcpio -P
+
+#========================================================#
+# 6) Root + user passwords (interactive)
+#========================================================#
+set +e  # allow retries
+MAX_RETRIES=3
+
+# Ensure user exists
+if ! id "$NEWUSER" &>/dev/null; then
+    echo "Creating user '$NEWUSER'..."
+    useradd -m -G wheel -s /bin/bash "$NEWUSER"
+fi
+#========================================================#
+clear
+# Root password
+echo
+echo "#========================================================#"
+echo " Set ROOT password                                       #"
+echo "#========================================================#"
+for i in $(seq 1 $MAX_RETRIES); do
+    if passwd root; then
+        break
+    else
+        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+    fi
+done
+#========================================================#
+# User password
+echo "#=======================================================#"
+echo " Set password for user '$NEWUSER'                       #"
+echo "#=======================================================#"
+for i in $(seq 1 $MAX_RETRIES); do
+    if passwd "$NEWUSER"; then
+        break
+    else
+        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
+    fi
+done
+#========================================================#
+# Give sudo rights
 echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
 chmod 440 /etc/sudoers.d/$NEWUSER
-systemctl enable NetworkManager sshd
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
+set -e  # restore strict error handling
+
+#========================================================#
+# 7) Home directory setup
+#========================================================#
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+mkdir -p "$CONFIG_DIR"
+chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
+
+#========================================================#
+# 8) Enable basic services
+#========================================================#
+systemctl enable NetworkManager
+systemctl enable sshd
+
+echo "Postinstall inside chroot finished."
 EOF
+#-------------------INJECTS VARIABLES INTO /mnt/root/postinstall.sh-------------------------------------------------#
+# Replace placeholders with actual values (safe substitution)
+sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 
     chmod +x /mnt/root/postinstall.sh
     arch-chroot /mnt /root/postinstall.sh
