@@ -269,68 +269,56 @@ ask_partition_sizes() {
 #========================#
 # Partition disk
 #========================#
-partition_disk() 
-{
+partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
-
-      if [[ "$MODE" == "BIOS" ]]; then
-                    # BIOS partitions
-                    if [[ "$SWAP_ON" == "1" ]]; then
-                    
-                    parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
-                    parted -s "$DEV" set 1 bios_grub on
-                    local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-                    local boot_end=$((boot_start+BOOT_SIZE_MIB))
-                    parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
-                    local swap_start=$boot_end
-                    local swap_end=$((swap_start+SWAP_SIZE_MIB))
-                    parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-                    local root_start=$swap_end
-                    local root_end=$((root_start+ROOT_SIZE_MIB))
-                    parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-                    parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
-                    
-                    else 
-               
-                    parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
-                    parted -s "$DEV" set 1 bios_grub on
-                    local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-                    local boot_end=$((boot_start+BOOT_SIZE_MIB))
-                    parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
-                    local root_start=$boot_end
-                    local root_end=$((root_start+ROOT_SIZE_MIB))
-                    parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-                    parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
-   
-                        partprobe "$DEV" || true
-                        udevadm settle --timeout=5 || true
-                        echo "✅ Partitioning completed. Verify with lsblk."
-                    fi
-       else
-
-              if [[ "$SWAP_ON" == "1" ]]; then
-                 # UEFI partitions
-                 parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
-                 parted -s "$DEV" set 1 boot on
-                 local root_start=$((1+EFI_SIZE_MIB))
-                 local root_end=$((root_start+ROOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-                 local swap_start=$root_end
-                 local swap_end=$((swap_start+SWAP_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-                 parted -s "$DEV" mkpart primary "$HOME_FS" ${swap_end}MiB 100%
-                 
-               else
-
-                 parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
-                 parted -s "$DEV" set 1 boot on
-                 local root_start=$((1+EFI_SIZE_MIB))
-                 local root_end=$((root_start+ROOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
-
-       fi
+    if [[ "$MODE" == "BIOS" ]]; then
+        if [[ "$SWAP_ON" == "1" ]]; then
+            parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
+            parted -s "$DEV" set 1 bios_grub on
+            local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
+            local boot_end=$((boot_start+BOOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
+            local swap_start=$boot_end
+            local swap_end=$((swap_start+SWAP_SIZE_MIB))
+            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+            local root_start=$swap_end
+            local root_end=$((root_start+ROOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+        else
+            parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
+            parted -s "$DEV" set 1 bios_grub on
+            local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
+            local boot_end=$((boot_start+BOOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
+            local root_start=$boot_end
+            local root_end=$((root_start+ROOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+        fi
+    else
+        # UEFI
+        if [[ "$SWAP_ON" == "1" ]]; then
+            parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+            parted -s "$DEV" set 1 boot on
+            local root_start=$((1+EFI_SIZE_MIB))
+            local root_end=$((root_start+ROOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+            local swap_start=$root_end
+            local swap_end=$((swap_start+SWAP_SIZE_MIB))
+            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${swap_end}MiB 100%
+        else
+            parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+            parted -s "$DEV" set 1 boot on
+            local root_start=$((1+EFI_SIZE_MIB))
+            local root_end=$((root_start+ROOT_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+        fi
+    fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
