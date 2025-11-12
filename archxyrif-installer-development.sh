@@ -477,6 +477,11 @@ format_and_mount() {
     mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
 
     echo "✅ Partitions formatted and mounted under /mnt."
+    
+    echo "Generating /etc/fstab..."
+   genfstab -U /mnt >> /mnt/etc/fstab
+   echo "Partition Table and Mountpoints:"
+   cat /mnt/etc/fstab
 }
 
 #========================#
