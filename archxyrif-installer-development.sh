@@ -1357,6 +1357,10 @@ sleep 1
     install_grub "$DEV" || die "GRUB installation failed."
 
     echo
+    echo " Installing Optional Packages & Drivers "
+    optional_install_setup || die "Optional installation failed."
+
+    echo
     echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
 }
 
@@ -1411,19 +1415,7 @@ echo "#=========================================================================
                         ;;
                 esac
                   
-
-
 #=========================================================================================================================================#
-
-
-
-
-
-
-
-
-
-
 
 sleep 1
 clear
