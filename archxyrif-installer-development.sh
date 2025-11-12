@@ -104,59 +104,65 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
-cleanup_all_devices() {
-    echo -e "\n🧹 Performing full cleanup of all block devices..."
+initialize_cleanup() {
+    echo -e "\n🛠 Initializing system for disk cleanup..."
 
-    # 1. Turn off all swap
-    echo "→ Swaps off..."
+    # Ensure /etc/mtab exists
+    if [[ ! -e /etc/mtab ]]; then
+        ln -sf /proc/self/mounts /etc/mtab
+        echo "✅ /etc/mtab linked to /proc/self/mounts"
+    fi
+
+    # Turn off all swap
+    echo "→ Disabling all swap devices..."
     swapoff -a 2>/dev/null || true
 
-    # 2. Close all LUKS mappings
-    echo "→ Closing LUKS devices..."
+    # Close all LUKS devices
+    echo "→ Closing all LUKS mappings..."
     for dm in /dev/mapper/*; do
         if [[ -L "$dm" ]]; then
             target=$(readlink -f "$dm" || true)
-            echo "→ Attempting to luksClose $dm"
+            echo "→ Attempting to luksClose $(basename "$dm")"
             cryptsetup luksClose "$(basename "$dm")" 2>/dev/null || true
         fi
     done
 
-    # 3. Deactivate all LVM volume groups
-    echo "→ Deactivating LVM volume groups..."
+    # Deactivate all LVM volume groups
+    echo "→ Deactivating all LVM volume groups..."
     if command -v vgchange &>/dev/null; then
         vgchange -an 2>/dev/null || true
     fi
 
-    # 4. Unmount all mounted filesystems (deepest first)
-    echo "→ Unmounting all mounts..."
+    # Unmount all mounts, deepest first
+    echo "→ Unmounting all mounted filesystems..."
     mapfile -t MOUNTS < <(mount | awk '{print $3}' | sort -r)
     for m in "${MOUNTS[@]}"; do
         umount -l "$m" 2>/dev/null || true
     done
 
-    # 5. Remove leftover BTRFS mounts/subvolumes
-    echo "→ Cleaning BTRFS mounts..."
+    # Unmount leftover BTRFS mounts/subvolumes
+    echo "→ Cleaning BTRFS subvolume mounts..."
     mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
     for bm in "${BTRFS_MOUNTS[@]}"; do
         umount -l "$bm" 2>/dev/null || true
     done
 
-    # 6. Zero first and last MiB of all disks (except read-only loop devices)
-    echo "→ Zeroing first and last MiB of all disks..."
+    # Zero first and last MiB of all disks (excluding loop devices)
+    echo "→ Zeroing first and last MiB of all block devices..."
     for disk in /dev/sd? /dev/nvme?n?; do
         if [[ -b "$disk" && ! "$disk" =~ loop ]]; then
             size_bytes=$(blockdev --getsize64 "$disk" 2>/dev/null || echo 0)
             if (( size_bytes > 2*1024*1024 )); then
-                echo "→ Zeroing first MiB: $disk"
+                echo "→ Zeroing first MiB of $disk"
                 dd if=/dev/zero of="$disk" bs=1M count=1 oflag=direct status=none || true
-                echo "→ Zeroing last MiB: $disk"
-                dd if=/dev/zero of="$disk" bs=1M count=1 seek=$(( size_bytes/(1024*1024) - 1 )) oflag=direct status=none || true
+                echo "→ Zeroing last MiB of $disk"
+                dd if=/dev/zero of="$disk" bs=1M count=1 seek=$((size_bytes/(1024*1024)-1)) oflag=direct status=none || true
             fi
         fi
     done
 
-    # 7. Inform kernel about device changes
-    echo "→ Informing kernel..."
+    # Inform kernel of changes
+    echo "→ Informing kernel of device changes..."
     for dev in /sys/block/*; do
         if [[ -w "$dev/device/delete" ]]; then
             echo 1 > "$dev/device/delete" 2>/dev/null || true
@@ -164,7 +170,7 @@ cleanup_all_devices() {
     done
     udevadm settle --timeout=5 2>/dev/null || true
 
-    echo "✅ Full cleanup complete. All devices are unmounted and ready for partitioning."
+    echo "✅ Full system cleanup complete. Disks ready for partitioning."
 }
 #=========================================================================================================================================#
 
@@ -1459,13 +1465,14 @@ sleep 1
     echo "======================================"
     echo
     echo
-    #==START====#
-    cleanup_all_devices
-    #==START====#
     
     detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
     echo "Detected boot mode: $MODE"
 
+    #==START====#
+    initialize_cleanup
+    #==START====#
+    
     # Ask which disk to use
     echo
     lsblk -d -o NAME,SIZE,MODEL
