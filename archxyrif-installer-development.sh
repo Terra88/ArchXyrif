@@ -191,7 +191,7 @@ select_filesystem()
         2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
         3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
         *) echo "Invalid choice"; exit 1 ;;
-    esac
+    esac    
 }
 
 #=========================================================================================================================================#
@@ -566,6 +566,7 @@ set -e  # restore strict error handling
 # 7) Home directory setup
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
+mkdir -p /home/$NEWUSER
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
