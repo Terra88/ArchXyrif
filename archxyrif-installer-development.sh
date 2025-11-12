@@ -137,14 +137,16 @@ initialize_cleanup() {
     fi
 
     # Unmount all mounts, deepest first
-    echo "→ Unmounting all mounted filesystems..."
-    mapfile -t MOUNTS < <(mount | awk '{print $3}' | sort -r)
+    echo "→ Unmounting all mounted filesystems (excluding live ISO mounts)..."
+    # 🌟 FIX: Filter out essential system mounts and live ISO mounts (/run/archiso, /, /dev, /proc, /sys, /run, /mnt)
+    mapfile -t MOUNTS < <(mount | awk '{print $3}' | grep -vE '^(/|/dev|/proc|/sys|/run|/mnt|/run/archiso)' | sort -r)
     for m in "${MOUNTS[@]}"; do
         umount -l "$m" 2>/dev/null || true
     done
 
     # Unmount leftover BTRFS mounts/subvolumes
     echo "→ Cleaning BTRFS subvolume mounts..."
+    # We can keep this simple, as BTRFS mounts are usually installation targets, not the live ISO format.
     mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
     for bm in "${BTRFS_MOUNTS[@]}"; do
         umount -l "$bm" 2>/dev/null || true
