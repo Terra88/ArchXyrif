@@ -192,6 +192,10 @@ select_filesystem()
         3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
         *) echo "Invalid choice"; exit 1 ;;
     esac
+
+   ROOT_FS="${rootfs}"
+   HOME_FS="${homefs}"
+   sleep 1
 }
 
 #=========================================================================================================================================#
@@ -252,25 +256,25 @@ partition_disk() {
         parted -s "$DEV" set 1 bios_grub on
         local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
         local boot_end=$((boot_start+BOOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
+        parted -s "$DEV" mkpart primary ${rootfs} ${boot_start}MiB ${boot_end}MiB
         local swap_start=$boot_end
         local swap_end=$((swap_start+SWAP_SIZE_MIB))
         parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
         local root_start=$swap_end
         local root_end=$((root_start+ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary btrfs ${root_start}MiB ${root_end}MiB
-        parted -s "$DEV" mkpart primary ext4 ${root_end}MiB 100%
+        parted -s "$DEV" mkpart primary ${rootfs} ${root_start}MiB ${root_end}MiB
+        parted -s "$DEV" mkpart primary ${homefs} ${root_end}MiB 100%
     else
         # UEFI partitions
         parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
         parted -s "$DEV" set 1 boot on
         local root_start=$((1+EFI_SIZE_MIB))
         local root_end=$((root_start+ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary btrfs ${root_start}MiB ${root_end}MiB
+        parted -s "$DEV" mkpart primary ${rootfs} ${root_start}MiB ${root_end}MiB
         local swap_start=$root_end
         local swap_end=$((swap_start+SWAP_SIZE_MIB))
         parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-        parted -s "$DEV" mkpart primary ext4 ${swap_end}MiB 100%
+        parted -s "$DEV" mkpart primary ${homefs} ${swap_end}MiB 100%
     fi
 
     partprobe "$DEV" || true
@@ -535,13 +539,12 @@ mkinitcpio -P
 #========================================================#
 # 6) Root + user passwords (interactive)
 #========================================================#
-set +e  # allow retries
-MAX_RETRIES=3
-# Ensure user exists
-if ! id "$NEWUSER" &>/dev/null; then
-    echo "Creating user '$NEWUSER'..."
-    useradd -m -G wheel -s /bin/bash "$NEWUSER"
-fi
+echo "#=======================================================#"
+echo " Set password for user '$NEWUSER'                       #"
+echo "#=======================================================#"
+useradd -m -G wheel -s /bin/bash "${NEWUSER}"
+echo "Set password for user ${NEWUSER}:"
+passwd "${NEWUSER}"
 #========================================================#
 clear
 # Root password
@@ -549,25 +552,13 @@ echo
 echo "#========================================================#"
 echo " Set ROOT password                                       #"
 echo "#========================================================#"
-for i in $(seq 1 $MAX_RETRIES); do
-    if passwd root; then
-        break
-    else
-        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-    fi
-done
-#========================================================#
-# User password
-echo "#=======================================================#"
-echo " Set password for user '$NEWUSER'                       #"
-echo "#=======================================================#"
-for i in $(seq 1 $MAX_RETRIES); do
-    if passwd "$NEWUSER"; then
-        break
-    else
-        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-    fi
-done
+passwd
+echo" #========================================================#"
+echo "# 7) Ensure user has sudo privileges" 
+echo "#========================================================#"
+# Create sudoers drop-in file (recommended method)
+echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
+chmod 440 /etc/sudoers.d/${NEWUSER}
 #========================================================#
 # Give sudo rights
 #========================================================#
