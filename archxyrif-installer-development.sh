@@ -337,16 +337,159 @@ format_and_mount() {
 # Install base system
 #========================#
 install_base_system() {
-    pacstrap -K /mnt base base-devel bash vim sudo nano networkmanager grub linux linux-headers linux-firmware efibootmgr openssh btrfs-progs || die "Pacstrap failed"
-    genfstab -U /mnt >> /mnt/etc/fstab
-    echo "✅ Base system installed and fstab generated."
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
+echo "#===================================================================================================#"
+echo
+
+# You can modify the package list below as needed.
+PKGS=(
+  base
+  base-devel
+  bash
+  go
+  git
+  grub
+  linux
+  linux-zen
+  linux-headers
+  linux-firmware
+  vim
+  sudo
+  nano
+  networkmanager
+  efibootmgr
+  openssh
+  intel-ucode
+  amd-ucode
+  btrfs-progs     
+)
+echo "Installing base system packages: ${PKGS[*]}"
+pacstrap /mnt "${PKGS[@]}"
+    
+clear
+sleep 1
+echo
+echo "#===================================================================================================#"
+echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                       #"
+echo "#===================================================================================================#"
+echo
+
+sleep 1
+echo "Generating /etc/fstab..."
+genfstab -U /mnt >> /mnt/etc/fstab
+echo "Partition Table and Mountpoints:"
+cat /mnt/etc/fstab
 }
+
+#=========================================================================================================================================#
+# -----------------------
+# GRUB installation
+# -----------------------
+install_grub() {
+    local ps
+    ps=$(part_suffix "$DEV")
+    local P1="${DEV}${ps}1"
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "Installing GRUB for BIOS..."
+        prepare_chroot
+        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" || die "grub-install (BIOS) failed"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+    else
+        echo "Installing GRUB (UEFI)..."
+
+        # Determine EFI partition mountpoint and ensure it’s /boot/efi
+        if ! mountpoint -q /mnt/boot/efi; then
+          echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
+          mkdir -p /mnt/boot/efi
+          mount "$P_EFI" /mnt/boot/efi # Use global variable P_EFI
+        fi
+        
+        # Basic, minimal GRUB modules needed for UEFI boot
+        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+        
+        # Run grub-install safely inside chroot
+        arch-chroot /mnt grub-install \
+          --target=x86_64-efi \
+          --efi-directory=/boot/efi \
+          --bootloader-id=GRUB \
+          --modules="$GRUB_MODULES" \
+          --recheck \
+          --no-nvram
+        
+        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
+        echo "→ Copying fallback EFI binary..."
+        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+        
+        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
+        DISK="${DEV}"
+        PARTNUM=1
+        LABEL="Arch Linux"
+        LOADER='\EFI\GRUB\grubx64.efi'
+        
+        # Delete stale entries with same label to avoid duplicates
+        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+          efibootmgr -b "$bootnum" -B || true
+        done
+        
+        # Create new entry
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
+        
+        # Generate GRUB config inside chroot
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
+        
+        # Secure Boot Integration
+        if command -v sbctl >/dev/null 2>&1; then
+          echo "→ Signing EFI binaries for Secure Boot..."
+          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+          arch-chroot /mnt sbctl enroll-keys --microsoft
+          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
+          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+        fi
+        
+        echo "GRUB installation complete."
+        echo
+        echo "Verifying EFI boot entries..."
+        efibootmgr -v || true
+    fi
+    echo "✅ GRUB installed."
+}
+
+#=========================================================================================================================================#
+
+configure_system() {
 
 #========================#
 # Configure system
 #========================#
-configure_system() {
-    cat > /mnt/root/postinstall.sh <<EOF
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
+echo "#===================================================================================================#"
+echo
+
+DEFAULT_TZ="Europe/Helsinki"
+read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+TZ="${TZ:-$DEFAULT_TZ}"
+
+DEFAULT_LOCALE="fi_FI.UTF-8"
+read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+
+DEFAULT_HOSTNAME="archbox"
+read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+
+DEFAULT_USER="user"
+read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+
+cat > /mnt/root/postinstall.sh <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
 #========================================================#
@@ -510,79 +653,7 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
-#=========================================================================================================================================#
-# -----------------------
-# GRUB installation
-# -----------------------
-install_grub() {
-    local ps
-    ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "Installing GRUB for BIOS..."
-        prepare_chroot
-        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" || die "grub-install (BIOS) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-    else
-        echo "Installing GRUB (UEFI)..."
 
-        # Determine EFI partition mountpoint and ensure it’s /boot/efi
-        if ! mountpoint -q /mnt/boot/efi; then
-          echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-          mkdir -p /mnt/boot/efi
-          mount "$P_EFI" /mnt/boot/efi # Use global variable P_EFI
-        fi
-        
-        # Basic, minimal GRUB modules needed for UEFI boot
-        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-        
-        # Run grub-install safely inside chroot
-        arch-chroot /mnt grub-install \
-          --target=x86_64-efi \
-          --efi-directory=/boot/efi \
-          --bootloader-id=GRUB \
-          --modules="$GRUB_MODULES" \
-          --recheck \
-          --no-nvram
-        
-        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-        echo "→ Copying fallback EFI binary..."
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-        
-        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
-        DISK="${DEV}"
-        PARTNUM=1
-        LABEL="Arch Linux"
-        LOADER='\EFI\GRUB\grubx64.efi'
-        
-        # Delete stale entries with same label to avoid duplicates
-        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-          efibootmgr -b "$bootnum" -B || true
-        done
-        
-        # Create new entry
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-        
-        # Generate GRUB config inside chroot
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-        
-        # Secure Boot Integration
-        if command -v sbctl >/dev/null 2>&1; then
-          echo "→ Signing EFI binaries for Secure Boot..."
-          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-          arch-chroot /mnt sbctl enroll-keys --microsoft
-          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-        fi
-        
-        echo "GRUB installation complete."
-        echo
-        echo "Verifying EFI boot entries..."
-        efibootmgr -v || true
-    fi
-    echo "✅ GRUB installed."
-}
-#=========================================================================================================================================#
 #========================#
 # Quick Partition Main
 #========================#
@@ -606,6 +677,7 @@ quick_partition() {
     install_base_system
     configure_system
     install_grub
+    
 
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
 }
