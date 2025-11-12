@@ -1399,6 +1399,12 @@ sleep 1
     echo "      ⚙️  Automated Arch Installer      "
     echo "======================================"
     echo
+    echo
+    echo " clean_up_device & clear partition & luks etc."
+    unmount_device
+    clear_partition_table_luks_lvmsignatures
+    cleanup_device
+
 
     detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
     echo "Detected boot mode: $MODE"
@@ -1413,13 +1419,6 @@ sleep 1
     read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
     [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
 
-    echo
-    echo " clean_up_device & clear partition & luks etc."
-    unmount_device
-    clear_partition_table_luks_lvmsignatures
-    cleanup_device
-    
-    
     echo "🧭 Partitioning $DEV ..."
     partition_disk "$DEV" || die "Partitioning failed."
 
