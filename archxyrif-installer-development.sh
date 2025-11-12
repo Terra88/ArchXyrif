@@ -307,7 +307,7 @@ ask_partition_sizes() {
 # Partition disk
 #========================#
 partition_disk() {
-    detect_boot_mode
+
 
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
