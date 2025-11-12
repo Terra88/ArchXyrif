@@ -55,8 +55,6 @@ echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88
 echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo "#===================================================================================================#"
-echo "-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                 |"
-echo "#===================================================================================================#"
 
 }
 #!/usr/bin/env bash
