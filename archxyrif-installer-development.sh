@@ -90,56 +90,8 @@ P_HOME=""
 
 #=========================================================================================================================================#
 #DISK CLEANER FOR FIRSTO BOOTO
-
-   # Clear partition table / LUKS / LVM signatures
-        echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
-        which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
-        which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
-
-        # try to shut down any open LUKS mappings referring to this device (best-effort)
-        echo "Attempting to close any open LUKS mappings referencing $DEV..."
-        for map in /dev/mapper/*; do
-        if [[ -L "$map" ]]; then
-            target=$(readlink -f "$map" || true)
-            if [[ "$target" == "$DEV"* ]]; then
-            name=$(basename "$map")
-            echo "  Closing mapper $name (points at $target)"
-            cryptsetup luksClose "$name" || true
-            fi
-        fi
-        done
-
-        # Zap GPT, MBR, etc.
-        sgdisk --zap-all "$DEV" || true
-
-        # Wipe filesystem signatures on whole device
-        wipefs -a "$DEV" || true
-
-        # Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
-        echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
-        dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
-
-        # If device supports it, also zero last MiB (LVM metadata sometimes at end)
-        devsize_bytes=$(blockdev --getsize64 "$DEV")
-        if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-        last_offset=$((devsize_bytes - 1*1024*1024))
-        dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
-        fi
-
-            # Turn off swap if any
-            swapoff -a 2>/dev/null || true
-
-           # Unmount /mnt recursively but handle BTRFS subvolumes safely
-        if mountpoint -q /mnt; then
-            # Get all mounts under /mnt sorted by depth (deepest first)
-            mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
-            for mnt in "${MOUNTS[@]}"; do
-            umount -l "$mnt" 2>/dev/null || true
-            done
-        fi
-
-            # Clean up /mnt (optional)
-            rm -rf /mnt/* 2>/dev/null || true
+cleanup
+   
 #=========================================================================================================================================#
  # Helpers
 #========================#
