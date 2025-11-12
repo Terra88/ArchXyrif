@@ -612,8 +612,6 @@ install_grub() {
 
 configure_system() {
 
-configure_system() {
-
 #========================#
 # Configure system
 #========================#
@@ -766,6 +764,8 @@ rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
 }
 #================================================================================================================#
+network_mirror_selection()
+{
 sleep 1
 clear
 echo
@@ -842,6 +842,7 @@ quick_partition() {
     install_base_system
     configure_system
     install_grub
+    network_mirror_selection
     
 
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
