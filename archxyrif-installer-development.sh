@@ -269,7 +269,8 @@ ask_partition_sizes() {
 #========================#
 # Partition disk
 #========================#
-partition_disk() {
+partition_disk() 
+{
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
