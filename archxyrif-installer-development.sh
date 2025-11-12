@@ -258,19 +258,19 @@ partition_disk() {
                  parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
                  local root_start=$swap_end
                  local root_end=$((root_start+ROOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary ROOT_FS ${root_start}MiB ${root_end}MiB
-                 parted -s "$DEV" mkpart primary HOME_FS ${root_end}MiB 100%
+                 parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+                 parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
              else
                  # UEFI partitions
                  parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
                  parted -s "$DEV" set 1 boot on
                  local root_start=$((1+EFI_SIZE_MIB))
                  local root_end=$((root_start+ROOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary ROOT_FS ${root_start}MiB ${root_end}MiB
+                 parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
                  local swap_start=$root_end
                  local swap_end=$((swap_start+SWAP_SIZE_MIB))
                  parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-                 parted -s "$DEV" mkpart primary HOME_FS ${swap_end}MiB 100%
+                 parted -s "$DEV" mkpart primary "$HOME_FS" ${swap_end}MiB 100%
              fi
 
     partprobe "$DEV" || true
