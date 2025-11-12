@@ -219,7 +219,11 @@ ask_partition_sizes() {
         [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
         ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
 
-        local reserved_gib=$(( MODE=="UEFI"?EFI_SIZE_MIB/1024:BIOS_BOOT_SIZE_MIB/1024 ))
+      if [[ "$MODE" == "UEFI" ]]; then
+          reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
+      else
+          reserved_gib=$(( BIOS_BOOT_SIZE_MIB / 1024 ))
+      fi
         REMAINING_HOME_GIB=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - reserved_gib - 1 ))
         [[ $REMAINING_HOME_GIB -ge 1 ]] || { echo "Not enough space for home"; continue; }
 
