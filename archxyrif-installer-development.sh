@@ -205,6 +205,7 @@ select_swap()
     echo "| 1) Swap On                                                                    |"
     echo "|-------------------------------------------------------------------------------|"
     echo "| 2) Swap Off                                                                   |"
+    echo "|-------------------------------------------------------------------------------|"
     echo "| 3) exit                                                                       |"
     echo "#===============================================================================#"
     read -rp "Select filesystem [default=1]: " FS_CHOICE
@@ -214,7 +215,7 @@ select_swap()
         ;;
         2) SWAP_ON="2" 
         ;;
-        3) = exec "0"
+        3) echo "restarting" exit 1 ;;
         ;;
         *) echo "Invalid choice"; exit 1 ;;
     esac    
