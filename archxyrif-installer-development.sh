@@ -349,7 +349,9 @@ partition_disk() {
 }
 
 format_and_mount() {
-    local DEV="$1"
+    local DEV="${1:-}"
+    [[ -z "$DEV" ]] && die "format_and_mount(): missing device argument"
+
     local ps
     ps=$(part_suffix "$DEV")
 
@@ -358,59 +360,59 @@ format_and_mount() {
     local P3="${DEV}${ps}3"  # Root
     local P4="${DEV}${ps}4"  # Home
 
-    # Ensure /mnt exists
+    echo -e "\n🧱 Formatting partitions on $DEV ..."
+
+    # Create mount root if missing
     mkdir -p /mnt
 
-    echo -e "\n🧱 Formatting partitions..."
-    # Swap
+    # Format partitions
     mkswap "$P2"
     swapon "$P2"
 
-    # Filesystems
     case "$FS_CHOICE" in
         1)  # EXT4 root + home
             mkfs.ext4 -F "$P3"
             mkfs.ext4 -F "$P4"
+            ROOT_FS="ext4"
             ;;
-        2)  # BTRFS root + home
+        2)  # BTRFS root + home (not typical, but allowed)
             mkfs.btrfs -f "$P3"
             mkfs.btrfs -f "$P4"
+            ROOT_FS="btrfs"
             ;;
-        3)  # BTRFS root + EXT4 home
+        3)  # BTRFS root + EXT4 home (openSUSE-style)
             mkfs.btrfs -f "$P3"
             mkfs.ext4 -F "$P4"
+            ROOT_FS="btrfs"
             ;;
         *)
-            die "Invalid filesystem choice"
+            die "Invalid filesystem choice: $FS_CHOICE"
             ;;
     esac
 
+    echo "✅ Filesystems created."
+
     # Mount root
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mount "$P3" /mnt
-
-        # Create subvolumes
+        mount "$P3" /mnt || die "Failed to mount root"
         for sv in @ @home @snapshots @cache @log; do
             btrfs subvolume create "/mnt/$sv" || true
         done
-
-        # Unmount root to remount subvolumes
         umount /mnt
 
-        # Mount subvolumes
         mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
         mkdir -p /mnt/{home,.snapshots,cache,log}
         mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
-        mount -o noatime,compress=zstd,subvol=@snapshots "$P3"/.snapshots
-        mount -o noatime,compress=zstd,subvol=@cache "$P3"/cache
-        mount -o noatime,compress=zstd,subvol=@log "$P3"/log
+        mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
+        mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/cache
+        mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/log
     else
         mount "$P3" /mnt
         mkdir -p /mnt/home
         mount "$P4" /mnt/home
     fi
 
-    # Boot
+    # Boot partition
     mkdir -p /mnt/boot
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 "$P1"
@@ -421,8 +423,8 @@ format_and_mount() {
         mount "$P1" /mnt/boot
     fi
 
-# --- Generate fstab safely ---
-mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
+    # --- Generate fstab safely ---
+    mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
 
     {
         if [[ "$ROOT_FS" == "btrfs" ]]; then
@@ -441,7 +443,7 @@ mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
         fi
     } > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
 
-    echo "✅ /etc/fstab generated successfully."
+    echo "✅ All partitions formatted, subvolumes mounted, and fstab generated."
 }
 #=========================================================================================================================================#
 # -----------------------
