@@ -174,9 +174,9 @@ initialize_cleanup() {
         fi
     done
     
-    # 🌟 FIX 1: Add re-scan and delay to ensure the system recognizes the block devices.
-    echo "🔄 Re-scanning devices..."
-    partprobe 2>/dev/null || true
+    # inform kernel
+    echo "→ partprobe $dev ; udevadm settle"
+    partprobe "$dev" 2>/dev/null || true
     udevadm settle --timeout=5 2>/dev/null || true
     sleep 2 # Small delay to let the kernel update its view
     # END FIX 1
@@ -1484,10 +1484,7 @@ sleep 1
 #---------------------------------------
 # Robust main menu (simple + careful)
 #---------------------------------------
-    main() {
-
-    trap cleanup EXIT INT TERM
-    
+    main() {  
     clear
     echo "======================================"
     echo "      ⚙️  Automated Arch Installer      "
