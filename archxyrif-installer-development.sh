@@ -90,8 +90,6 @@ P_HOME=""
 
 #=========================================================================================================================================#
 #DISK CLEANER FOR FIRSTO BOOTO
- # Unmount everything on the device before partitioning
-    unmount_btrfs_and_swap "$DEV"
 
    # Clear partition table / LUKS / LVM signatures
         echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
