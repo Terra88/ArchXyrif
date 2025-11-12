@@ -247,21 +247,64 @@ partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
-             if [[ "$MODE" == "BIOS" ]]; then
-                 # BIOS partitions
-                 parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
-                 parted -s "$DEV" set 1 bios_grub on
-                 local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-                 local boot_end=$((boot_start+BOOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
-                 local swap_start=$boot_end
-                 local swap_end=$((swap_start+SWAP_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-                 local root_start=$swap_end
-                 local root_end=$((root_start+ROOT_SIZE_MIB))
-                 parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-                 parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
-             else
+    clear
+    echo "#===============================================================================#"
+    echo "| Swap On / Off                                                                 |"
+    echo "#===============================================================================#"
+    echo "| 1) Swap On                                                                    |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 2) Swap Off                                                                   |"
+    echo "| 3) exit                                                                       |"
+    echo "#===============================================================================#"
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    SWAP_ON="${SWAP_ON:-1}"
+    case "$SWAP_ON" in
+        1) SWAP_ON="1"
+        ;;
+        2) SWAP_ON="2" 
+        ;;
+        3) = exec "0"
+        ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac    
+
+
+      if [[ "$MODE" == "BIOS" ]]; then
+                    # BIOS partitions
+                    if [[ "$SWAP_ON" == "1" ]]; then
+                    
+                    parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
+                    parted -s "$DEV" set 1 bios_grub on
+                    local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
+                    local boot_end=$((boot_start+BOOT_SIZE_MIB))
+                    parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
+                    local swap_start=$boot_end
+                    local swap_end=$((swap_start+SWAP_SIZE_MIB))
+                    parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+                    local root_start=$swap_end
+                    local root_end=$((root_start+ROOT_SIZE_MIB))
+                    parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+                    parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+                    
+                    else 
+               
+                    parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
+                    parted -s "$DEV" set 1 bios_grub on
+                    local boot_start=$((1+BIOS_BOOT_SIZE_MIB))
+                    local boot_end=$((boot_start+BOOT_SIZE_MIB))
+                    parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
+                    local root_start=$boot_end
+                    local root_end=$((root_start+ROOT_SIZE_MIB))
+                    parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+                    parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+   
+                        partprobe "$DEV" || true
+                        udevadm settle --timeout=5 || true
+                        echo "✅ Partitioning completed. Verify with lsblk."
+                    fi
+       else
+
+              if [[ "$SWAP_ON" == "1" ]]; then
                  # UEFI partitions
                  parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
                  parted -s "$DEV" set 1 boot on
@@ -272,7 +315,16 @@ partition_disk() {
                  local swap_end=$((swap_start+SWAP_SIZE_MIB))
                  parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
                  parted -s "$DEV" mkpart primary "$HOME_FS" ${swap_end}MiB 100%
-             fi
+                 
+               else
+
+                 parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+                 parted -s "$DEV" set 1 boot on
+                 local root_start=$((1+EFI_SIZE_MIB))
+                 local root_end=$((root_start+ROOT_SIZE_MIB))
+                 parted -s "$DEV" mkpart primary "$HOME_FS" ${root_end}MiB 100%
+
+       fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
