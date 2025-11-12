@@ -212,6 +212,48 @@ clear_partition_table_luks_lvmsignatures() {
     swapoff -a 2>/dev/null || true
     echo "→ Finished clearing signatures on $dev."
 }
+#=========================================================================================================================#
+# PACSTRAP - PKG LIST
+#=========================================================================================================================#
+install_base_system(){
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
+echo "#===================================================================================================#"
+echo
+
+# You can modify the package list below as needed.
+PKGS=(
+  base
+  base-devel
+  bash
+  go
+  git
+  grub
+  linux
+  linux-zen
+  linux-headers
+  linux-firmware
+  vim
+  sudo
+  nano
+  networkmanager
+  efibootmgr
+  openssh
+  intel-ucode
+  amd-ucode
+  btrfs-progs     
+)
+
+echo "Installing base system packages: ${PKGS[*]}"
+pacstrap /mnt "${PKGS[@]}"
+}
+
+#=========================================================================================================================#
+
+
 #=========================================================================================================================================#
 # 1.1) Clearing Partition Tables / Luks / LVM Signatures
 #=========================================================================================================================================#
@@ -570,151 +612,13 @@ preview_partitions() {
 }
 
 #=========================================================================================================================================#
-#---------------------------------------
-# Robust main menu (simple + careful)
-#---------------------------------------
-    main() {
-    clear
-    echo "======================================"
-    echo "      ⚙️  Automated Arch Installer      "
-    echo "======================================"
-    echo
+configure_system(){
 
-    detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
-    echo "Detected boot mode: $MODE"
-
-    # Ask which disk to use
-    echo
-    lsblk -d -o NAME,SIZE,MODEL
-    read -rp "Enter target disk (e.g. /dev/sda): " DEV
-    [[ -b "$DEV" ]] || die "Invalid device: $DEV"
-
-    echo
-    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
-    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
-
-    echo "🧭 Partitioning $DEV ..."
-    partition_disk "$DEV" || die "Partitioning failed."
-
-    echo
-    echo "💾 Asking for partition sizes..."
-    ask_partition_sizes "$DEV"
-
-    echo
-    echo "🧱 Formatting and mounting partitions..."
-    format_and_mount "$DEV" || die "Formatting/mounting failed."
-
-    echo
-    echo "📦 Installing base system..."
-    install_base_system || die "Base install failed."
-
-    echo
-    echo "⚙️  Configuring system..."
-    configure_system || die "Configuration failed."
-
-    echo
-    echo "🧩 Installing GRUB bootloader..."
-    install_grub "$DEV" || die "GRUB installation failed."
-
-    echo
-    echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
-}
-
-# Run the main function
-#main "$@"
-#=========================================================================================================================================#
-
-custom_partition()
-{
-
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
-echo "#===================================================================================================#"
-echo
-
-      echo "Under Construction - Feature coming soon, restarting. . . "
-      sleep 3
-      exec "$0"
-}
-
-#=========================================================================================================================================#
-logo
-echo "#===================================================================================================#"
-echo "# 1 Choose Partitioning Mode                                                                        #"
-echo "#===================================================================================================#"
-            echo "#==================================================#"
-            echo "#     Select partitioning method for $DEV:         #"
-            echo "#==================================================#"
-            echo "|-1) Quick Partitioning  (automated, recommended)  |"
-            echo "|--------------------------------------------------|"
-            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
-            echo "|--------------------------------------------------|"
-            echo "|-3) Return back to start                          |"
-            echo "#==================================================#"
-            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
-            PART_CHOICE="${PART_CHOICE:-1}"
-
-                case "$PART_CHOICE" in
-                    1)
-                        main  ;;
-                    2)
-                        custom_partition  ;;
-                    3)
-                        echo "Restarting..."
-                        exec "$0"
-                        ;;
-                    *)
-                        echo "Invalid choice."
-                        exec "$0"
-                        ;;
-                esac
-                  
-
-
-#=========================================================================================================================================#
-          
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
-echo "#===================================================================================================#"
-echo
-
-# You can modify the package list below as needed.
-PKGS=(
-  base
-  base-devel
-  bash
-  go
-  git
-  grub
-  linux
-  linux-zen
-  linux-headers
-  linux-firmware
-  vim
-  sudo
-  nano
-  networkmanager
-  efibootmgr
-  openssh
-  intel-ucode
-  amd-ucode
-  btrfs-progs     
-)
-
-echo "Installing base system packages: ${PKGS[*]}"
-pacstrap /mnt "${PKGS[@]}"
-
-#=========================================================================================================================================#
 clear
 sleep 1
 echo
 echo "#===================================================================================================#"
-echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                       #"
+echo "# Generating fstab & Showing Partition Table / Mountpoints                                       #"
 echo "#===================================================================================================#"
 echo
 sleep 1
@@ -724,12 +628,11 @@ genfstab -U /mnt >> /mnt/etc/fstab
 echo "Partition Table and Mountpoints:"
 cat /mnt/etc/fstab
 
-#=========================================================================================================================================#
 sleep 1
 clear
 echo
 echo "#===================================================================================================#"
-echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
+echo "# Setting Basic variables for chroot (defaults provided)                                         #"
 echo "#===================================================================================================#"
 echo
 
@@ -750,16 +653,11 @@ read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
 #=========================================================================================================================================#
-
-
-
-
-#=========================================================================================================================================#
 sleep 1
 clear
 echo
 echo "#===================================================================================================#"
-echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.    #"
+echo "# Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.    #"
 echo "#===================================================================================================#"
 echo
 #========================================================#
@@ -876,7 +774,7 @@ echo "Postinstall inside chroot finished."
 EOF
 #=========================================================================================================================================#
 echo "#===================================================================================================#"
-echo "# 6B) Inject variables into /mnt/root/postinstall.sh                                                #"
+echo "# Inject variables into /mnt/root/postinstall.sh                                                #"
 echo "#===================================================================================================#"
 
 # Replace placeholders with actual values (safe substitution)
@@ -954,6 +852,12 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 #=========================================================================================================================================#
+
+}
+
+#=========================================================================================================================================#
+optional_install_setup(){
+
 #===================================================================================================#
 # 7B) Helper Functions - For Pacman                                                                  
 #===================================================================================================#
@@ -1402,7 +1306,125 @@ sleep 1
                             echo "Skipping Hyprland theme setup."
                         fi
                     fi
+}
 #=========================================================================================================================================#
+
+#=========================================================================================================================================#
+#---------------------------------------
+# Robust main menu (simple + careful)
+#---------------------------------------
+    main() {
+    clear
+    echo "======================================"
+    echo "      ⚙️  Automated Arch Installer      "
+    echo "======================================"
+    echo
+
+    detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
+    echo "Detected boot mode: $MODE"
+
+    # Ask which disk to use
+    echo
+    lsblk -d -o NAME,SIZE,MODEL
+    read -rp "Enter target disk (e.g. /dev/sda): " DEV
+    [[ -b "$DEV" ]] || die "Invalid device: $DEV"
+
+    echo
+    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
+
+    echo "🧭 Partitioning $DEV ..."
+    partition_disk "$DEV" || die "Partitioning failed."
+
+    echo
+    echo "💾 Asking for partition sizes..."
+    ask_partition_sizes "$DEV"
+
+    echo
+    echo "🧱 Formatting and mounting partitions..."
+    format_and_mount "$DEV" || die "Formatting/mounting failed."
+
+    echo
+    echo "📦 Installing base system..."
+    install_base_system || die "Base install failed."
+
+    echo
+    echo "⚙️  Configuring system..."
+    configure_system || die "Configuration failed."
+
+    echo
+    echo "🧩 Installing GRUB bootloader..."
+    install_grub "$DEV" || die "GRUB installation failed."
+
+    echo
+    echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
+}
+
+# Run the main function
+#main "$@"
+#=========================================================================================================================================#
+
+custom_partition()
+{
+
+sleep 1
+clear
+echo "#===================================================================================================#"
+echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
+echo "#===================================================================================================#"
+echo
+
+      echo "Under Construction - Feature coming soon, restarting. . . "
+      sleep 3
+      exec "$0"
+}
+
+#=========================================================================================================================================#
+logo
+echo "#===================================================================================================#"
+echo "# 1 Choose Partitioning Mode                                                                        #"
+echo "#===================================================================================================#"
+            echo "#==================================================#"
+            echo "#     Select partitioning method for $DEV:         #"
+            echo "#==================================================#"
+            echo "|-1) Quick Partitioning  (automated, recommended)  |"
+            echo "|--------------------------------------------------|"
+            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
+            echo "|--------------------------------------------------|"
+            echo "|-3) Return back to start                          |"
+            echo "#==================================================#"
+            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
+            PART_CHOICE="${PART_CHOICE:-1}"
+
+                case "$PART_CHOICE" in
+                    1)
+                        main  ;;
+                    2)
+                        custom_partition  ;;
+                    3)
+                        echo "Restarting..."
+                        exec "$0"
+                        ;;
+                    *)
+                        echo "Invalid choice."
+                        exec "$0"
+                        ;;
+                esac
+                  
+
+
+#=========================================================================================================================================#
+
+
+
+
+
+
+
+
+
+
+
 sleep 1
 clear
 echo
