@@ -242,26 +242,57 @@ ask_partition_sizes() {
 
     while true; do
         lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB/1024 - 5 ))
+
+        # Maximum root size = total disk - swap - reserved (EFI/BIOS) - minimal home
+        local reserved_gib
+        if [[ "$MODE" == "UEFI" ]]; then
+            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
+        else
+            reserved_gib=$(( BIOS_BOOT_SIZE_MIB / 1024 ))
+        fi
+
+        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
         read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
         ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
         [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+        if (( ROOT_SIZE_GIB > max_root_gib )); then
+            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
+            ROOT_SIZE_GIB=$max_root_gib
+        fi
+
         ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
 
-      if [[ "$MODE" == "UEFI" ]]; then
-          reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
-      else
-          reserved_gib=$(( BIOS_BOOT_SIZE_MIB / 1024 ))
-      fi
-        REMAINING_HOME_GIB=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB/1024 - reserved_gib - 1 ))
-        [[ $REMAINING_HOME_GIB -ge 1 ]] || { echo "Not enough space for home"; continue; }
+        # Remaining space for home
+        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
+        if (( remaining_home_gib < 1 )); then
+            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
+            continue
+        fi
 
-        read -rp "Enter HOME size in GiB (ENTER for remaining ${REMAINING_HOME_GIB}): " HOME_SIZE_GIB
-        HOME_SIZE_GIB="${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}"
-        [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-        HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
 
-        echo "Root ${ROOT_SIZE_GIB} GiB, Home ${HOME_SIZE_GIB} GiB, Swap $((SWAP_SIZE_MIB/1024)) GiB"
+        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
+            # Use all remaining space
+            HOME_SIZE_GIB=$remaining_home_gib
+            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
+            home_end="100%"
+        else
+            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+            # Limit to remaining space
+            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
+                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
+                HOME_SIZE_GIB=$remaining_home_gib
+            else
+                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
+            fi
+
+            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+            home_end=$(( root_end + HOME_SIZE_MIB ))
+        fi
+
+        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
         break
     done
 }
@@ -272,6 +303,8 @@ ask_partition_sizes() {
 # Partition disk
 #========================#
 partition_disk() {
+    detect_boot_mode
+
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
@@ -334,6 +367,8 @@ partition_disk() {
 #========================#
 format_and_mount() {
     local ps
+    detect_boot_mode
+    
     ps=$(part_suffix "$DEV")
 
     if [[ "$MODE" == "BIOS" ]]; then
@@ -440,6 +475,8 @@ cat /mnt/etc/fstab
 # -----------------------
 install_grub() {
     local ps
+    detect_boot_mode
+    
     ps=$(part_suffix "$DEV")
     local P1="${DEV}${ps}1"
     if [[ "$MODE" == "BIOS" ]]; then
