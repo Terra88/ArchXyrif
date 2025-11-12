@@ -537,6 +537,8 @@ DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
+prepare_chroot
+
 cat > /mnt/root/postinstall.sh <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
