@@ -605,11 +605,9 @@ install_grub() {
 }
 
 generate_fstab() {
-    echo "→ Generating /etc/fstab..."
     mkdir -p /mnt/etc
 
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        local root_uuid swap_uuid
         root_uuid=$(blkid -s UUID -o value "$P_ROOT")
         swap_uuid=$(blkid -s UUID -o value "$P_SWAP")
 
@@ -624,7 +622,6 @@ UUID=$swap_uuid none            swap    sw                                      
 EOF
 
     else
-        local root_uuid home_uuid swap_uuid
         root_uuid=$(blkid -s UUID -o value "$P_ROOT")
         home_uuid=$(blkid -s UUID -o value "$P_HOME")
         swap_uuid=$(blkid -s UUID -o value "$P_SWAP")
@@ -637,9 +634,9 @@ UUID=$swap_uuid none   swap    sw 0 0
 EOF
 
     fi
-
     echo "✅ /etc/fstab generated."
 }
+
 #=========================================================================================================================================#
 
 #--------------------------------------#
