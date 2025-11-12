@@ -215,40 +215,79 @@ clear_partition_table_luks_lvmsignatures() {
 #=========================================================================================================================#
 # PACSTRAP - PKG LIST
 #=========================================================================================================================#
-install_base_system(){
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
-echo "#===================================================================================================#"
-echo
+install_base_system() {
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
+    echo "#===================================================================================================#"
+    echo
 
-# You can modify the package list below as needed.
-PKGS=(
-  base
-  base-devel
-  bash
-  go
-  git
-  grub
-  linux
-  linux-zen
-  linux-headers
-  linux-firmware
-  vim
-  sudo
-  nano
-  networkmanager
-  efibootmgr
-  openssh
-  intel-ucode
-  amd-ucode
-  btrfs-progs     
-)
+    # Ensure /mnt is mounted
+    if ! mountpoint -q /mnt; then
+        die "/mnt is not mounted — cannot continue."
+    fi
 
-echo "Installing base system packages: ${PKGS[*]}"
-pacstrap /mnt "${PKGS[@]}"
+    # Ensure /mnt/boot exists and is mounted (for UEFI)
+    if [[ "$MODE" == "UEFI" ]]; then
+        if ! mountpoint -q /mnt/boot/efi; then
+            echo "⚠️  /mnt/boot/efi not mounted — attempting to mount EFI partition..."
+            EFI_PART=$(lsblk -ln -o NAME,PARTTYPE | grep "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" | awk '{print "/dev/"$1}' | head -n1)
+            [[ -n "$EFI_PART" ]] && mount "$EFI_PART" /mnt/boot/efi || die "Cannot find or mount EFI partition."
+        fi
+    else
+        if ! mountpoint -q /mnt/boot; then
+            echo "⚠️  /mnt/boot not mounted — attempting to mount BIOS boot partition..."
+            BOOT_PART=$(lsblk -ln -o NAME,SIZE,MOUNTPOINT | grep -E "512M|500M" | grep -v "/mnt" | awk '{print "/dev/"$1}' | head -n1)
+            [[ -n "$BOOT_PART" ]] && mount "$BOOT_PART" /mnt/boot || die "Cannot find or mount BIOS boot partition."
+        fi
+    fi
+
+    # Ensure network is available
+    if ! ping -c 2 -q archlinux.org >/dev/null 2>&1; then
+        die "No internet connection. Please connect before proceeding."
+    fi
+
+    # Refresh mirrorlist and keyring
+    echo "🔄 Syncing package databases and refreshing keyring..."
+    pacman -Sy --noconfirm archlinux-keyring || die "Failed to sync keyring or package database."
+
+    # Define package list
+    PKGS=(
+        base
+        base-devel
+        bash
+        go
+        git
+        grub
+        linux
+        linux-zen
+        linux-headers
+        linux-firmware
+        vim
+        sudo
+        nano
+        networkmanager
+        efibootmgr
+        openssh
+        intel-ucode
+        amd-ucode
+        btrfs-progs
+    )
+
+    echo
+    echo "📦 Installing base system packages:"
+    printf '%s\n' "${PKGS[@]}"
+    echo
+
+    pacstrap -K /mnt "${PKGS[@]}" || die "Pacstrap failed to install base system."
+
+    echo "✅ Base system successfully installed."
+
+    echo "🧾 Generating fstab..."
+    genfstab -U /mnt >> /mnt/etc/fstab || die "Failed to generate fstab."
+    echo "✅ fstab generated and appended."
 }
 
 #=========================================================================================================================#
