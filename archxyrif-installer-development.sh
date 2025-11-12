@@ -192,10 +192,6 @@ select_filesystem()
         3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
         *) echo "Invalid choice"; exit 1 ;;
     esac
-
-   ROOT_FS="${rootfs}"
-   HOME_FS="${homefs}"
-   sleep 1
 }
 
 #=========================================================================================================================================#
