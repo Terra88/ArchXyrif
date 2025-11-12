@@ -420,7 +420,7 @@ format_and_mount() {
         mkfs.ext4 -F "$P1"
         mount "$P1" /mnt/boot
     fi
-
+}
 # --- Generate fstab safely ---
 mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
 
