@@ -412,46 +412,62 @@ partition_disk() {
 # Format & mount
 #========================#
 format_and_mount() {
-    local ps
     detect_boot_mode
-    
+    local ps
     ps=$(part_suffix "$DEV")
 
+    # Assign partitions
     if [[ "$MODE" == "BIOS" ]]; then
         P_BIOS="${DEV}${ps}1"
         P_BOOT="${DEV}${ps}2"
         P_SWAP="${DEV}${ps}3"
         P_ROOT="${DEV}${ps}4"
         P_HOME="${DEV}${ps}5"
+
         mkfs.ext4 -L boot "$P_BOOT"
     else
         P_EFI="${DEV}${ps}1"
         P_ROOT="${DEV}${ps}2"
         P_SWAP="${DEV}${ps}3"
         P_HOME="${DEV}${ps}4"
+
         mkfs.fat -F32 "$P_EFI"
     fi
 
-    mkswap -L swap "$P_SWAP"
-    swapon "$P_SWAP"
-
-    mkfs.btrfs -f -L root "$P_ROOT"
-    mkfs.ext4 -L home "$P_HOME"
-
-    mount "$P_ROOT" /mnt
+  if [[ "$SWAP_ON" == "1" ]]; then
+      # Swap
+      mkswap -L swap "$P_SWAP"
+      swapon "$P_SWAP"
+    else
+      echo " Swap disabled"
+  fi
+  
+    # Root / Home
     if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT"
+    else
+        mkfs.ext4 -L root "$P_ROOT"
+    fi
+
+    if [[ "$HOME_FS" == "btrfs" && "$ROOT_FS" == "btrfs" ]]; then
+        # BTRFS subvolumes
+        mount "$P_ROOT" /mnt
         btrfs subvolume create /mnt/@
         btrfs subvolume create /mnt/@home
         umount /mnt
+
         mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
         mkdir -p /mnt/home
-        mount -o subvol=@home "$P_ROOT" /mnt/home
+        mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
     else
+        # EXT4 root + home
+        mkfs.ext4 -L home "$P_HOME"
         mount "$P_ROOT" /mnt
         mkdir -p /mnt/home
         mount "$P_HOME" /mnt/home
     fi
 
+    # Boot partition
     mkdir -p /mnt/boot
     if [[ "$MODE" == "BIOS" ]]; then
         mount "$P_BOOT" /mnt/boot
@@ -459,6 +475,9 @@ format_and_mount() {
         mkdir -p /mnt/boot/efi
         mount "$P_EFI" /mnt/boot/efi
     fi
+
+    # Safety check
+    mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
 
     echo "✅ Partitions formatted and mounted under /mnt."
 }
