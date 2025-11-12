@@ -407,124 +407,129 @@ ask_partition_sizes() {
 # Partition disk
 # -----------------------
 partition_disk() {
-    local ps
-    ps=$(part_suffix "$DEV")
-    parted -s "$DEV" mklabel gpt
+    [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
+
+    echo "→ Creating partition table on $DEV ..."
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
     if [[ "$MODE" == "BIOS" ]]; then
-        parted -s "$DEV" mkpart primary ext4 1MiB "${BIOS_BOOT_SIZE_MIB}MiB"
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((BIOS_BOOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary linux-swap "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$((BIOS_BOOT_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
+        echo "→ BIOS mode detected, creating partitions..."
+
+        # BIOS boot partition (1MiB)
+        parted -s "$DEV" mkpart primary 1MiB $((1 + BIOS_BOOT_SIZE_MIB))MiB
+        parted -s "$DEV" set 1 bios_grub on
+
+        # Boot partition (ext4)
+        local boot_start=$((1 + BIOS_BOOT_SIZE_MIB))
+        local boot_end=$((boot_start + BOOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
+
+        # Swap partition
+        local swap_start=$boot_end
+        local swap_end=$((swap_start + SWAP_SIZE_MIB))
+        parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+
+        # Root partition (btrfs)
+        local root_start=$swap_end
+        local root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary btrfs ${root_start}MiB ${root_end}MiB
+
+        # Home partition (ext4, rest of disk)
+        parted -s "$DEV" mkpart primary ext4 ${root_end}MiB 100%
+
     else
-        parted -s "$DEV" mkpart primary fat32 1MiB "${EFI_SIZE_MIB}MiB"
+        echo "→ UEFI mode detected, creating partitions..."
+
+        # EFI partition
+        parted -s "$DEV" mkpart primary fat32 1MiB $((1 + EFI_SIZE_MIB))MiB
         parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "$((EFI_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary linux-swap "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + 1))MiB" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB))MiB"
-        parted -s "$DEV" mkpart primary "$HOME_FS" "$((EFI_SIZE_MIB + ROOT_SIZE_MIB + SWAP_SIZE_MIB + 1))MiB" 100%
+
+        # Root partition (btrfs)
+        local root_start=$((1 + EFI_SIZE_MIB))
+        local root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary btrfs ${root_start}MiB ${root_end}MiB
+
+        # Swap partition
+        local swap_start=$root_end
+        local swap_end=$((swap_start + SWAP_SIZE_MIB))
+        parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+
+        # Home partition (ext4, rest of disk)
+        parted -s "$DEV" mkpart primary ext4 ${swap_end}MiB 100%
     fi
 
     # Inform kernel
-    partprobe "$DEV" 2>/dev/null || true
-    udevadm settle --timeout=5 2>/dev/null || true
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
+
+    echo "✅ Partitioning completed. Verify with lsblk."
 }
 
 format_and_mount() {
-    local DEV="${1:-}"
     [[ -z "$DEV" ]] && die "format_and_mount(): missing device argument"
 
-    local ps
-    ps=$(part_suffix "$DEV")
+    echo "🧱 Formatting and mounting partitions on $DEV..."
 
-    local P1="${DEV}${ps}1"  # Boot (BIOS or EFI)
-    local P2="${DEV}${ps}2"  # Swap
-    local P3="${DEV}${ps}3"  # Root
-    local P4="${DEV}${ps}4"  # Home
+    if [[ "$MODE" == "BIOS" ]]; then
+        local P_BIOS="${DEV}1"
+        local P_BOOT="${DEV}2"
+        local P_SWAP="${DEV}3"
+        local P_ROOT="${DEV}4"
+        local P_HOME="${DEV}5"
+    else
+        local P_EFI="${DEV}1"
+        local P_ROOT="${DEV}2"
+        local P_SWAP="${DEV}3"
+        local P_HOME="${DEV}4"
+    fi
 
-    echo -e "\n🧱 Formatting partitions on $DEV ..."
+    # === Format partitions ===
+    if [[ "$MODE" == "BIOS" ]]; then
+        mkfs.ext4 -L boot "$P_BOOT"
+    else
+        mkfs.fat -F32 "$P_EFI"
+    fi
 
-    # Create mount root if missing
-    mkdir -p /mnt
+    mkswap -L swap "$P_SWAP"
+    swapon "$P_SWAP"
 
-    # Format partitions
-    mkswap "$P2"
-    swapon "$P2"
+    mkfs.btrfs -f -L root "$P_ROOT"
+    mkfs.ext4 -L home "$P_HOME"
 
-    case "$FS_CHOICE" in
-        1)  # EXT4 root + home
-            mkfs.ext4 -F "$P3"
-            mkfs.ext4 -F "$P4"
-            ROOT_FS="ext4"
-            ;;
-        2)  # BTRFS root + home (not typical, but allowed)
-            mkfs.btrfs -f "$P3"
-            mkfs.btrfs -f "$P4"
-            ROOT_FS="btrfs"
-            ;;
-        3)  # BTRFS root + EXT4 home (openSUSE-style)
-            mkfs.btrfs -f "$P3"
-            mkfs.ext4 -F "$P4"
-            ROOT_FS="btrfs"
-            ;;
-        *)
-            die "Invalid filesystem choice: $FS_CHOICE"
-            ;;
-    esac
-
-    echo "✅ Filesystems created."
-
-    # Mount root
+    # === Mount root and subvolumes ===
+    mount "$P_ROOT" /mnt
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mount "$P3" /mnt || die "Failed to mount root"
-        for sv in @ @home @snapshots @cache @log; do
-            btrfs subvolume create "/mnt/$sv" || true
-        done
+        # create subvolumes
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
+        btrfs subvolume create /mnt/@snapshots
+        btrfs subvolume create /mnt/@cache
+        btrfs subvolume create /mnt/@log
         umount /mnt
 
-        mount -o noatime,compress=zstd,subvol=@ "$P3" /mnt
+        # remount subvolumes
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
         mkdir -p /mnt/{home,.snapshots,cache,log}
-        mount -o noatime,compress=zstd,subvol=@home "$P3" /mnt/home
-        mount -o noatime,compress=zstd,subvol=@snapshots "$P3" /mnt/.snapshots
-        mount -o noatime,compress=zstd,subvol=@cache "$P3" /mnt/cache
-        mount -o noatime,compress=zstd,subvol=@log "$P3" /mnt/log
+        mount -o subvol=@home "$P_ROOT" /mnt/home
+        mount -o subvol=@snapshots "$P_ROOT" /mnt/.snapshots
+        mount -o subvol=@cache "$P_ROOT" /mnt/cache
+        mount -o subvol=@log "$P_ROOT" /mnt/log
     else
-        mount "$P3" /mnt
+        mount "$P_ROOT" /mnt
         mkdir -p /mnt/home
-        mount "$P4" /mnt/home
+        mount "$P_HOME" /mnt/home
     fi
 
-    # Boot partition
+    # === Mount boot or EFI ===
     mkdir -p /mnt/boot
-    if [[ "$MODE" == "UEFI" ]]; then
-        mkfs.fat -F32 "$P1"
-        mkdir -p /mnt/boot/efi
-        mount "$P1" /mnt/boot/efi
+    if [[ "$MODE" == "BIOS" ]]; then
+        mount "$P_BOOT" /mnt/boot
     else
-        mkfs.ext4 -F "$P1"
-        mount "$P1" /mnt/boot
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi
     fi
 
-    # --- Generate fstab safely ---
-    mkdir -p /mnt/etc || die "Cannot create /mnt/etc directory"
-
-    {
-        if [[ "$ROOT_FS" == "btrfs" ]]; then
-            echo "# BTRFS subvolumes"
-            echo "UUID=$(blkid -s UUID -o value $P3) /               btrfs   defaults,noatime,compress=zstd,subvol=@               0 1"
-            echo "UUID=$(blkid -s UUID -o value $P3) /home           btrfs   defaults,noatime,compress=zstd,subvol=@home           0 2"
-            echo "UUID=$(blkid -s UUID -o value $P3) /.snapshots     btrfs   defaults,noatime,compress=zstd,subvol=@snapshots     0 2"
-            echo "UUID=$(blkid -s UUID -o value $P3) /cache          btrfs   defaults,noatime,compress=zstd,subvol=@cache          0 2"
-            echo "UUID=$(blkid -s UUID -o value $P3) /log            btrfs   defaults,noatime,compress=zstd,subvol=@log            0 2"
-            echo "UUID=$(blkid -s UUID -o value $P2) none            swap    sw                                                  0 0"
-        else
-            echo "# EXT4 root + home"
-            echo "UUID=$(blkid -s UUID -o value $P3) /       ext4    defaults,noatime 0 1"
-            echo "UUID=$(blkid -s UUID -o value $P4) /home   ext4    defaults,noatime 0 2"
-            echo "UUID=$(blkid -s UUID -o value $P2) none    swap    sw 0 0"
-        fi
-    } > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
-
-    echo "✅ All partitions formatted, subvolumes mounted, and fstab generated."
+    echo "✅ All partitions mounted under /mnt."
 }
 #=========================================================================================================================================#
 # -----------------------
