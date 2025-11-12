@@ -195,6 +195,32 @@ select_filesystem()
     esac    
 }
 
+select_swap()
+{
+
+   clear
+    echo "#===============================================================================#"
+    echo "| Swap On / Off                                                                 |"
+    echo "#===============================================================================#"
+    echo "| 1) Swap On                                                                    |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 2) Swap Off                                                                   |"
+    echo "| 3) exit                                                                       |"
+    echo "#===============================================================================#"
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    SWAP_ON="${SWAP_ON:-1}"
+    case "$SWAP_ON" in
+        1) SWAP_ON="1"
+        ;;
+        2) SWAP_ON="2" 
+        ;;
+        3) = exec "0"
+        ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac    
+
+}
+
 #=========================================================================================================================================#
 
 #========================#
@@ -246,27 +272,6 @@ ask_partition_sizes() {
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
-
-    clear
-    echo "#===============================================================================#"
-    echo "| Swap On / Off                                                                 |"
-    echo "#===============================================================================#"
-    echo "| 1) Swap On                                                                    |"
-    echo "|-------------------------------------------------------------------------------|"
-    echo "| 2) Swap Off                                                                   |"
-    echo "| 3) exit                                                                       |"
-    echo "#===============================================================================#"
-    read -rp "Select filesystem [default=1]: " FS_CHOICE
-    SWAP_ON="${SWAP_ON:-1}"
-    case "$SWAP_ON" in
-        1) SWAP_ON="1"
-        ;;
-        2) SWAP_ON="2" 
-        ;;
-        3) = exec "0"
-        ;;
-        *) echo "Invalid choice"; exit 1 ;;
-    esac    
 
 
       if [[ "$MODE" == "BIOS" ]]; then
@@ -713,6 +718,7 @@ quick_partition() {
 
     ask_partition_sizes
     select_filesystem
+    select_swap
     partition_disk
     format_and_mount
     install_base_system
