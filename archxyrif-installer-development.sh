@@ -456,7 +456,7 @@ format_and_mount() {
     mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
 
     echo "✅ Partitions formatted and mounted under /mnt."
-    
+    #---Generating FSTAB
     echo "Generating /etc/fstab..."
    genfstab -U /mnt >> /mnt/etc/fstab
    echo "Partition Table and Mountpoints:"
@@ -497,19 +497,6 @@ PKGS=(
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
-    
-clear
-sleep 1
-echo
-echo "#===================================================================================================#"
-echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                       #"
-echo "#===================================================================================================#"
-echo
-sleep 1
-echo "Generating /etc/fstab..."
-genfstab -U /mnt >> /mnt/etc/fstab
-echo "Partition Table and Mountpoints:"
-cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
 # GRUB installation
