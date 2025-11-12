@@ -95,6 +95,9 @@ part_suffix() {
 # safe cleanup at script exit
 cleanup() {
     echo -e "\n🧹 Running cleanup..."
+    # FIX 1: Ensure mtab symlink exists before calling commands that rely on it
+    if [[ ! -e /etc/mtab ]]; then ln -sf /proc/self/mounts /etc/mtab; fi
+    # END FIX 1
     swapoff -a 2>/dev/null || true
     if mountpoint -q /mnt; then
         umount -R /mnt 2>/dev/null || true
@@ -257,7 +260,7 @@ clear_partition_table_luks_lvmsignatures() {
             target=$(readlink -f "$map" || true)
             if [[ "$target" == "$dev"* ]]; then
                 name=$(basename "$map")
-                echo "→ cryptsetup luksClose $name"
+                echo "→ cryptsetup luksClose "$name""
                 cryptsetup luksClose "$name" || true
             fi
         fi
@@ -395,6 +398,14 @@ BIOS_BOOT_SIZE_MIB=512
 BOOT_SIZE_MIB=0
 BUFFER_MIB=8
 FS_CHOICE=1
+
+# Global partition variables (will be set in format_and_mount)
+P_EFI=""
+P_BOOT=""
+P_SWAP=""
+P_ROOT=""
+P_HOME=""
+
 
 #=========================================================================================================================================#
 # -----------------------
@@ -536,20 +547,26 @@ partition_disk() {
 format_and_mount() {
     [[ -z "$DEV" ]] && die "format_and_mount(): missing device argument"
 
+    # FIX 2 & 3: Use part_suffix and set variables globally
+    local ps
+    ps=$(part_suffix "$DEV")
+
     echo "🧱 Formatting and mounting partitions on $DEV..."
 
     if [[ "$MODE" == "BIOS" ]]; then
-        local P_BIOS="${DEV}1"
-        local P_BOOT="${DEV}2"
-        local P_SWAP="${DEV}3"
-        local P_ROOT="${DEV}4"
-        local P_HOME="${DEV}5"
+        P_BIOS="${DEV}${ps}1"
+        P_BOOT="${DEV}${ps}2"
+        P_SWAP="${DEV}${ps}3"
+        P_ROOT="${DEV}${ps}4"
+        P_HOME="${DEV}${ps}5"
     else
-        local P_EFI="${DEV}1"
-        local P_ROOT="${DEV}2"
-        local P_SWAP="${DEV}3"
-        local P_HOME="${DEV}4"
+        P_EFI="${DEV}${ps}1"
+        P_ROOT="${DEV}${ps}2"
+        P_SWAP="${DEV}${ps}3"
+        P_HOME="${DEV}${ps}4"
     fi
+    # END FIX 2 & 3
+    
 
     # === Format partitions ===
     if [[ "$MODE" == "BIOS" ]]; then
@@ -619,7 +636,7 @@ install_grub() {
         if ! mountpoint -q /mnt/boot/efi; then
           echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
           mkdir -p /mnt/boot/efi
-          mount "$P1" /mnt/boot/efi
+          mount "$P_EFI" /mnt/boot/efi # Use global variable P_EFI
         fi
         
         # Basic, minimal GRUB modules needed for UEFI boot
@@ -673,6 +690,9 @@ install_grub() {
 }
 
 generate_fstab() {
+    # Relies on P_ROOT, P_SWAP, P_HOME being set globally in format_and_mount
+    [[ -z "$P_ROOT" ]] && die "Partition variables not set in generate_fstab."
+    
     mkdir -p /mnt/etc
 
     if [[ "$ROOT_FS" == "btrfs" ]]; then
@@ -1586,7 +1606,7 @@ echo "  - AUR_PKGS[] for AUR software"
 echo " ----------------------------------------------------------------------------------------------------"
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
 echo "  reboot"
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
@@ -1595,7 +1615,7 @@ echo
 echo "Installation base and basic configuration finished."
 echo "To reboot into your new system:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
 echo "  reboot"
 echo
 echo "Done."
