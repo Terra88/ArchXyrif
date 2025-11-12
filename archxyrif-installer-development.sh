@@ -1479,6 +1479,9 @@ sleep 1
 # Robust main menu (simple + careful)
 #---------------------------------------
     main() {
+
+    trap cleanup EXIT INT TERM
+    
     clear
     echo "======================================"
     echo "      ⚙️  Automated Arch Installer      "
