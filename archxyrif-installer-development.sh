@@ -817,6 +817,473 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
+#===================================================================================================================#
+#=========================================================================================================================================#
+#===================================================================================================#
+# 7B) Helper Functions - For Pacman                                                                  
+#===================================================================================================#
+# Resilient installation with retries, key refresh, and mirror recovery
+install_with_retry() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local CMD=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
+
+    # sanity check
+    if [[ ! -d "/mnt" ]]; then
+        echo "❌ /mnt not found or not a directory — cannot chroot."
+        return 1
+    fi
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
+        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
+            echo "✅ Installation succeeded on attempt $i"
+            return 0
+        else
+            echo "⚠️ Installation failed on attempt $i"
+            if (( i < MAX_RETRIES )); then
+                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
+                "${CHROOT_CMD[@]}" bash -c '
+                    pacman-key --init
+                    pacman-key --populate archlinux
+                    pacman -Sy --noconfirm archlinux-keyring
+                ' || echo "⚠️ Keyring refresh failed."
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+
+    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
+    return 1
+  }
+
+safe_pacman_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local PKGS=("$@")
+
+    for PKG in "${PKGS[@]}"; do
+        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
+            echo "⚠️ Skipping $PKG"
+    done
+   }
+ 
+#=========================================================================================================================================#
+#===================================================================================================#
+# 7C) Helper Functions - For AUR (Paru)                                                              
+#===================================================================================================#
+safe_aur_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local AUR_PKGS=("$@")
+    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
+
+    local TMP_SCRIPT="/root/_aur_install.sh"
+    cat > /mnt${TMP_SCRIPT} <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Arguments: NEWUSER + AUR packages
+NEWUSER="$1"
+shift
+AUR_PKGS=("$@")
+HOME_DIR="/home/${NEWUSER}"
+
+mkdir -p "$HOME_DIR"
+chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
+chmod 755 "$HOME_DIR"
+
+pacman -Sy --noconfirm --needed git base-devel sudo
+
+# Ensure sudo rights
+if ! sudo -lU "$NEWUSER" &>/dev/null; then
+    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
+    chmod 440 /etc/sudoers.d/"$NEWUSER"
+fi
+
+# Install paru if missing
+if ! command -v paru &>/dev/null; then
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        cd \"$HOME_DIR\" || exit
+        rm -rf paru
+        git clone https://aur.archlinux.org/paru.git
+        cd paru
+        makepkg -si --noconfirm
+        cd ..
+        rm -rf paru
+    "
+fi
+
+# Install AUR packages
+for pkg in "${AUR_PKGS[@]}"; do
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
+        echo \"⚠️ Failed to install $pkg\"
+    "
+done
+EOF
+
+    # Pass NEWUSER as first argument + package list
+    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
+    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
+}
+# define once to keep consistent call structure
+CHROOT_CMD=(arch-chroot /mnt)
+
+#=========================================================================================================================================#
+gpu_driver()
+{
+     sleep 1
+     clear
+     echo
+     echo "#===================================================================================================#"
+     echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
+     echo "#===================================================================================================#"
+     echo
+     
+     echo
+     echo "#========================================================#"
+     echo "🎮 GPU DRIVER INSTALLATION"
+     echo "#========================================================#"
+     echo "1) Intel"
+     echo "2) NVIDIA"
+     echo "3) AMD"
+     echo "4) All compatible drivers (default)"
+     echo "5) Skip"
+     read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
+     GPU_CHOICE="${GPU_CHOICE:-4}"
+     
+     GPU_PKGS=()
+     
+     case "$GPU_CHOICE" in
+         1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
+         2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
+         3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
+         4)
+             GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+             echo "→ AMD skipped to prevent hybrid driver conflicts."
+             ;;
+         5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
+     esac
+     
+     if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
+         echo "🔧 Ensuring multilib repository is enabled..."
+         "${CHROOT_CMD[@]}" bash -c '
+             if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+                 echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+             fi
+             pacman -Sy --noconfirm
+         '
+         safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
+     fi
+}
+#=========================================================================================================================================#
+window_manager()
+{
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
+    echo "#===================================================================================================#"
+    echo
+    
+    echo
+    echo "#========================================================#"
+    echo "Windof Manager / Desktop Selection"
+    echo "#========================================================#"
+        echo "1) Hyprland (Wayland)"
+        echo "2) Sway (Wayland)"
+        echo "3) XFCE (X11)"
+        echo "4) KDE Plasma (X11/Wayland)"
+        echo "5) GNOME (X11/Wayland)"
+        echo "6) Skip WM/DE installation"
+        read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
+        WM_CHOICE="${WM_CHOICE:-6}"
+        
+        WM_PKGS=()
+        WM_AUR_PKGS=()
+        
+        case "$WM_CHOICE" in
+            1)
+                echo "→ Selected: Hyprland (Wayland)"
+                WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+            2)
+                echo "→ Selected: Sway (Wayland)"
+                WM_PKGS=(sway swaybg swaylock waybar wofi)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+            3)
+                echo "→ Selected: XFCE"
+                WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+            4)
+                echo "→ Selected: KDE Plasma"
+                WM_PKGS=(plasma-desktop kde-applications sddm)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+            5)
+                echo "→ Selected: GNOME"
+                WM_PKGS=(gnome gdm)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+            6|*)
+                echo "Skipping window manager installation."
+                WM_PKGS=()
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                ;;
+        esac
+        
+        # Install WM packages
+        if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+            safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+        fi
+        # Install AUR packages (safe, conflict-handling)
+        safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
+}
+#=========================================================================================================================================#
+lm_dm()
+{
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 8C) LM/DM                                                                                         #"
+    echo "#===================================================================================================#"
+    echo
+    
+    echo
+    echo "#========================================================#"
+    echo " Login Manager / Display Manager Selection"
+    echo "#========================================================#"
+            echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
+            echo "2) SDDM - If you installed: KDE, XFCE" 
+            echo "3) LightDM - XFCE"
+            echo "4) Ly (AUR) - Sway, Hyprland"
+            echo "5) LXDM - XFCE"
+            echo "6) Skip Display Manager"
+            read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
+            DM_CHOICE="${DM_CHOICE:-6}"
+            
+            DM_PKGS=()
+            DM_AUR_PKGS=()
+            DM_SERVICE=""
+            
+            case "$DM_CHOICE" in
+                1)
+                    DM_PKGS=(gdm)
+                    DM_SERVICE="gdm.service"
+                    ;;
+                2)
+                    DM_PKGS=(sddm)
+                    DM_SERVICE="sddm.service"
+                    ;;
+                3)
+                    DM_PKGS=(lightdm lightdm-gtk-greeter)
+                    DM_SERVICE="lightdm.service"
+                    ;;
+                4)
+                    DM_PKGS=(ly)
+                    DM_AUR_PKGS=(ly-themes-git)
+                    DM_SERVICE="ly.service"
+                    ;;
+                5)
+                    DM_PKGS=(lxdm)
+                    DM_SERVICE="lxdm.service"
+                    ;;
+                6|*)
+                    echo "Skipping display manager installation."
+                    DM_PKGS=()
+                    ;;
+            esac
+            
+            # Install display manager packages
+            if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+                safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+            fi
+            
+            # Install AUR display manager packages (safe)
+            safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
+            
+            # Enable chosen service
+            if [[ -n "$DM_SERVICE" ]]; then
+                "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+                echo "✅ Display manager service enabled: $DM_SERVICE"
+            fi
+}        
+#=========================================================================================================================================#
+extra_pacman_pkg()
+{    
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
+    echo "#===================================================================================================#"
+    echo
+    
+                read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+                if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+                    read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                    # Clean list: neofetch removed (deprecated)
+                    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+                
+                    # Filter out non-existent packages before installing
+                    VALID_PKGS=()
+                    for pkg in "${EXTRA_PKGS[@]}"; do
+                        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+                            VALID_PKGS+=("$pkg")
+                        else
+                            echo "⚠️  Skipping invalid or missing package: $pkg"
+                        fi
+                    done
+                
+                    # Merge validated list with user input
+                    EXTRA_PKG=("${VALID_PKGS[@]}")
+                    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+                        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+                        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
+                    fi
+                
+                    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
+                        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
+                    else
+                        echo "⚠️  No valid packages to install."
+                    fi
+                else
+                    echo "Skipping extra pacman packages."
+                fi
+}
+#=========================================================================================================================================#
+optional_aur()
+{    
+     sleep 1
+     clear
+     echo
+     echo "#===================================================================================================#"
+     echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
+     echo "#===================================================================================================#"
+     echo
+     
+                     read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+                     install_aur="${install_aur:-N}"
+                     
+                     if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+                         read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+                     
+                         # Predefined extra AUR packages
+                         EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+                     
+                         # Merge WM + DM AUR packages with user input
+                         AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
+                     
+                         if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+                             read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
+                             AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
+                         fi
+                     
+                         echo "🔧 Installing AUR packages inside chroot..."
+                         safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
+                     else
+                         echo "Skipping AUR installation."
+                     fi
+}
+#=========================================================================================================================================#
+hyprland_optional()
+{     
+      sleep 1
+      clear
+      echo
+      echo "#===================================================================================================#"
+      echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
+      echo "#===================================================================================================#"
+      echo
+      sleep 1
+      
+                          # Only proceed if Hyprland was selected (WM_CHOICE == 1)
+                          if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+                              echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git
+                          
+                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+                                  echo "→ Running Hyprland theme setup inside chroot..."
+                          
+                                  arch-chroot /mnt /bin/bash -c "
+                          NEWUSER=\"$NEWUSER\"
+                          HOME_DIR=\"/home/\$NEWUSER\"
+                          CONFIG_DIR=\"\$HOME_DIR/.config\"
+                          REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+                          
+                          # Ensure home exists
+                          mkdir -p \"\$HOME_DIR\"
+                          chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                          chmod 755 \"\$HOME_DIR\"
+                          
+                          # Clone theme repo
+                          if [[ -d \"\$REPO_DIR\" ]]; then
+                              rm -rf \"\$REPO_DIR\"
+                          fi
+                          sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+                          
+                          # Copy files to home directory
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+                          
+                          # Backup existing .config if not empty
+                          if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+                              mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+                              echo '==> Existing .config backed up.'
+                          fi
+                          mkdir -p \"\$CONFIG_DIR\"
+                          
+                          # Extract config.zip into .config
+                          if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+                              unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
+                              if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
+                                  cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
+                                  rm -rf \"\$HOME_DIR/temp_unzip\"
+                                  echo '==> config.zip contents copied to .config'
+                              else
+                                  echo '⚠️ config/ folder not found inside zip, skipping.'
+                              fi
+                          else
+                              echo '⚠️ config.zip not found, skipping.'
+                          fi
+                          
+                          # Extract wallpaper.zip to HOME_DIR
+                          [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
+                          
+                          # Copy wallpaper.sh and make executable
+                          [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
+                          
+                          # Fix ownership
+                          chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                          
+                          # Cleanup cloned repo
+                          rm -rf \"\$REPO_DIR\"
+                          "
+                          
+                                  echo "Hyprland theme setup completed."
+                              else
+                                  echo "Skipping Hyprland theme setup."
+                              fi
+                          fi
+}                          
+#=========================================================================================================================================#
+
+
 
 #========================#
 # Quick Partition Main
@@ -843,6 +1310,12 @@ quick_partition() {
     configure_system
     install_grub
     network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
     
 
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
