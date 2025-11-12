@@ -611,30 +611,30 @@ generate_fstab() {
         root_uuid=$(blkid -s UUID -o value "$P_ROOT")
         swap_uuid=$(blkid -s UUID -o value "$P_SWAP")
 
-cat <<EOF > /mnt/etc/fstab
-# BTRFS subvolumes
-UUID=$root_uuid /               btrfs   defaults,noatime,compress=zstd,subvol=@       0 1
-UUID=$root_uuid /home           btrfs   defaults,noatime,compress=zstd,subvol=@home  0 2
-UUID=$root_uuid /.snapshots     btrfs   defaults,noatime,compress=zstd,subvol=@snapshots 0 2
-UUID=$root_uuid /cache          btrfs   defaults,noatime,compress=zstd,subvol=@cache 0 2
-UUID=$root_uuid /log            btrfs   defaults,noatime,compress=zstd,subvol=@log   0 2
-UUID=$swap_uuid none            swap    sw                                           0 0
-EOF
+        {
+            echo "# BTRFS subvolumes"
+            echo "UUID=$root_uuid /               btrfs   defaults,noatime,compress=zstd,subvol=@       0 1"
+            echo "UUID=$root_uuid /home           btrfs   defaults,noatime,compress=zstd,subvol=@home  0 2"
+            echo "UUID=$root_uuid /.snapshots     btrfs   defaults,noatime,compress=zstd,subvol=@snapshots 0 2"
+            echo "UUID=$root_uuid /cache          btrfs   defaults,noatime,compress=zstd,subvol=@cache 0 2"
+            echo "UUID=$root_uuid /log            btrfs   defaults,noatime,compress=zstd,subvol=@log   0 2"
+            echo "UUID=$swap_uuid none            swap    sw                                           0 0"
+        } > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
 
     else
         root_uuid=$(blkid -s UUID -o value "$P_ROOT")
         home_uuid=$(blkid -s UUID -o value "$P_HOME")
         swap_uuid=$(blkid -s UUID -o value "$P_SWAP")
 
-cat <<EOF > /mnt/etc/fstab
-# EXT4 root + home
-UUID=$root_uuid /       ext4    defaults,noatime 0 1
-UUID=$home_uuid /home  ext4    defaults,noatime 0 2
-UUID=$swap_uuid none   swap    sw 0 0
-EOF
-
+        {
+            echo "# EXT4 root + home"
+            echo "UUID=$root_uuid /       ext4    defaults,noatime 0 1"
+            echo "UUID=$home_uuid /home  ext4    defaults,noatime 0 2"
+            echo "UUID=$swap_uuid none   swap    sw 0 0"
+        } > /mnt/etc/fstab || die "Failed to write /mnt/etc/fstab"
     fi
-    echo "✅ /etc/fstab generated."
+
+    echo "✅ All partitions formatted, subvolumes mounted, and fstab generated."
 }
 
 #=========================================================================================================================================#
