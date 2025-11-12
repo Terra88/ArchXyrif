@@ -217,7 +217,7 @@ select_swap()
         2) SWAP_ON="2" 
         ;;
         3) echo "restarting" exit 1 ;;
-        ;;
+        
         *) echo "Invalid choice"; exit 1 ;;
     esac    
 
