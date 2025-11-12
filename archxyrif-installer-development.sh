@@ -92,20 +92,20 @@ part_suffix() {
     fi
 }
 
-# safe cleanup at script exit
-cleanup() {
-    echo -e "\n🧹 Running cleanup..."
-    # FIX 1: Ensure mtab symlink exists before calling commands that rely on it
-    if [[ ! -e /etc/mtab ]]; then ln -sf /proc/self/mounts /etc/mtab; fi
-    # END FIX 1
-    swapoff -a 2>/dev/null || true
-    if mountpoint -q /mnt; then
-        umount -R /mnt 2>/dev/null || true
-    fi
-    sync
-    echo "✅ Cleanup done."
-}
-trap cleanup EXIT INT TERM
+## safe cleanup at script exit
+#cleanup() {
+#    echo -e "\n🧹 Running cleanup..."
+#    # FIX 1: Ensure mtab symlink exists before calling commands that rely on it
+#    if [[ ! -e /etc/mtab ]]; then ln -sf /proc/self/mounts /etc/mtab; fi
+#    # END FIX 1
+#    swapoff -a 2>/dev/null || true
+#    if mountpoint -q /mnt; then
+#        umount -R /mnt 2>/dev/null || true
+#    fi
+#    sync
+#    echo "✅ Cleanup done."
+#}
+#trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
 initialize_cleanup() {
     echo -e "\n🛠 Initializing system for disk cleanup..."
@@ -736,7 +736,8 @@ generate_fstab() {
 #--------------------------------------#
 # Helper: Show filesystem menu
 #--------------------------------------#
-select_filesystem() {
+select_filesystem() 
+{
     clear
     echo "#===============================================================================#"
     echo "| 1.2) Filesystem Selection Options                                             |"
@@ -783,7 +784,8 @@ preview_partitions() {
 }
 
 #=========================================================================================================================================#
-configure_system(){
+configure_system()
+{
 
 clear
 sleep 1
@@ -983,7 +985,7 @@ echo "Choose your country or region for faster package downloads."
 # Ensure reflector is installed in chroot
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
-}
+    }
 echo "#========================================================#"
 echo "#                   MIRROR SELECTION                     #" 
 echo "#========================================================#"
@@ -1027,7 +1029,125 @@ fi
 }
 
 #=========================================================================================================================================#
-optional_install_setup(){
+
+#=========================================================================================================================================#
+#---------------------------------------
+# Robust main menu (simple + careful)
+#---------------------------------------
+    main() {  
+    clear
+    echo "======================================"
+    echo "      ⚙️  Automated Arch Installer      "
+    echo "======================================"
+    echo
+    echo
+    
+    detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
+    echo "Detected boot mode: $MODE"
+
+    #==START====#
+    #initialize_cleanup
+    #==START====#
+    
+    # Ask which disk to use
+    echo
+    lsblk -d -o NAME,SIZE,MODEL
+    read -rp "Enter target disk (e.g. /dev/sda): " DEV
+    [[ -b "$DEV" ]] || die "Invalid device: $DEV"
+
+    echo
+    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
+    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
+
+    echo "🧭 Partitioning $DEV ..."
+    partition_disk "$DEV" || die "Partitioning failed."
+
+    echo
+    echo "💾 Asking for partition sizes..."
+    ask_partition_sizes "$DEV"
+
+    echo
+    echo "🧱 Formatting and mounting partitions..."
+    format_and_mount "$DEV" || die "Formatting/mounting failed."
+
+    echo
+    echo "generate fstab"
+    generate_fstab
+    
+    echo
+    echo "📦 Installing base system..."
+    install_base_system || die "Base install failed."
+
+    echo
+    echo "⚙️  Configuring system..."
+    configure_system || die "Configuration failed."
+
+    echo
+    echo "🧩 Installing GRUB bootloader..."
+    install_grub "$DEV" || die "GRUB installation failed."
+
+    echo
+    echo " Installing Optional Packages & Drivers "
+    optional_install_setup || die "Optional installation failed."
+
+    echo
+    echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
+}
+
+# Run the main function
+#main "$@"
+#=========================================================================================================================================#
+
+custom_partition()
+{
+
+sleep 1
+clear
+echo "#===================================================================================================#"
+echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
+echo "#===================================================================================================#"
+echo
+
+      echo "Under Construction - Feature coming soon, restarting. . . "
+      sleep 3
+      exec "$0"
+}
+
+#=========================================================================================================================================#
+logo
+echo "#===================================================================================================#"
+echo "# 1 Choose Partitioning Mode                                                                        #"
+echo "#===================================================================================================#"
+            echo "#==================================================#"
+            echo "#     Select partitioning method for $DEV:         #"
+            echo "#==================================================#"
+            echo "|-1) Quick Partitioning  (automated, recommended)  |"
+            echo "|--------------------------------------------------|"
+            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
+            echo "|--------------------------------------------------|"
+            echo "|-3) Return back to start                          |"
+            echo "#==================================================#"
+            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
+            PART_CHOICE="${PART_CHOICE:-1}"
+
+                case "$PART_CHOICE" in
+                    1)
+                        main  ;;
+                    2)
+                        custom_partition  ;;
+                    3)
+                        echo "Restarting..."
+                        exec "$0"
+                        ;;
+                    *)
+                        echo "Invalid choice."
+                        exec "$0"
+                        ;;
+                esac
+                  
+#=========================================================================================================================================#
+optional_install_setup()
+{
 
 #===================================================================================================#
 # 7B) Helper Functions - For Pacman                                                                  
@@ -1073,7 +1193,7 @@ install_with_retry() {
 
     echo "❌ Installation failed after ${MAX_RETRIES} attempts."
     return 1
-}
+    }
 
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
@@ -1084,7 +1204,7 @@ safe_pacman_install() {
         install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
             echo "⚠️ Skipping $PKG"
     done
-}
+    }
 #=========================================================================================================================================#
 #===================================================================================================#
 # 7C) Helper Functions - For AUR (Paru)                                                              
@@ -1144,7 +1264,7 @@ EOF
     # Pass NEWUSER as first argument + package list
     "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
     "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
-}
+    }
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
 
@@ -1478,123 +1598,6 @@ sleep 1
                         fi
                     fi
 }
-#=========================================================================================================================================#
-
-#=========================================================================================================================================#
-#---------------------------------------
-# Robust main menu (simple + careful)
-#---------------------------------------
-    main() {  
-    clear
-    echo "======================================"
-    echo "      ⚙️  Automated Arch Installer      "
-    echo "======================================"
-    echo
-    echo
-    
-    detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
-    echo "Detected boot mode: $MODE"
-
-    #==START====#
-    initialize_cleanup
-    #==START====#
-    
-    # Ask which disk to use
-    echo
-    lsblk -d -o NAME,SIZE,MODEL
-    read -rp "Enter target disk (e.g. /dev/sda): " DEV
-    [[ -b "$DEV" ]] || die "Invalid device: $DEV"
-
-    echo
-    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
-    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
-
-    echo "🧭 Partitioning $DEV ..."
-    partition_disk "$DEV" || die "Partitioning failed."
-
-    echo
-    echo "💾 Asking for partition sizes..."
-    ask_partition_sizes "$DEV"
-
-    echo
-    echo "🧱 Formatting and mounting partitions..."
-    format_and_mount "$DEV" || die "Formatting/mounting failed."
-
-    echo
-    echo "generate fstab"
-    generate_fstab
-    
-    echo
-    echo "📦 Installing base system..."
-    install_base_system || die "Base install failed."
-
-    echo
-    echo "⚙️  Configuring system..."
-    configure_system || die "Configuration failed."
-
-    echo
-    echo "🧩 Installing GRUB bootloader..."
-    install_grub "$DEV" || die "GRUB installation failed."
-
-    echo
-    echo " Installing Optional Packages & Drivers "
-    optional_install_setup || die "Optional installation failed."
-
-    echo
-    echo "✅ Installation complete! You can now chroot into /mnt and finalize setup."
-}
-
-# Run the main function
-#main "$@"
-#=========================================================================================================================================#
-
-custom_partition()
-{
-
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
-echo "#===================================================================================================#"
-echo
-
-      echo "Under Construction - Feature coming soon, restarting. . . "
-      sleep 3
-      exec "$0"
-}
-
-#=========================================================================================================================================#
-logo
-echo "#===================================================================================================#"
-echo "# 1 Choose Partitioning Mode                                                                        #"
-echo "#===================================================================================================#"
-            echo "#==================================================#"
-            echo "#     Select partitioning method for $DEV:         #"
-            echo "#==================================================#"
-            echo "|-1) Quick Partitioning  (automated, recommended)  |"
-            echo "|--------------------------------------------------|"
-            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
-            echo "|--------------------------------------------------|"
-            echo "|-3) Return back to start                          |"
-            echo "#==================================================#"
-            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
-            PART_CHOICE="${PART_CHOICE:-1}"
-
-                case "$PART_CHOICE" in
-                    1)
-                        main  ;;
-                    2)
-                        custom_partition  ;;
-                    3)
-                        echo "Restarting..."
-                        exec "$0"
-                        ;;
-                    *)
-                        echo "Invalid choice."
-                        exec "$0"
-                        ;;
-                esac
-                  
 #=========================================================================================================================================#
 
 sleep 1
