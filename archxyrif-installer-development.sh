@@ -103,7 +103,69 @@ cleanup() {
     echo "✅ Cleanup done."
 }
 trap cleanup EXIT INT TERM
-    
+#=========================================================================================================================================#
+cleanup_all_devices() {
+    echo -e "\n🧹 Performing full cleanup of all block devices..."
+
+    # 1. Turn off all swap
+    echo "→ Swaps off..."
+    swapoff -a 2>/dev/null || true
+
+    # 2. Close all LUKS mappings
+    echo "→ Closing LUKS devices..."
+    for dm in /dev/mapper/*; do
+        if [[ -L "$dm" ]]; then
+            target=$(readlink -f "$dm" || true)
+            echo "→ Attempting to luksClose $dm"
+            cryptsetup luksClose "$(basename "$dm")" 2>/dev/null || true
+        fi
+    done
+
+    # 3. Deactivate all LVM volume groups
+    echo "→ Deactivating LVM volume groups..."
+    if command -v vgchange &>/dev/null; then
+        vgchange -an 2>/dev/null || true
+    fi
+
+    # 4. Unmount all mounted filesystems (deepest first)
+    echo "→ Unmounting all mounts..."
+    mapfile -t MOUNTS < <(mount | awk '{print $3}' | sort -r)
+    for m in "${MOUNTS[@]}"; do
+        umount -l "$m" 2>/dev/null || true
+    done
+
+    # 5. Remove leftover BTRFS mounts/subvolumes
+    echo "→ Cleaning BTRFS mounts..."
+    mapfile -t BTRFS_MOUNTS < <(mount | awk '/btrfs/ {print $3}' | sort -r)
+    for bm in "${BTRFS_MOUNTS[@]}"; do
+        umount -l "$bm" 2>/dev/null || true
+    done
+
+    # 6. Zero first and last MiB of all disks (except read-only loop devices)
+    echo "→ Zeroing first and last MiB of all disks..."
+    for disk in /dev/sd? /dev/nvme?n?; do
+        if [[ -b "$disk" && ! "$disk" =~ loop ]]; then
+            size_bytes=$(blockdev --getsize64 "$disk" 2>/dev/null || echo 0)
+            if (( size_bytes > 2*1024*1024 )); then
+                echo "→ Zeroing first MiB: $disk"
+                dd if=/dev/zero of="$disk" bs=1M count=1 oflag=direct status=none || true
+                echo "→ Zeroing last MiB: $disk"
+                dd if=/dev/zero of="$disk" bs=1M count=1 seek=$(( size_bytes/(1024*1024) - 1 )) oflag=direct status=none || true
+            fi
+        fi
+    done
+
+    # 7. Inform kernel about device changes
+    echo "→ Informing kernel..."
+    for dev in /sys/block/*; do
+        if [[ -w "$dev/device/delete" ]]; then
+            echo 1 > "$dev/device/delete" 2>/dev/null || true
+        fi
+    done
+    udevadm settle --timeout=5 2>/dev/null || true
+
+    echo "✅ Full cleanup complete. All devices are unmounted and ready for partitioning."
+}
 #=========================================================================================================================================#
 
 #---------------------------------------
@@ -153,9 +215,6 @@ cleanup_device() {
 
     echo "✅ Device $dev cleaned."
 }
-
-
-
 
 #=========================================================================#
 # Wrapper to unmount a device (simpler for quick unmount)
@@ -1400,36 +1459,10 @@ sleep 1
     echo "======================================"
     echo
     echo
-
-#=========================================================================================================================================#
-    # Unmount all mountpoints on this device, deepest first
-    mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
-    for mnt in "${MOUNTS[@]}"; do
-        echo "→ Unmounting $mnt ..."
-        umount -l "$mnt" 2>/dev/null || true
-    done
-
-    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
-    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
-            echo "→ Unmounting BTRFS subvolume $bm ..."
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
-
-    # Clean up /mnt
-    if mountpoint -q /mnt; then
-        echo "→ Cleaning /mnt ..."
-        umount -l /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
-
-    echo "→ Unmounting completed for $dev."
+    #==START====#
+    cleanup_all_devices
+    #==START====#
     
-#=========================================================================================================================================#
-
-
     detect_boot_mode || die "Failed to detect boot mode (UEFI/BIOS)"
     echo "Detected boot mode: $MODE"
 
@@ -1443,62 +1476,6 @@ sleep 1
     read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
     [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
 
-#=========================================================================================================================================#
-#===================================================================================================#
-# 1.1) Clearing Partition Tables / Luks / LVM Signatures
-#===================================================================================================#
-
-        # Clear partition table / LUKS / LVM signatures
-        echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
-        which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
-        which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
-
-        # try to shut down any open LUKS mappings referring to this device (best-effort)
-        echo "Attempting to close any open LUKS mappings referencing $DEV..."
-        for map in /dev/mapper/*; do
-        if [[ -L "$map" ]]; then
-            target=$(readlink -f "$map" || true)
-            if [[ "$target" == "$DEV"* ]]; then
-            name=$(basename "$map")
-            echo "  Closing mapper $name (points at $target)"
-            cryptsetup luksClose "$name" || true
-            fi
-        fi
-        done
-
-        # Zap GPT, MBR, etc.
-        sgdisk --zap-all "$DEV" || true
-
-        # Wipe filesystem signatures on whole device
-        wipefs -a "$DEV" || true
-
-        # Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
-        echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
-        dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
-
-        # If device supports it, also zero last MiB (LVM metadata sometimes at end)
-        devsize_bytes=$(blockdev --getsize64 "$DEV")
-        if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-        last_offset=$((devsize_bytes - 1*1024*1024))
-        dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
-        fi
-
-            # Turn off swap if any
-            swapoff -a 2>/dev/null || true
-
-           # Unmount /mnt recursively but handle BTRFS subvolumes safely
-        if mountpoint -q /mnt; then
-            # Get all mounts under /mnt sorted by depth (deepest first)
-            mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
-            for mnt in "${MOUNTS[@]}"; do
-            umount -l "$mnt" 2>/dev/null || true
-            done
-        fi
-
-            # Clean up /mnt (optional)
-            rm -rf /mnt/* 2>/dev/null || true
-
-#=========================================================================================================================================#
     echo "🧭 Partitioning $DEV ..."
     partition_disk "$DEV" || die "Partitioning failed."
 
