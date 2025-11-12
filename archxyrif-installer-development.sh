@@ -172,7 +172,7 @@ calculate_swap() {
 #--------------------------------------#
 # Helper: Show filesystem menu
 #--------------------------------------#
-select_filesystem & Partition() 
+select_filesystem() 
 {
     clear
     echo "#===============================================================================#"
