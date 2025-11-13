@@ -120,31 +120,6 @@ prepare_chroot() {
     done
     echo "✅ Pseudo-filesystems mounted into /mnt."
 }
-
-#=========================================================================================================================================#
-# Retry Helper (with configurable attempts)
-#=========================================================================================================================================#
-retry_cmd() {
-    local max_attempts="${1:-3}"
-    shift
-    local cmd=("$@")
-
-    local attempt=1
-    local exit_code=0
-
-    while (( attempt <= max_attempts )); do
-        echo "Attempt $attempt/$max_attempts: ${cmd[*]}"
-        "${cmd[@]}" && return 0
-        exit_code=$?
-        echo "⚠️ Command failed (exit=$exit_code)"
-        if (( attempt < max_attempts )); then
-            read -rp "Retry? [Y/n]: " ans
-            [[ "$ans" =~ ^[Nn]$ ]] && break
-        fi
-        ((attempt++))
-    done
-    return "$exit_code"
-}
 #=========================================================================================================================================#
 # Cleanup
 #=========================================================================================================================================#
@@ -217,6 +192,153 @@ safe_disk_cleanup() {
 
     echo "✅ Disk cleanup complete for $DEV."
 }
+#=========================================================================================================================================#
+# Encryption Helpers
+#=========================================================================================================================================#
+encrypt_root_custom() {
+    read -rp "Encrypt which partition (e.g. /dev/sda2)? " ENC_PART
+    cryptsetup luksFormat "$ENC_PART"
+    cryptsetup open "$ENC_PART" cryptroot
+    echo "→ Root device mapped as /dev/mapper/cryptroot"
+    P_ROOT="/dev/mapper/cryptroot"
+}
+
+encrypt_with_lvm_custom() {
+    read -rp "Encrypt base partition for LVM (e.g. /dev/sda2)? " ENC_PART
+    cryptsetup luksFormat "$ENC_PART"
+    cryptsetup open "$ENC_PART" cryptlvm
+
+    pvcreate /dev/mapper/cryptlvm
+    vgcreate vg0 /dev/mapper/cryptlvm
+
+    echo "Creating LVM volumes..."
+    read -rp "Root size (e.g. 40G): " LV_ROOT_SIZE
+    read -rp "Swap size (e.g. 8G, or leave blank to skip): " LV_SWAP_SIZE
+
+    lvcreate -L "$LV_ROOT_SIZE" vg0 -n root
+    [[ -n "$LV_SWAP_SIZE" ]] && lvcreate -L "$LV_SWAP_SIZE" vg0 -n swap
+    lvcreate -l 100%FREE vg0 -n home
+
+    P_ROOT="/dev/vg0/root"
+    P_HOME="/dev/vg0/home"
+    [[ -n "$LV_SWAP_SIZE" ]] && P_SWAP="/dev/vg0/swap"
+}
+
+#=========================================================================================================================================#
+# Helper Functions - For Pacman                                                                  
+#=========================================================================================================================================#
+# Resilient installation with retries, key refresh, and mirror recovery
+install_with_retry() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local CMD=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
+
+    # sanity check
+    if [[ ! -d "/mnt" ]]; then
+        echo "❌ /mnt not found or not a directory — cannot chroot."
+        return 1
+    fi
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
+        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
+            echo "✅ Installation succeeded on attempt $i"
+            return 0
+        else
+            echo "⚠️ Installation failed on attempt $i"
+            if (( i < MAX_RETRIES )); then
+                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
+                "${CHROOT_CMD[@]}" bash -c '
+                    pacman-key --init
+                    pacman-key --populate archlinux
+                    pacman -Sy --noconfirm archlinux-keyring
+                ' || echo "⚠️ Keyring refresh failed."
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+
+    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
+    return 1
+  }
+
+safe_pacman_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local PKGS=("$@")
+
+    for PKG in "${PKGS[@]}"; do
+        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
+            echo "⚠️ Skipping $PKG"
+    done
+   }
+#=========================================================================================================================================#
+# Helper Functions - For AUR (Paru)                                                              
+#=========================================================================================================================================#
+safe_aur_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local AUR_PKGS=("$@")
+    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
+
+    local TMP_SCRIPT="/root/_aur_install.sh"
+    cat > /mnt${TMP_SCRIPT} <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Arguments: NEWUSER + AUR packages
+NEWUSER="$1"
+shift
+AUR_PKGS=("$@")
+HOME_DIR="/home/${NEWUSER}"
+
+mkdir -p "$HOME_DIR"
+chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
+chmod 755 "$HOME_DIR"
+
+pacman -Sy --noconfirm --needed git base-devel sudo
+
+# Ensure sudo rights
+if ! sudo -lU "$NEWUSER" &>/dev/null; then
+    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
+    chmod 440 /etc/sudoers.d/"$NEWUSER"
+fi
+
+# Install paru if missing
+if ! command -v paru &>/dev/null; then
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        cd \"$HOME_DIR\" || exit
+        rm -rf paru
+        git clone https://aur.archlinux.org/paru.git
+        cd paru
+        makepkg -si --noconfirm
+        cd ..
+        rm -rf paru
+    "
+fi
+
+# Install AUR packages
+for pkg in "${AUR_PKGS[@]}"; do
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
+        echo \"⚠️ Failed to install $pkg\"
+    "
+done
+EOF
+
+    # Pass NEWUSER as first argument + package list
+    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
+    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
+}
+# define once to keep consistent call structure
+CHROOT_CMD=(arch-chroot /mnt)
 #=========================================================================================================================================#
 # Detect boot mode
 #=========================================================================================================================================#
@@ -844,121 +966,7 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
-#=========================================================================================================================================#
-# Helper Functions - For Pacman                                                                  
-#=========================================================================================================================================#
-# Resilient installation with retries, key refresh, and mirror recovery
-install_with_retry() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local CMD=("$@")
-    local MAX_RETRIES=3
-    local RETRY_DELAY=5
-    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
 
-    # sanity check
-    if [[ ! -d "/mnt" ]]; then
-        echo "❌ /mnt not found or not a directory — cannot chroot."
-        return 1
-    fi
-
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        echo
-        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
-        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
-            echo "✅ Installation succeeded on attempt $i"
-            return 0
-        else
-            echo "⚠️ Installation failed on attempt $i"
-            if (( i < MAX_RETRIES )); then
-                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
-                "${CHROOT_CMD[@]}" bash -c '
-                    pacman-key --init
-                    pacman-key --populate archlinux
-                    pacman -Sy --noconfirm archlinux-keyring
-                ' || echo "⚠️ Keyring refresh failed."
-                [[ -n "$MIRROR_COUNTRY" ]] && \
-                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
-                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
-                sleep "$RETRY_DELAY"
-            fi
-        fi
-    done
-
-    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
-    return 1
-  }
-
-safe_pacman_install() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local PKGS=("$@")
-
-    for PKG in "${PKGS[@]}"; do
-        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
-            echo "⚠️ Skipping $PKG"
-    done
-   }
-#=========================================================================================================================================#
-# Helper Functions - For AUR (Paru)                                                              
-#=========================================================================================================================================#
-safe_aur_install() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local AUR_PKGS=("$@")
-    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
-
-    local TMP_SCRIPT="/root/_aur_install.sh"
-    cat > /mnt${TMP_SCRIPT} <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Arguments: NEWUSER + AUR packages
-NEWUSER="$1"
-shift
-AUR_PKGS=("$@")
-HOME_DIR="/home/${NEWUSER}"
-
-mkdir -p "$HOME_DIR"
-chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
-chmod 755 "$HOME_DIR"
-
-pacman -Sy --noconfirm --needed git base-devel sudo
-
-# Ensure sudo rights
-if ! sudo -lU "$NEWUSER" &>/dev/null; then
-    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
-    chmod 440 /etc/sudoers.d/"$NEWUSER"
-fi
-
-# Install paru if missing
-if ! command -v paru &>/dev/null; then
-    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
-        cd \"$HOME_DIR\" || exit
-        rm -rf paru
-        git clone https://aur.archlinux.org/paru.git
-        cd paru
-        makepkg -si --noconfirm
-        cd ..
-        rm -rf paru
-    "
-fi
-
-# Install AUR packages
-for pkg in "${AUR_PKGS[@]}"; do
-    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
-        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
-        echo \"⚠️ Failed to install $pkg\"
-    "
-done
-EOF
-
-    # Pass NEWUSER as first argument + package list
-    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
-    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
-}
-# define once to keep consistent call structure
-CHROOT_CMD=(arch-chroot /mnt)
 #=========================================================================================================================================#
 # Graphics Driver Selection Menu
 #=========================================================================================================================================#
@@ -1381,19 +1389,115 @@ quick_partition() {
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
 }
 #=========================================================================================================================================#
+# Custom Partition // Choose Filesystem Custom
+#=========================================================================================================================================#
+choose_filesystems_custom() {
+    echo
+    echo "#====================================================================================#"
+    echo "# Filesystem selection for each partition                                            #"
+    echo "#====================================================================================#"
+
+    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
+    ROOT_FS="${ROOT_FS:-ext4}"
+
+    read -rp "Home filesystem [same options, default=$ROOT_FS]: " HOME_FS
+    HOME_FS="${HOME_FS:-$ROOT_FS}"
+
+    echo "→ Root FS: $ROOT_FS"
+    echo "→ Home FS: $HOME_FS"
+}
+#=========================================================================================================================================#
+# Format and mount Custom
+#=========================================================================================================================================#
+format_and_mount_custom() {
+    echo "Formatting partitions..."
+    [[ -n "$P_SWAP" ]] && { mkswap "$P_SWAP"; swapon "$P_SWAP"; }
+
+    case "$ROOT_FS" in
+        btrfs)
+            mkfs.btrfs -f "$P_ROOT"
+            mount "$P_ROOT" /mnt
+            btrfs subvolume create /mnt/@
+            umount /mnt
+            mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
+            ;;
+        ext4) mkfs.ext4 "$P_ROOT"; mount "$P_ROOT" /mnt ;;
+        xfs)  mkfs.xfs -f "$P_ROOT"; mount "$P_ROOT" /mnt ;;
+        f2fs) mkfs.f2fs "$P_ROOT"; mount "$P_ROOT" /mnt ;;
+    esac
+
+    mkdir -p /mnt/home
+    [[ "$HOME_FS" == "btrfs" ]] && mkfs.btrfs -f "$P_HOME" && \
+      mount -o compress=zstd "$P_HOME" /mnt/home || mkfs."$HOME_FS" "$P_HOME" && mount "$P_HOME" /mnt/home
+
+    echo "✅ Custom filesystems mounted under /mnt."
+}
+
+#=========================================================================================================================================#
 # Custom partition (placeholder)
 #=========================================================================================================================================#
 custom_partition() {
+    clear
+    echo "#===================================================================================================#"
+    echo "# 1.3) Custom Partition Mode: Advanced Setup                                                        #"
+    echo "#===================================================================================================#"
+    echo
 
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
-echo "#===================================================================================================#"
-echo
-    echo "Custom Partition Mode under construction. Restarting..."
-    sleep 2
-    exec "$0"
+    detect_boot_mode
+
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
+    read -rp "Enter target disk (e.g. /dev/nvme0n1): " DEV
+    DEV="/dev/${DEV##*/}"
+    [[ -b "$DEV" ]] || die "Invalid device."
+
+    read -rp "⚠️ This will modify $DEV. Continue? [y/N]: " confirm
+    [[ "$confirm" =~ ^[Yy]$ ]] || die "Aborted."
+
+    safe_disk_cleanup
+
+    echo
+    echo "#====================================================================================#"
+    echo "# Partitioning Options                                                               #"
+    echo "#====================================================================================#"
+    echo "| 1) Manual partitioning with cfdisk (recommended for full control)                  |"
+    echo "| 2) Scripted custom layout wizard (interactive)                                     |"
+    echo "#====================================================================================#"
+    read -rp "Select option [default=1]: " PART_MODE
+    PART_MODE="${PART_MODE:-1}"
+
+    if [[ "$PART_MODE" == "1" ]]; then
+        echo "→ Launching cfdisk..."
+        cfdisk "$DEV"
+    fi
+
+    # Optional: prompt for encryption
+    echo
+    echo "#====================================================================================#"
+    echo "# Encryption and Logical Volume Management                                           #"
+    echo "#====================================================================================#"
+    echo "| 1) No encryption / plain partitions                                                |"
+    echo "| 2) LUKS-encrypted root partition                                                   |"
+    echo "| 3) LUKS + LVM (VG inside encrypted container)                                      |"
+    echo "| 4) LVM only (no encryption)                                                        |"
+    echo "#====================================================================================#"
+    read -rp "Select option [default=1]: " ENC_MODE
+    ENC_MODE="${ENC_MODE:-1}"
+
+    case "$ENC_MODE" in
+        2) encrypt_root_custom ;;
+        3) encrypt_with_lvm_custom ;;
+        4) create_lvm_plain ;;
+        *) echo "→ Proceeding without encryption or LVM." ;;
+    esac
+
+    # Ask for filesystem per partition
+    choose_filesystems_custom
+
+    # Format and mount accordingly
+    format_and_mount_custom
+
+    echo "✅ Custom partitioning and mounting complete."
 }
 #=========================================================================================================================================#
 # Main menu
