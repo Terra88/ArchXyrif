@@ -77,9 +77,9 @@ ROOT_FS=""
 HOME_FS=""
 ROOT_SIZE_MIB=0
 HOME_SIZE_MIB=0
-EFI_SIZE_MIB=1024
-BIOS_BOOT_SIZE_MIB=512
-BOOT_SIZE_MIB=0
+BIOS_GRUB_SIZE_MIB=1     # tiny bios_grub (no FS), ~1 MiB
+BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
+EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
 # Global partition variables (will be set in format_and_mount)
@@ -113,14 +113,11 @@ part_suffix() {
 #-------HELPER FOR CHROOT--------------------------------#
 prepare_chroot() {
     echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
-    mkdir -p /mnt /mnt/proc /mnt/sys /mnt/dev /mnt/run /mnt/boot /mnt/home
-    mount --types proc /proc /mnt/proc
-    mount --rbind /sys /mnt/sys
-    mount --make-rslave /mnt/sys
-    mount --rbind /dev /mnt/dev
-    mount --make-rslave /mnt/dev
-    mount --rbind /run /mnt/run
-    mount --make-rslave /mnt/run
+    mkdir -p /mnt
+    for fs in proc sys dev run; do
+        mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
+        mount --make-rslave "/mnt/$fs" 2>/dev/null || true
+    done
     echo "✅ Pseudo-filesystems mounted into /mnt."
 }
 #=========================================================================================================================================#
@@ -198,7 +195,7 @@ select_swap()
     echo "|-------------------------------------------------------------------------------|"
     echo "| 3) exit                                                                       |"
     echo "#===============================================================================#"
-    read -rp "Select option [default=1]: " SWAP_ON
+     read -rp "Select option [default=1]: " SWAP_ON
     SWAP_ON="${SWAP_ON:-1}"
     case "$SWAP_ON" in
         1) SWAP_ON="1" ;;
@@ -207,9 +204,8 @@ select_swap()
         *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
     esac
     echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
-    esac    
-
 }
+
 #=========================================================================================================================================#
 # Ask partition sizes
 #=========================================================================================================================================#
@@ -284,95 +280,69 @@ ask_partition_sizes() {
 #=========================================================================================================================================#
 # Partition disk
 #=========================================================================================================================================#
-partition_disk() 
-{
-
+partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
     local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
-    
+
     if [[ "$MODE" == "BIOS" ]]; then
+        # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
+        # Create tiny bios_grub partition (no FS)
+        parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_GRUB_SIZE_MIB))MiB
+        parted -s "$DEV" set 1 bios_grub on
+        
+        # /boot ext4
+        boot_start=$((1+BIOS_GRUB_SIZE_MIB))
+        boot_end=$((boot_start + BOOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
+
         if [[ "$SWAP_ON" == "1" ]]; then
-            # BIOS + swap
-            # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
-            # 1: bios_grub (~1MiB)
-            parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
-            parted -s "$DEV" set 1 bios_grub on
-            # 2: /boot (ext4)
-            boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-            boot_end=$((boot_start + 512)) # 512MiB /boot (reasonable default)
-            parted -s  "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
             swap_start=$boot_end
-            swap_end=$((swap_start+SWAP_SIZE_MIB))
+            swap_end=$((swap_start + SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+
             root_start=$swap_end
-            root_end=$((root_start+ROOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-            home_start=$root_end
-            # Use 100% if HOME_SIZE_MIB is 0 (ENTER pressed)
-            if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
-            else
-                home_end=$((home_start+HOME_SIZE_MIB))
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
-            fi
         else
-            # BIOS + swap
-            # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
-            # 1: bios_grub (~1MiB)
-            parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
-            parted -s "$DEV" set 1 bios_grub on
-            # 2: /boot (ext4)
-            boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-            boot_end=$((boot_start + 512)) # 512MiB /boot (reasonable default)
-            parted -s  "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
             root_start=$boot_end
-            root_end=$((root_start+ROOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-            home_start=$root_end
-            if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
-            else
-                home_end=$((home_start+HOME_SIZE_MIB))
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
-            fi
+        fi
+
+        root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+
+        home_start=$root_end
+        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
+        else
+            home_end=$((home_start + HOME_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
         fi
     else
-        # UEFI
+        # UEFI — keep existing behavior (EFI FAT32 + root + optional swap + home)
+        parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+        parted -s "$DEV" set 1 boot on
+
+        root_start=$((1+EFI_SIZE_MIB))
+        root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+
         if [[ "$SWAP_ON" == "1" ]]; then
-            parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
-            parted -s "$DEV" set 1 boot on
-            root_start=$((1+EFI_SIZE_MIB))
-            root_end=$((root_start+ROOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
             swap_start=$root_end
-            swap_end=$((swap_start+SWAP_SIZE_MIB))
+            swap_end=$((swap_start + SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
             home_start=$swap_end
-            if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
-            else
-                home_end=$((home_start+HOME_SIZE_MIB))
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
-            fi
         else
-            parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
-            parted -s "$DEV" set 1 boot on
-            root_start=$((1+EFI_SIZE_MIB))
-            root_end=$((root_start+ROOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
             home_start=$root_end
-            if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
-            else
-                home_end=$((home_start+HOME_SIZE_MIB))
-                parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
-            fi
+        fi
+
+        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
+        else
+            home_end=$((home_start + HOME_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
         fi
     fi
 
-    # Let the kernel refresh partition table
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
@@ -387,58 +357,72 @@ format_and_mount() {
     local ps
     ps=$(part_suffix "$DEV")
 
-    # Assign partitions
     if [[ "$MODE" == "BIOS" ]]; then
-        P_BIOS="${DEV}${ps}1"
-        P_BOOT="${DEV}${ps}2"
-        P_SWAP="${DEV}${ps}3"
-        P_ROOT="${DEV}${ps}4"
-        P_HOME="${DEV}${ps}5"
+        P_BIOS="${DEV}${ps}1"   # bios_grub (no fs)
+        P_BOOT="${DEV}${ps}2"  # ext4 /boot
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${DEV}${ps}3"
+            P_ROOT="${DEV}${ps}4"
+            P_HOME="${DEV}${ps}5"
+        else
+            P_ROOT="${DEV}${ps}3"
+            P_HOME="${DEV}${ps}4"
+        fi
 
+        # Format /boot as ext4
         mkfs.ext4 -L boot "$P_BOOT"
     else
         P_EFI="${DEV}${ps}1"
         P_ROOT="${DEV}${ps}2"
-        P_SWAP="${DEV}${ps}3"
-        P_HOME="${DEV}${ps}4"
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${DEV}${ps}3"
+            P_HOME="${DEV}${ps}4"
+        else
+            P_HOME="${DEV}${ps}3"
+        fi
 
         mkfs.fat -F32 "$P_EFI"
     fi
 
-  if [[ "$SWAP_ON" == "1" ]]; then
-      # Swap
-      mkswap -L swap "$P_SWAP"
-      swapon "$P_SWAP"
+    # Swap handling
+    if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
     else
-      echo " Swap disabled"
-  fi
-  
-    # Root / Home
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-    else
-        mkfs.ext4 -L root "$P_ROOT"
+        echo "→ Swap disabled"
     fi
 
-    if [[ "$HOME_FS" == "btrfs" && "$ROOT_FS" == "btrfs" ]]; then
-        # BTRFS subvolumes
+    # Root & Home formatting & mounting
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT"
+        # create subvolumes only for btrfs root; handle home separately if not btrfs
         mount "$P_ROOT" /mnt
         btrfs subvolume create /mnt/@
-        btrfs subvolume create /mnt/@home
-        umount /mnt
-
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-        mkdir -p /mnt/home
-        mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        # If home is also btrfs, create @home
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            btrfs subvolume create /mnt/@home
+            umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+            mkdir -p /mnt/home
+            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        else
+            # root btrfs + home ext4
+            umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+            mkfs.ext4 -L home "$P_HOME"
+            mkdir -p /mnt/home
+            mount "$P_HOME" /mnt/home
+        fi
     else
-        # EXT4 root + home
+        # root is ext4: format root and home as ext4
+        mkfs.ext4 -L root "$P_ROOT"
         mkfs.ext4 -L home "$P_HOME"
         mount "$P_ROOT" /mnt
         mkdir -p /mnt/home
         mount "$P_HOME" /mnt/home
     fi
 
-    # Boot partition
+    # Mount boot partition(s)
     mkdir -p /mnt/boot
     if [[ "$MODE" == "BIOS" ]]; then
         mount "$P_BOOT" /mnt/boot
@@ -447,15 +431,15 @@ format_and_mount() {
         mount "$P_EFI" /mnt/boot/efi
     fi
 
-    # Safety check
     mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
-
     echo "✅ Partitions formatted and mounted under /mnt."
-    #---Generating FSTAB
+
     echo "Generating /etc/fstab..."
-   genfstab -U /mnt >> /mnt/etc/fstab
-   echo "Partition Table and Mountpoints:"
-   cat /mnt/etc/fstab
+    
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
+    cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
 # Install base system
@@ -497,29 +481,35 @@ pacstrap /mnt "${PKGS[@]}"
 # GRUB installation
 #=========================================================================================================================================#
 install_grub() {
-    local ps
     detect_boot_mode
-    
+    local ps
     ps=$(part_suffix "$DEV")
-    local P1="${DEV}${ps}1"
+
     if [[ "$MODE" == "BIOS" ]]; then
         echo "Installing GRUB for BIOS..."
         prepare_chroot
-        arch-chroot /mnt grub-install --target=i386-pc --recheck --boot-directory=/boot "$DEV" || die "grub-install (BIOS) failed"
+        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install (BIOS) failed"
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
     else
         echo "Installing GRUB (UEFI)..."
+        prepare_chroot
 
-        # Determine EFI partition mountpoint and ensure it’s /boot/efi
+        # Ensure EFI is mounted inside chroot at /boot/efi
         if ! mountpoint -q /mnt/boot/efi; then
-          echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-          mkdir -p /mnt/boot/efi
-          mount "$P_EFI" /mnt/boot/efi # Use global variable P_EFI
+            mkdir -p /mnt/boot/efi
+            if [[ -n "${P_EFI:-}" ]]; then
+                mount "$P_EFI" /mnt/boot/efi
+            else
+                # fallback: attempt to mount the first partition
+                local psfx
+                psfx=$(part_suffix "$DEV")
+                mount "${DEV}${psfx}1" /mnt/boot/efi || die "Failed to mount EFI partition"
+            fi
         fi
-        
+
         # Basic, minimal GRUB modules needed for UEFI boot
         GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-        
+
         # Run grub-install safely inside chroot
         arch-chroot /mnt grub-install \
           --target=x86_64-efi \
@@ -527,38 +517,40 @@ install_grub() {
           --bootloader-id=GRUB \
           --modules="$GRUB_MODULES" \
           --recheck \
-          --no-nvram
-        
+          --no-nvram || die "grub-install (UEFI) failed"
+
         # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
         echo "→ Copying fallback EFI binary..."
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-        
+
         # Ensure a clean efibootmgr entry (use the parent disk of $P1)
         DISK="${DEV}"
         PARTNUM=1
         LABEL="Arch Linux"
         LOADER='\EFI\GRUB\grubx64.efi'
-        
+
         # Delete stale entries with same label to avoid duplicates
+        # Note: run efibootmgr on host (not inside chroot) so it manipulates the real NVRAM
         for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
           efibootmgr -b "$bootnum" -B || true
         done
-        
-        # Create new entry
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-        
+
+        # Create new entry (host efibootmgr)
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed (but continuing)"
+
         # Generate GRUB config inside chroot
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-        
-        # Secure Boot Integration
-        if command -v sbctl >/dev/null 2>&1; then
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+
+        # Secure Boot Integration (optional)
+        if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
           echo "→ Signing EFI binaries for Secure Boot..."
           arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-          arch-chroot /mnt sbctl enroll-keys --microsoft
-          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
+          # Note: enroll-keys may require interactive confirmation / manual step depending on sbctl configuration
+          arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed or requires manual action"
+          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
+          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
         fi
-        
+
         echo "GRUB installation complete."
         echo
         echo "Verifying EFI boot entries..."
