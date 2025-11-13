@@ -121,14 +121,6 @@ prepare_chroot() {
     echo "✅ Pseudo-filesystems mounted into /mnt."
 }
 
-install_extra_packages() {
-    local label="$1"; shift
-    local pkgs=("$@")
-    echo "→ Installing $label packages: ${pkgs[*]}"
-    pacman -S --needed --noconfirm "${pkgs[@]}"
-}
-
-
 #=========================================================================================================================================#
 # Retry Helper (with configurable attempts)
 #=========================================================================================================================================#
