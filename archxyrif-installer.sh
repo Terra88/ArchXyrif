@@ -1252,7 +1252,7 @@ hyprland_optional()
                               echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
                               arch-chroot /mnt pacman -S --needed --noconfirm unzip git
                           
-                              read -r -p "Do you want to install the Hyprland theme from GitHub? [Y/n]: " INSTALL_HYPR_THEME
+                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
                               if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
                                   echo "→ Running Hyprland theme setup inside chroot..."
                           
