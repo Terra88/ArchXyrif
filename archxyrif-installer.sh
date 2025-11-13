@@ -731,19 +731,18 @@ mkinitcpio -P
 #========================================================#
 # 6) Root + user passwords (interactive)
 #========================================================#
-: "${NEWUSER:?NEWUSER is not set}"
+echo "#========================================================#"
+echo " Set ROOT password                                       #"
+echo "#========================================================#"
+echo "Set root password:"
+passwd 
 echo "#=======================================================#"
 echo " Set password for user '$NEWUSER'                       #"
 echo "#=======================================================#"
 useradd -m -G wheel -s /bin/bash "${NEWUSER}"
 # User password
 echo "Set password for ${NEWUSER}:"
-retry_cmd 3 passwd "${NEWUSER}" || echo "⚠️ Password setup failed after 3 tries."
-echo "#========================================================#"
-echo " Set ROOT password                                       #"
-echo "#========================================================#"
-echo "Set root password:"
-retry_cmd 3 passwd || echo "⚠️ Root password setup failed after 3 tries."
+passwd "${NEWUSER}" 
 #========================================================#
 # 7) Ensure user has sudo privileges
 #========================================================#
