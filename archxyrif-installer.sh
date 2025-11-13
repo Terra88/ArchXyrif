@@ -1043,7 +1043,7 @@ window_manager()
         case "$WM_CHOICE" in
             1)
                 echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+                WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock waybar )
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
@@ -1169,7 +1169,7 @@ extra_pacman_pkg()
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
                     # Clean list: neofetch removed (deprecated)
-                    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+                    EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
                     # Filter out non-existent packages before installing
                     VALID_PKGS=()
@@ -1250,7 +1250,7 @@ hyprland_optional()
                           # Only proceed if Hyprland was selected (WM_CHOICE == 1)
                           if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
                               echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git
+                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol 
                           
                               read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
                               if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
