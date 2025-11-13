@@ -1293,6 +1293,7 @@ quick_partition() {
     read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
     [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
 
+    safe_disk_cleanup
     ask_partition_sizes
     select_filesystem
     select_swap
