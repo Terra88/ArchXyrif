@@ -730,7 +730,6 @@ mkinitcpio -P
 # 6) Root + user passwords (interactive with retries)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-
 # Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
@@ -1167,7 +1166,7 @@ extra_pacman_pkg()
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
                     # Clean list: neofetch removed (deprecated)
-                    EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
+                    EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
                     # Filter out non-existent packages before installing
                     VALID_PKGS=()
@@ -1230,6 +1229,34 @@ optional_aur()
                      else
                          echo "Skipping AUR installation."
                      fi
+
+                    EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
+                
+                    # Filter out non-existent packages before installing
+                    VALID_PKGS=()
+                    for pkg in "${EXTRA_PKGS[@]}"; do
+                        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+                            VALID_PKGS+=("$pkg")
+                        else
+                            echo "⚠️  Skipping invalid or missing package: $pkg"
+                        fi
+                    done
+                
+                    # Merge validated list with user input
+                    EXTRA_PKG=("${VALID_PKGS[@]}")
+                    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+                        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+                        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
+                    fi
+                
+                    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
+                        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
+                    else
+                        echo "⚠️  No valid packages to install."
+                    fi
+                else
+                    echo "Skipping extra pacman packages."
+                fi
 }
 #=========================================================================================================================================#
 # Hyprland optional Configuration Installer - from http://github.com/terra88/hyprland-setup
