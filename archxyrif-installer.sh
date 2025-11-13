@@ -1,24 +1,28 @@
 #!/usr/bin/env bash
-#===========================================================================#
+#=========================================================================================================================================#
+#===COLOR-MAPPER===#
+# Color codes
+GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
+#===COLOR-MAPPER===#
+#=========================================================================================================================================#
 # GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88        
 # Author  : Terra88 
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
-#===========================================================================
-#===========================================================================
+#=========================================================================================================================================#
+#=========================================================================================================================================#
 # Source variables
-#===========================================================================
-#===========================================================================
+#=========================================================================================================================================#
+#=========================================================================================================================================#
 # Preparation
-#===========================================================================
+#=========================================================================================================================================#
 # Arch logo: Edited manually by Terra88
-#===========================================================================
+#=========================================================================================================================================#
 clear
-loadkeys fi
-timedatectl set-ntp true
+logo(){
 echo "#===================================================================================================#"
 echo "| The Great Monolith of Installing Arch Linux!                                                      |"
-echo "|===================================================================================================|"
+echo "#===================================================================================================#"
 echo "|                                                                                                   |"
 echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
 echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
@@ -34,1013 +38,501 @@ echo "|                                                     Y88P                
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
 echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88                               |"
-echo "|===================================================================================================#===================================#"
-echo "|-Table of Contents:                |-0) Disk Format INFO                                                                               |"
-echo "|===================================|===================================================================================================|"
-echo "|-1)Disk Selection & Format         |-archformat.sh                                                                                     |"
-echo "|-2)Pacstrap:Installing Base system |- shows lsblk and asks which device to use                                                         |"
-echo "|-3)Generating fstab                |- wipes old signatures (sgdisk --zap-all, wipefs -a, dd first sectors should unmount disks etc)    |"
-echo "|-4)Setting Basic variables         |- Partitions: BOOT/EFI(1024MiB)||Opt.swap on/off:(2*ram<=16GB||1*>=16GB)                           |"
-echo "|-5)Installing GRUB for UEFI        |- (/ROOT)(/HOME)Opt:1Big Drive or Separate partitions  || Set Size Manually for Root and/or Home   |"
-echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                                                    |"
-echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------------------------------------------|"
-echo "|-Optional:                         |-WARNING: destructive. Run as root. Double-check device before continuing.                         |"
-echo "|-8A)GPU-Guided install             |---------------------------------------------------------------------------------------------------|"
-echo "|-8B)Guided Window Manager Install  |-1) Disk Selection: Format (Enter device path: example /dev/sda or /dev/nvme0 etc.)                |"
-echo "|-8C)Guided Login Manager Install   |===================================================================================================#"
-echo "|-9)Extra Pacman & AUR PKG Install  |"
-echo "|-If Hyprland Selected As WM        |"
-echo "|-10)Optional Theme install         |"
-echo "#===================================#"
-echo
+echo "#===================================================================================================#"
+echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
+echo "#===================================================================================================#"
+echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
+echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
+echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
+echo "|-4)Setting Basic variables         |- Manual Resize for Root/Home & Swap on or off options         |"
+echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
+echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
+echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------|"
+echo "|-Optional:                         |  ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ    |"
+echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
+echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
+echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
+echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
+echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
+echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
+echo "#===================================================================================================#"
+}
+#=========================================================================================================================================#
 #!/usr/bin/env bash
+loadkeys fi
+timedatectl set-ntp true
 set -euo pipefail
 #=========================================================================================================================================#
-    # Helpers
-    confirm() {
-    # ask Yes/No, return 0 if yes
+# GLOBAL VARIABLES:
+#=========================================================================================================================================#
+#----------------------------------------------#
+#-------------------MAPPER---------------------#
+#----------------------------------------------#
+DEV=""            # set later by main_menu
+MODE=""
+BIOS_BOOT_PART_CREATED=false
+SWAP_SIZE_MIB=0
+SWAP_ON=""
+ROOT_FS=""
+HOME_FS=""
+ROOT_SIZE_MIB=0
+HOME_SIZE_MIB=0
+BIOS_GRUB_SIZE_MIB=1     # tiny bios_grub (no FS), ~1 MiB
+BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
+EFI_SIZE_MIB=1024        # keep as-is for UEFI
+BUFFER_MIB=8
+FS_CHOICE=1
+# Global partition variables (will be set in format_and_mount)
+P_EFI=""
+P_BOOT=""
+P_SWAP=""
+P_ROOT=""
+P_HOME=""
+#=========================================================================================================================================#
+# Helpers
+#=========================================================================================================================================#
+confirm() {
     local msg="${1:-Continue?}"
-    read -r -p "$msg [yes/NO]: " ans
+    read -r -p "$msg [Y/n]: " ans
     case "$ans" in
-        [yY]|[yY][eE][sS]) return 0 ;;
-       *) return 1 ;;
+        [Nn]|[Nn][Oo]) return 1 ;;
+        *) return 0 ;;
     esac
-    }
-#=========================================================================================================================================#
-    part_suffix() {
-    # given /dev/sdX or /dev/nvme0n1, print partition suffix ('' or 'p')
-    local dev="$1"
-    if [[ "$dev" =~ nvme|mmcblk ]]; then
-        echo "p"
-    else
-        echo ""
-    fi
-    }
-#=========================================================================================================================================#
-    #die helper
-    die() {
-    echo "ERROR: $*" >&2
+}
+
+die() {
+    echo -e "${YELLOW}ERROR:${RESET} $*" >&2
     exit 1
-    }
+}
+
+part_suffix() {
+    local dev="$1"
+    [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
+}
 #=========================================================================================================================================#
-    #CLEANUP HELPER 
-    cleanup() {
-    echo
-    echo "🧹 Running cleanup before exit..."
+#-------HELPER FOR CHROOT--------------------------------#
+#=========================================================================================================================================#
+prepare_chroot() {
+    echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
+    mkdir -p /mnt
+    for fs in proc sys dev run; do
+        mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
+        mount --make-rslave "/mnt/$fs" 2>/dev/null || true
+    done
+    echo "✅ Pseudo-filesystems mounted into /mnt."
+}
+#=========================================================================================================================================#
+# Retry Helper (with configurable attempts)
+#=========================================================================================================================================#
+retry_cmd() {
+    local max_attempts="${1:-3}"
+    shift
+    local cmd=("$@")
+
+    local attempt=1
+    local exit_code=0
+
+    while (( attempt <= max_attempts )); do
+        echo "Attempt $attempt/$max_attempts: ${cmd[*]}"
+        "${cmd[@]}" && return 0
+        exit_code=$?
+        echo "⚠️ Command failed (exit=$exit_code)"
+        if (( attempt < max_attempts )); then
+            read -rp "Retry? [Y/n]: " ans
+            [[ "$ans" =~ ^[Nn]$ ]] && break
+        fi
+        ((attempt++))
+    done
+    return "$exit_code"
+}
+#=========================================================================================================================================#
+# Cleanup
+#=========================================================================================================================================#
+cleanup() {
+    echo -e "\n🧹 Running cleanup..."
     swapoff -a 2>/dev/null || true
     if mountpoint -q /mnt; then
-        echo "🔽 Unmounting /mnt..."
         umount -R /mnt 2>/dev/null || true
     fi
     sync
-    echo "✅ Cleanup complete. Safe to exit."
+    echo "✅ Cleanup done."
 }
-
 trap cleanup EXIT INT TERM
-#=========================================================================================================================================#    
-    #BTRFS VOLUME UNLOADER IF RELOAD REQUIRED
-    unmount_btrfs_and_swap() {
-    local dev="$1"
-
-    echo "→ Attempting to unmount all BTRFS subvolumes and swap on $dev..."
-
-    # Turn off swap on this device
-    swapon --show=NAME --noheadings | grep -q "$dev" && {
-        echo "→ Turning off swap on $dev..."
-        swapoff "$dev"* || true
-    }
 #=========================================================================================================================================#
-    # Unmount all mountpoints on this device, deepest first
-    mapfile -t MOUNTS < <(mount | grep "$dev" | awk '{print $3}' | sort -r)
-    for mnt in "${MOUNTS[@]}"; do
-        echo "→ Unmounting $mnt ..."
-        umount -l "$mnt" 2>/dev/null || true
-    done
-
-    # Extra BTRFS check: unmount BTRFS subvolumes mounted elsewhere
-    mapfile -t BTRFS_MOUNTS < <(mount | grep btrfs | awk '{print $3}' | sort -r)
-    for bm in "${BTRFS_MOUNTS[@]}"; do
-        if [[ $(findmnt -n -o SOURCE "$bm") == "$dev"* ]]; then
-            echo "→ Unmounting BTRFS subvolume $bm ..."
-            umount -l "$bm" 2>/dev/null || true
-        fi
-    done
-
-    # Clean up /mnt
-    if mountpoint -q /mnt; then
-        echo "→ Cleaning /mnt ..."
-        umount -l /mnt 2>/dev/null || true
-        rm -rf /mnt/* 2>/dev/null || true
-    fi
-
-    echo "→ Unmounting completed for $dev."
-    }
+# SAFE DISK UNMOUNT & CLEANUP BEFORE PARTITIONING
 #=========================================================================================================================================#
-    #Helpers-2
-    
-    # Show devices
-    echo "Available block devices (lsblk):"
-    lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT,MODEL
-
-    # Ask device
-    read -r -p $'\nEnter block device to use (example /dev/sda or /dev/nvme0n1): ' DEV
-    DEV="${DEV:-}"
-
-    if [[ -z "$DEV" ]]; then
-    exec "$0" "No device given. Exiting."
-    fi
-
-    if [[ ! -b "$DEV" ]]; then
-    exec "$0" "Device '$DEV' not found or not a block device."
-    fi
+safe_disk_cleanup() {
+    [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
 
     echo
-    echo "You selected: $DEV"
-    echo "This will DESTROY ALL DATA on $DEV (partitions, LUKS headers, LVM, etc)."
+    echo "#===================================================================================================#"
+    echo "# 0) PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                    #"
+    echo "#===================================================================================================#"
 
-    # Unmount everything on the device before partitioning
-    unmount_btrfs_and_swap "$DEV"
-
-    if ! confirm "Are you absolutely sure you want to wipe and repartition $DEV?"; then
-    exec "$0"
+    # 1) Protect the live ISO device
+    local iso_dev
+    iso_dev=$(findmnt -no SOURCE / 2>/dev/null || true)
+    if [[ "$iso_dev" == "$DEV"* ]]; then
+        echo "❌ Refusing to touch the live ISO device ($iso_dev)"
+        return 1
     fi
-    
+
+    # 2) Deactivate LVMs on this disk
+    echo "→ Deactivating LVM volumes related to $DEV ..."
+    vgchange -an || true
+    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
+        dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
+    done
+
+    # 3) Close any LUKS mappings that belong to this disk
+    echo "→ Closing any LUKS mappings..."
+    for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
+        local backing
+        backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
+        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
+    done
+
+    # 4) Unmount all partitions of $DEV (not anything else!)
+    echo "→ Unmounting mounted partitions of $DEV..."
+    for p in $(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
+        local part="/dev/$p"
+        if mountpoint -q "/dev/$p" 2>/dev/null || grep -q "^$part" /proc/mounts; then
+            umount -R "$part" 2>/dev/null && echo "  Unmounted $part"
+        fi
+    done
+    swapoff "${DEV}"* 2>/dev/null || true
+
+    # 5) Remove old BTRFS subvolume mounts (if any)
+    echo "→ Cleaning BTRFS subvolumes..."
+    for mnt in $(mount | grep "$DEV" | awk '{print $3}' | sort -r); do
+        umount -R "$mnt" 2>/dev/null || true
+    done
+
+    # 6) Optional signature wipe
+    echo "→ Wiping old filesystem / partition signatures..."
+    for part in $(lsblk -ln -o NAME "$DEV" | tail -n +2); do
+        wipefs -af "/dev/$part" 2>/dev/null || true
+    done
+    wipefs -af "$DEV" 2>/dev/null || true
+
+    echo "✅ Disk cleanup complete for $DEV."
+}
 #=========================================================================================================================================#
-#===================================================================================================#
-# 1.1) Clearing Partition Tables / Luks / LVM Signatures
-#===================================================================================================#
+# Detect boot mode
+#=========================================================================================================================================#
+detect_boot_mode() {
+    if [[ -d /sys/firmware/efi ]]; then
+        MODE="UEFI"
+        BIOS_BOOT_PART_CREATED=false
+        BOOT_SIZE_MIB=$EFI_SIZE_MIB
+        echo -e "${CYAN}UEFI${RESET} detected."
+    else
+        MODE="BIOS"
+        BIOS_BOOT_PART_CREATED=true
+        BOOT_SIZE_MIB=$BOOT_SIZE_MIB
+        echo -e "${CYAN}Legacy BIOS${RESET} detected."
+    fi
+}
+#=========================================================================================================================================#
+# Swap calculation
+#=========================================================================================================================================#
+calculate_swap() {
+    local ram_kb ram_mib
+    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    ram_mib=$(( (ram_kb + 1023) / 1024 ))
+    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
+    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
+}
+#=========================================================================================================================================#
+# Select Filesystem
+#=========================================================================================================================================#
+select_filesystem() 
+{
+    clear
+    echo "#===============================================================================#"
+    echo "| 1.2) Filesystem Selection Options                                             |"
+    echo "#===============================================================================#"
+    echo "| 1) EXT4 (root + home)                                                         |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 2) BTRFS (root + home)                                                        |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 3) BTRFS root + EXT4 home                                                     |"
+    echo "#===============================================================================#"
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    FS_CHOICE="${FS_CHOICE:-1}"
+    case "$FS_CHOICE" in
+        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
+        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
+        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac    
+}
+#=========================================================================================================================================#
+# Select Swap
+#=========================================================================================================================================#
+select_swap()
+{
 
-        # Clear partition table / LUKS / LVM signatures
-        echo "Wiping partition table and signatures (sgdisk --zap-all, wipefs -a, zeroing first sectors)..."
-        which sgdisk >/dev/null 2>&1 || die "sgdisk (gdisk) required but not found. Install 'gdisk'."
-        which wipefs >/dev/null 2>&1 || die "wipefs (util-linux) required but not found."
+   clear
+    echo "#===============================================================================#"
+    echo "| Swap On / Off                                                                 |"
+    echo "#===============================================================================#"
+    echo "| 1) Swap On                                                                    |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 2) Swap Off                                                                   |"
+    echo "|-------------------------------------------------------------------------------|"
+    echo "| 3) exit                                                                       |"
+    echo "#===============================================================================#"
+     read -rp "Select option [default=1]: " SWAP_ON
+    SWAP_ON="${SWAP_ON:-1}"
+    case "$SWAP_ON" in
+        1) SWAP_ON="1" ;;
+        2) SWAP_ON="0" ;;
+        3) echo "Exiting"; exit 1 ;;
+        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
+    esac
+    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
+}
 
-        # try to shut down any open LUKS mappings referring to this device (best-effort)
-        echo "Attempting to close any open LUKS mappings referencing $DEV..."
-        for map in /dev/mapper/*; do
-        if [[ -L "$map" ]]; then
-            target=$(readlink -f "$map" || true)
-            if [[ "$target" == "$DEV"* ]]; then
-            name=$(basename "$map")
-            echo "  Closing mapper $name (points at $target)"
-            cryptsetup luksClose "$name" || true
+#=========================================================================================================================================#
+# Ask partition sizes
+#=========================================================================================================================================#
+ask_partition_sizes() {
+    detect_boot_mode
+    calculate_swap
+
+    local disk_bytes disk_mib disk_gib_val disk_gib_int
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+    disk_gib_int=${disk_gib_val%.*}
+
+    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
+
+    while true; do
+        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+
+        # Maximum root size = total disk - swap - reserved (EFI/BIOS) - minimal home
+        local reserved_gib
+        if [[ "$MODE" == "UEFI" ]]; then
+            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
+        else
+            reserved_gib=$(( BOOT_SIZE_MIB / 1024 ))
+        fi
+
+        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
+        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
+        ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
+        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+        if (( ROOT_SIZE_GIB > max_root_gib )); then
+            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
+            ROOT_SIZE_GIB=$max_root_gib
+        fi
+
+        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+
+        # Remaining space for home
+        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
+        if (( remaining_home_gib < 1 )); then
+            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
+            continue
+        fi
+
+        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
+
+        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
+            # Use all remaining space
+            HOME_SIZE_GIB=$remaining_home_gib
+            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
+            home_end="100%"
+        else
+            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+            # Limit to remaining space
+            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
+                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
+                HOME_SIZE_GIB=$remaining_home_gib
+            else
+                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
             fi
-        fi
-        done
 
-        # Zap GPT, MBR, etc.
-        sgdisk --zap-all "$DEV" || true
-
-        # Wipe filesystem signatures on whole device
-        wipefs -a "$DEV" || true
-
-        # Overwrite first and last MiB to remove any leftover headers (LUKS/LVM/crypt)
-        echo "Zeroing first 2MiB of $DEV to remove lingering headers..."
-        dd if=/dev/zero of="$DEV" bs=1M count=2 oflag=direct status=none || true
-
-        # If device supports it, also zero last MiB (LVM metadata sometimes at end)
-        devsize_bytes=$(blockdev --getsize64 "$DEV")
-        if [[ -n "$devsize_bytes" && "$devsize_bytes" -gt 1048576 ]]; then
-        last_offset=$((devsize_bytes - 1*1024*1024))
-        dd if=/dev/zero of="$DEV" bs=1M count=1 oflag=direct seek=$(( (devsize_bytes / (1024*1024)) - 1 )) status=none || true
+            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+            home_end=$(( root_end + HOME_SIZE_MIB ))
         fi
 
-            # Turn off swap if any
-            swapoff -a 2>/dev/null || true
+        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
+        break
+    done
+}
+#=========================================================================================================================================#
+# Partition disk
+#=========================================================================================================================================#
+partition_disk() {
+    [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
-           # Unmount /mnt recursively but handle BTRFS subvolumes safely
-        if mountpoint -q /mnt; then
-            # Get all mounts under /mnt sorted by depth (deepest first)
-            mapfile -t MOUNTS < <(mount | grep '/mnt' | awk '{print $3}' | sort -r)
-            for mnt in "${MOUNTS[@]}"; do
-            umount -l "$mnt" 2>/dev/null || true
-            done
+    local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
+
+    if [[ "$MODE" == "BIOS" ]]; then
+        # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
+        # Create tiny bios_grub partition (no FS)
+        parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_GRUB_SIZE_MIB))MiB
+        parted -s "$DEV" set 1 bios_grub on
+        
+        # /boot ext4
+        boot_start=$((1+BIOS_GRUB_SIZE_MIB))
+        boot_end=$((boot_start + BOOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
+
+        if [[ "$SWAP_ON" == "1" ]]; then
+            swap_start=$boot_end
+            swap_end=$((swap_start + SWAP_SIZE_MIB))
+            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+
+            root_start=$swap_end
+        else
+            root_start=$boot_end
         fi
 
-            # Clean up /mnt (optional)
-            rm -rf /mnt/* 2>/dev/null || true
+        root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
 
-#=========================================================================================================================================#
-quick_partition_swap_on() 
-{
-                        partprobe "$DEV" || true
-                    
-                        # Detect RAM in MiB
-                        ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                        ram_mib=$(( (ram_kb + 1023) / 1024 ))
-                    
-                        # Swap sizing
-                        if (( ram_mib <= 8192 )); then
-                            SWAP_SIZE_MIB=$(( ram_mib * 2 ))
-                        else
-                            SWAP_SIZE_MIB=$ram_mib
-                        fi
-                    
-                        # Disk sizes
-                        DISK_SIZE_MIB=$(lsblk -b -dn -o SIZE "$DEV")
-                        DISK_SIZE_MIB=$((DISK_SIZE_MIB / 1024 / 1024))
-                        DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                        DISK_GIB_INT=${DISK_GIB%.*}
-                        EFI_SIZE_MIB=1024
-                        BUFFER_MIB=8  # Safety buffer for BTRFS and partition edge issues
-                    
-                        # Ask root size
-                         while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            MAX_ROOT_GIB=$((DISK_GIB_INT - SWAP_SIZE_MIB/1024 - 5))
-                        
-                            echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
-                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                        
-                            # Validate root input
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
-                                echo "❌ Invalid input! Enter a numeric value."
-                                continue
-                            fi
-                            if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "❌ Invalid input! - 10% disk space must remain free."
-                                echo "Maximum safe root size: ${MAX_ROOT_GIB} GiB"
-                                continue
-                            fi
-                        
-                            ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                            MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + SWAP_SIZE_MIB))
-                        
-                            # Check if root + EFI + swap fits
-                            if (( MIN_REQUIRED_MIB >= DISK_SIZE_MIB - 8 )); then
-                                echo "❌ Error: Root + swap + EFI exceeds total disk capacity (${DISK_GIB_INT} GiB)."
-                                continue
-                            fi
-                        
-                            # Compute remaining space for HOME (subtract small buffer)
-                            REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB/1024 - SWAP_SIZE_MIB/1024 - 1))
-                            if (( REMAINING_HOME_GIB < 1 )); then
-                                echo "❌ Not enough space left for HOME partition."
-                                continue
-                            fi
-                        
-                            echo "✅ Remaining space available for HOME: ~${REMAINING_HOME_GIB} GiB"
-                        
-                            # Ask for home size
-                            while true; do
-                                read -r -p "Enter HOME partition size in GiB (ENTER to use remaining ${REMAINING_HOME_GIB} GiB): " HOME_SIZE_GIB
-                                HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-                        
-                                # Validate home input
-                                if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then
-                                    echo "❌ Invalid input! Enter a numeric value."
-                                    continue
-                                fi
-                                if (( HOME_SIZE_GIB <= 0 || HOME_SIZE_GIB > REMAINING_HOME_GIB )); then
-                                    echo "❌ Home size must be between 1 and ${REMAINING_HOME_GIB} GiB."
-                                    continue
-                                fi
-                        
-                                HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
-                                TOTAL_REQUIRED_MIB=$((EFI_SIZE_MIB + SWAP_SIZE_MIB + ROOT_SIZE_MIB + HOME_SIZE_MIB))
-                        
-                                # Final safety check
-                                if (( TOTAL_REQUIRED_MIB >= DISK_SIZE_MIB - 8 )); then
-                                    echo "❌ Error: Combined partitions exceed available disk capacity (${DISK_GIB_INT} GiB total)."
-                                    echo "Reduce HOME or ROOT size and try again."
-                                    continue 2   # retry outer loop
-                                fi
-                        
-                                break
-                            done
-                        
-                            # All inputs valid
-                            break
-                        done
-                    
-                        echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), Home: $HOME_SIZE_MIB MiB (~$HOME_SIZE_GIB GiB), Swap: $SWAP_SIZE_MIB MiB (~$((SWAP_SIZE_MIB/1024)) GiB), EFI: $EFI_SIZE_MIB MiB"
-                    
-                        if ! confirm "Proceed to partition $DEV?"; then
-                            echo "User canceled"
-                            exec "$0"
-                        fi
-                    
-                        # Partitioning
-                        which parted >/dev/null 2>&1 || die "parted required but not found."
-                        parted -s "$DEV" mklabel gpt
-                    
-                        # Calculate partition boundaries (MiB)
-                        p1_start=1
-                        p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))      # EFI
-                        p2_start=$p1_end                                      # Root
-                        p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
-                        p3_start=$p2_end                                      # Swap
-                        p3_end=$((p3_start + SWAP_SIZE_MIB - BUFFER_MIB))
-                        p4_start=$p3_end                                      # Home
-                        p4_end=$((p4_start + HOME_SIZE_MIB - BUFFER_MIB))     # Home end
+        home_start=$root_end
+        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
+        else
+            home_end=$((home_start + HOME_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
+        fi
+    else
+        # UEFI — keep existing behavior (EFI FAT32 + root + optional swap + home)
+        parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+        parted -s "$DEV" set 1 boot on
 
-                sleep 1
-                clear
-                echo "#===============================================================================#"
-                echo "|- 1)SELECT FILESYSTEM - SEPARATE HOME & SWAP ON                                |"
-                echo "|===============================================================================|"
-                echo "|                                    Table Of Contents:                         |"
-                echo "|===============================================================================|"
-                echo "|-Partition table (MiB):                                                        |"
-                echo "|  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                      |"
-                echo "|  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB} GiB)            |"
-                echo "|  3) Swap   : ${p3_start}MiB - ${p3_end}MiB (~$((SWAP_SIZE_MIB/1024)) GiB)     |"
-                echo "|  4) Home   : ${p4_start}MiB - ${p4_end}MiB (~${HOME_SIZE_GIB} GiB)            |"
-                echo "|-------------------------------------------------------------------------------|"
-                echo "|-Filesystem Partition Options                                                  |"
-                echo "|-------------------------------------------------------------------------------|"
-                echo "|-1) EXT4                                                                       |"
-                echo "|   → The classic, reliable Linux filesystem.                                   |"
-                echo "|     • Stable and widely supported                                             |"
-                echo "|     • Simple, fast, and easy to recover                                       |"
-                echo "|     • Recommended for most users                                              |"
-                echo "|-------------------------------------------------------------------------------|"
-                echo "|-2) BTRFS                                                                      |"
-                echo "|   → A modern, advanced filesystem with extra features.                        |"
-                echo "|     • Built-in compression and snapshots                                      |"
-                echo "|     • Good for SSDs and frequent backups                                      |"
-                echo "|     • Slightly more complex; better for advanced users                        |"
-                echo "|-------------------------------------------------------------------------------|"
-                echo "|-3) BTRFS(root)-EXT4(home)                                                     |"
-                echo "|   → A balanced setup combining both worlds.                                   |"
-                echo "|     • BTRFS for system (root) — allows snapshots & rollback                   |"
-                echo "|     • EXT4 for home — simpler and very stable for data                        |"
-                echo "|     • Recommended if you want snapshots but prefer EXT4 for personal files    |"
-                echo "|-------------------------------------------------------------------------------|"
-                echo "|-4) Back to start                                                              |"
-                echo "#-------------------------------------------------------------------------------#"
-                read -r -p "Select File System [1-2, default=1]: " DEV_CHOICE
-                DEV_CHOICE="${DEV_CHOICE:-1}"
-                
-                    case "$DEV_CHOICE" in
-                        1)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" "${p4_end}MiB"
-                            ;;
-                        2)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p4_start}MiB" "${p4_end}MiB"
-                            ;;
-                        3)
-                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                            parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                            parted -s "$DEV" mkpart primary ext4 "${p4_start}MiB" "${p4_end}MiB"
-                            ;;
-                        4)
-                            exec "$0"
-                            ;;
-                        *)
-                            cleanup_and_restart
-                            echo "Invalid choice."
-                            exec "$0"
-                            ;;
-                    esac
-                
-                    # Boot flag and device nodes
-                    parted -s "$DEV" set 1 boot on
-                    partprobe "$DEV"
-                    udevadm settle
-                    sleep 1
-                
-                    PSUFF=$(part_suffix "$DEV")
-                    P1="${DEV}${PSUFF}1"
-                    P2="${DEV}${PSUFF}2"
-                    P3="${DEV}${PSUFF}3"
-                    P4="${DEV}${PSUFF}4"
-                
-                    #===================================================================================================#
-                    # 1.6) Mounting and formatting
-                    #===================================================================================================#
-                    mkfs.fat -F32 "$P1"
-                    mkswap "$P3"
-                    swapon "$P3"
-                
-                    case "$DEV_CHOICE" in
-                        1)
-                            mkfs.ext4 -F "$P2"
-                            mkfs.ext4 -F "$P4"
-                            mount "$P2" /mnt
-                            mkdir -p /mnt/{boot,home}
-                            mount -t vfat "$P1" /mnt/boot
-                            mount "$P4" /mnt/home
-                            ;;
-                        2)
-                            mkfs.btrfs -f --nodiscard "$P2"
-                            mkfs.btrfs -f --nodiscard "$P4"
-                            mount "$P2" /mnt
-                            for sv in @ @snapshots @cache @log; do
-                                btrfs subvolume create "/mnt/$sv"
-                            done
-                            umount /mnt
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                            mount -o noatime,compress=zstd "$P4" /mnt/home
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                        3)
-                            mkfs.btrfs -f --nodiscard "$P2"
-                            mkfs.ext4 -F "$P4"
-                            mount "$P2" /mnt
-                            for sv in @ @snapshots @cache @log; do
-                                btrfs subvolume create "/mnt/$sv"
-                            done
-                            umount /mnt
-                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                            mkdir -p /mnt/{home,.snapshots,var/cache,var/log,boot}
-                            mount "$P4" /mnt/home
-                            mount -t vfat "$P1" /mnt/boot
-                            ;;
-                    esac
+        root_start=$((1+EFI_SIZE_MIB))
+        root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+
+        if [[ "$SWAP_ON" == "1" ]]; then
+            swap_start=$root_end
+            swap_end=$((swap_start + SWAP_SIZE_MIB))
+            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+            home_start=$swap_end
+        else
+            home_start=$root_end
+        fi
+
+        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
+        else
+            home_end=$((home_start + HOME_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
+        fi
+    fi
+
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
+    sleep 1
+
+    echo "✅ Partitioning completed. Verify with lsblk."
 }
 #=========================================================================================================================================#
-quick_partition_swap_on_root()
-{
-                        partprobe "$DEV" || true
-                    
-                        # RAM in MiB
-                        ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-                        [[ -z "$ram_kb" ]] && die "Failed to read RAM"
-                        ram_mib=$(( (ram_kb + 1023) / 1024 ))
-                    
-                        # Swap sizing
-                        SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
-                    
-                        # Disk sizes
-                        DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
-                        DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                        DISK_GIB_INT=${DISK_GIB%.*}
-                    
-                        EFI_SIZE_MIB=1024
-                        BUFFER_MIB=8   # small safety buffer to avoid edge-case BTRFS failures
-                    
-                        # Ask root size
-                        while true; do
-                            lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                            MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
-                            
-                            echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
-                            read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                        
-                            # Validate input
-                            if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
-                                echo "❌ Invalid input! Enter a numeric value."
-                                continue
-                            fi
-                            if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                echo "❌ Invalid input! - 10% disk space must remain free."
-                                echo "Maximum safe root size: ${MAX_ROOT_GIB} GiB"
-                                continue
-                            fi
-                        
-                            ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                        
-                            # Check if root + EFI + buffer fits
-                            if (( ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB > DISK_SIZE_MIB )); then
-                                echo "❌ Root + EFI exceeds available disk space!"
-                                continue
-                            fi
-                        
-                            # Input is valid
-                            break
-                        done
-                    
-                        echo "Swap: ${SWAP_SIZE_MIB}MiB, Root: ${ROOT_SIZE_MIB}MiB, EFI: ${EFI_SIZE_MIB}MiB"
-                    
-                        # Partitioning
-                        which parted >/dev/null 2>&1 || die "parted required but not found."
-                        parted -s "$DEV" mklabel gpt
-                        p1_start=1
-                        p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
-                        p2_start=$p1_end
-                        p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
-                        p3_start=$p2_end
-                        p3_end=$((p3_start + SWAP_SIZE_MIB - BUFFER_MIB))
+# Format & mount
+#=========================================================================================================================================#
+format_and_mount() {
+    detect_boot_mode
+    local ps
+    ps=$(part_suffix "$DEV")
 
-                sleep 1
-                clear
-                echo "#===================================================================================================#"
-                echo "| 2)SELECT FILESYSTEM (HOME DIRECTORY UNDER ROOT - SWAP ON                                          |"
-                echo "|===================================================================================================|"
-                echo "|                                    Table of Contents:                                             |"
-                echo "|===================================================================================================|"
-                echo "|-Partition table (MiB):                                                                            |"
-                echo "|  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          |"
-                echo "|  3) Swap   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB} GiB)                                |"
-                echo "|  2) Root   : ${p3_start}MiB - ${p3_end}MiB (~${SWAP_SIZE_MIB}, MiB)                               |"
-                echo "|---------------------------------------------------------------------------------------------------|"
-                echo "|-Filesystem Partition Options                                                                      |"
-                echo "|---------------------------------------------------------------------------------------------------|"
-                echo "|-1) EXT4                                                                                           |"
-                echo "|   → The classic, reliable Linux filesystem.                                                       |"
-                echo "|     • Stable and widely supported                                                                 |"
-                echo "|     • Simple, fast, and easy to recover                                                           |"
-                echo "|     • Recommended for most users                                                                  |"
-                echo "|---------------------------------------------------------------------------------------------------|"
-                echo "|-2) BTRFS                                                                                          |"
-                echo "|   → A modern, advanced filesystem with extra features.                                            |"
-                echo "|     • Built-in compression and snapshots                                                          |"
-                echo "|     • Good for SSDs and frequent backups                                                          |"
-                echo "|     • Slightly more complex; better for advanced users                                            |"
-                echo "|---------------------------------------------------------------------------------------------------|"
-                echo "|-3) Back to start                                                                                  |"
-                echo "#---------------------------------------------------------------------------------------------------#"
-                        read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
-                        FS_CHOICE="${FS_CHOICE:-1}"
-                    
-                        case "$FS_CHOICE" in
-                            1)
-                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                                ;;
-                            2)
-                                parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                parted -s "$DEV" mkpart primary linux-swap "${p3_start}MiB" "${p3_end}MiB"
-                                ;;
-                            *)
-                                echo "Invalid choice"; exec "$0";;
-                        esac
-                    
-                        parted -s "$DEV" set 1 boot on
-                        partprobe "$DEV"
-                        udevadm settle || true
-                        sleep 1
-                    
-                        PSUFF=$(part_suffix "$DEV")
-                        P1="${DEV}${PSUFF}1" # EFI
-                        P2="${DEV}${PSUFF}2" # Root
-                        P3="${DEV}${PSUFF}3" # Swap
-                    
-                        # Format EFI & swap
-                        mkfs.fat -F32 "$P1"
-                        mkswap "$P3"
-                        swapon "$P3"
-                    
-                        #===================================================================================================#
-                        # Mounting and formatting (fixed)
-                        #===================================================================================================#
-                        # Format & mount root
-                        case "$FS_CHOICE" in
-                            1)  # EXT4
-                                mkfs.ext4 -F "$P2"
-                                mount "$P2" /mnt
-                                mkdir -p /mnt/{boot,home}
-                                mount -t vfat "$P1" /mnt/boot
-                                ;;
-                            2)  # BTRFS
-                                # Use a small safety flag and create subvolumes on a mounted root to avoid edge-case low-space issues
-                                mkfs.btrfs -f --nodiscard "$P2"
-                                mount "$P2" /mnt
-                                for sv in @ @snapshots @cache @log; do
-                                    btrfs subvolume create "/mnt/$sv"
-                                done
-                                umount /mnt
-                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                                mount -t vfat "$P1" /mnt/boot
-                                ;;
-                        esac
+    if [[ "$MODE" == "BIOS" ]]; then
+        P_BIOS="${DEV}${ps}1"   # bios_grub (no fs)
+        P_BOOT="${DEV}${ps}2"  # ext4 /boot
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${DEV}${ps}3"
+            P_ROOT="${DEV}${ps}4"
+            P_HOME="${DEV}${ps}5"
+        else
+            P_ROOT="${DEV}${ps}3"
+            P_HOME="${DEV}${ps}4"
+        fi
 
+        # Format /boot as ext4
+        mkfs.ext4 -L boot "$P_BOOT"
+    else
+        P_EFI="${DEV}${ps}1"
+        P_ROOT="${DEV}${ps}2"
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${DEV}${ps}3"
+            P_HOME="${DEV}${ps}4"
+        else
+            P_HOME="${DEV}${ps}3"
+        fi
 
+        mkfs.fat -F32 "$P_EFI"
+    fi
+
+    # Swap handling
+    if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
+    else
+        echo "→ Swap disabled"
+    fi
+
+    # Root & Home formatting & mounting
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT"
+        # create subvolumes only for btrfs root; handle home separately if not btrfs
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
+        # If home is also btrfs, create @home
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            btrfs subvolume create /mnt/@home
+            umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+            mkdir -p /mnt/home
+            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        else
+            # root btrfs + home ext4
+            umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+            mkfs.ext4 -L home "$P_HOME"
+            mkdir -p /mnt/home
+            mount "$P_HOME" /mnt/home
+        fi
+    else
+        # root is ext4: format root and home as ext4
+        mkfs.ext4 -L root "$P_ROOT"
+        mkfs.ext4 -L home "$P_HOME"
+        mount "$P_ROOT" /mnt
+        mkdir -p /mnt/home
+        mount "$P_HOME" /mnt/home
+    fi
+
+    # Mount boot partition(s)
+    mkdir -p /mnt/boot
+    if [[ "$MODE" == "BIOS" ]]; then
+        mount "$P_BOOT" /mnt/boot
+    else
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi
+    fi
+
+    mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
+    echo "✅ Partitions formatted and mounted under /mnt."
+
+    echo "Generating /etc/fstab..."
+    
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
+    cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
-quick_partition_swap_off() 
-{
-                                    partprobe "$DEV" || true
-                                
-                                    # Disk sizes
-                                    DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
-                                    DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                                    DISK_GIB_INT=${DISK_GIB%.*}
-                                    EFI_SIZE_MIB=1024
-                                    BUFFER_MIB=8   # Safety buffer to prevent partition overlap and btrfs errors
-                                
-                                    # Ask root/home sizes
-                                    while true; do
-                                        lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                                        MAX_ROOT_GIB=$((DISK_GIB_INT - 25))
-                                        
-                                        echo "Note: Leave at least 10% of total disk space free for alignment & metadata safety."
-                                        read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                                    
-                                        # Validate root input
-                                        if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]]; then
-                                            echo "❌ Invalid input! Enter a numeric value."
-                                            continue
-                                        fi
-                                        if (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                            echo "❌ Invalid input! - 10% disk space must remain free."
-                                            continue
-                                        fi
-                                    
-                                        ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                                        MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB))
-                                    
-                                        # Check if root + EFI + buffer fits
-                                        if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
-                                            echo "❌ Error: Root + EFI exceeds available disk space!"
-                                            continue
-                                        fi
-                                    
-                                        # Calculate remaining space for HOME
-                                        REMAINING_HOME_GIB=$((DISK_GIB_INT - ROOT_SIZE_GIB - EFI_SIZE_MIB / 1024 - 1))
-                                        if (( REMAINING_HOME_GIB < 1 )); then
-                                            echo "❌ Not enough space left for HOME partition. Adjust ROOT size."
-                                            continue
-                                        fi
-                                    
-                                        # Ask user for HOME size
-                                        while true; do
-                                            read -r -p "Enter HOME partition size in GiB (ENTER=remaining $REMAINING_HOME_GIB): " HOME_SIZE_GIB
-                                            HOME_SIZE_GIB=${HOME_SIZE_GIB:-$REMAINING_HOME_GIB}
-                                    
-                                            # Validate HOME input
-                                            if ! [[ "$HOME_SIZE_GIB" =~ ^[0-9]+$ ]]; then
-                                                echo "❌ Invalid input! Enter a numeric value."
-                                                continue
-                                            fi
-                                            if (( HOME_SIZE_GIB <= 0 )); then
-                                                echo "❌ Home size must be greater than 0."
-                                                continue
-                                            fi
-                                    
-                                            HOME_SIZE_MIB=$((HOME_SIZE_GIB * 1024))
-                                            TOTAL_REQUIRED_MIB=$((EFI_SIZE_MIB + ROOT_SIZE_MIB + HOME_SIZE_MIB))
-                                    
-                                            # Final check
-                                            if (( TOTAL_REQUIRED_MIB > DISK_SIZE_MIB - 8 )); then
-                                                echo "❌ Error: Combined partitions exceed disk capacity."
-                                                echo "Reduce ROOT or HOME size and try again."
-                                                continue 2  # go back to outer loop
-                                            fi
-                                            break
-                                        done
-                                    
-                                        # All inputs valid
-                                        break
-                                    done
-                                
-                                    echo "Root: $ROOT_SIZE_MIB MiB, Home: $HOME_SIZE_MIB MiB, EFI: $EFI_SIZE_MIB MiB"
-                                
-                                    which parted >/dev/null 2>&1 || die "parted required but not found."
-                                    parted -s "$DEV" mklabel gpt
-                                
-                                    # Partition layout with buffer
-                                    p1_start=1
-                                    p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
-                                    p2_start=$p1_end
-                                    p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
-                                    p3_start=$p2_end
-                                    p3_end=$((p3_start + HOME_SIZE_MIB - BUFFER_MIB))
-
-                            sleep 1
-                            clear
-                            echo "#===================================================================================================#"
-                            echo "| 3)SELECT FILESYSTEM (Separate HOME DIRECTORY   - SWAP OFF                                         |"
-                            echo "|===================================================================================================|"
-                            echo "|                                   Table Of Contents:                                             |"
-                            echo "|===================================================================================================|"
-                            echo "|-Partition table (MiB):                                                                            |"
-                            echo "|  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)                                          |"
-                            echo "|  2) Root   : ${p2_start}MiB - ${p2_end}MiB (~${ROOT_SIZE_GIB}, root)                              |"
-                            echo "|  3) Home   : ${p3_start}MiB - ${p3_end}MiB (~${HOME_SIZE_MIB}, home)                              |"
-                            echo "|---------------------------------------------------------------------------------------------------|"
-                            echo "|-Filesystem Partition Options                                                                      |"
-                            echo "|---------------------------------------------------------------------------------------------------|"
-                            echo "|-1) EXT4                                                                                           |"
-                            echo "|   → The classic, reliable Linux filesystem.                                                       |"
-                            echo "|     • Stable and widely supported                                                                 |"
-                            echo "|     • Simple, fast, and easy to recover                                                           |"
-                            echo "|     • Recommended for most users                                                                  |"
-                            echo "|---------------------------------------------------------------------------------------------------|"
-                            echo "|-2) BTRFS                                                                                          |"
-                            echo "|   → A modern, advanced filesystem with extra features.                                            |"
-                            echo "|     • Built-in compression and snapshots                                                          |"
-                            echo "|     • Good for SSDs and frequent backups                                                          |"
-                            echo "|     • Slightly more complex; better for advanced users                                            |"
-                            echo "|---------------------------------------------------------------------------------------------------|"
-                            echo "|-3) BTRFS(root)-EXT4(home)                                                                         |"
-                            echo "|   → A balanced setup combining both worlds.                                                       |"
-                            echo "|     • BTRFS for system (root) — allows snapshots & rollback                                       |"
-                            echo "|     • EXT4 for home — simpler and very stable for data                                            |"
-                            echo "|     • Recommended if you want snapshots but prefer EXT4 for personal files                        |"
-                            echo "|---------------------------------------------------------------------------------------------------|"
-                            echo "|-4) Back to start                                                                                  |"
-                            echo "#---------------------------------------------------------------------------------------------------#"
-                            read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
-                                    FS_CHOICE="${FS_CHOICE:-1}"
-                                
-                                    case "$FS_CHOICE" in
-                                        1)
-                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                            parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                            parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
-                                            ;;
-                                        2)
-                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                            parted -s "$DEV" mkpart primary btrfs "${p3_start}MiB" "${p3_end}MiB"
-                                            ;;
-                                        3)
-                                            parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                            parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                            parted -s "$DEV" mkpart primary ext4 "${p3_start}MiB" "${p3_end}MiB"
-                                            ;;
-                                        *) exec "$0";;
-                                    esac
-                                
-                                    parted -s "$DEV" set 1 boot on
-                                    partprobe "$DEV"
-                                    udevadm settle || true
-                                    sleep 1
-                                
-                                    PSUFF=$(part_suffix "$DEV")
-                                    P1="${DEV}${PSUFF}1" # EFI
-                                    P2="${DEV}${PSUFF}2" # Root
-                                    P3="${DEV}${PSUFF}3" # Home
-                                
-                                    mkfs.fat -F32 "$P1"
-                                
-                                    case "$FS_CHOICE" in
-                                        1)  # EXT4
-                                            mkfs.ext4 -F "$P2"
-                                            mkfs.ext4 -F "$P3"
-                                            mount "$P2" /mnt
-                                            mkdir -p /mnt/{boot,home}
-                                            mount -t vfat "$P1" /mnt/boot
-                                            mount "$P3" /mnt/home
-                                            ;;
-                                        2)  # BTRFS
-                                            mkfs.btrfs -f --nodiscard "$P2"
-                                            mkfs.btrfs -f --nodiscard "$P3"
-                                            mount "$P2" /mnt
-                                            for sv in @ @snapshots @cache @log; do
-                                                btrfs subvolume create "/mnt/$sv"
-                                            done
-                                            umount /mnt
-                                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                            mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                                            mount "$P3" /mnt/home
-                                            mount -t vfat "$P1" /mnt/boot
-                                            ;;
-                                        3)  # BTRFS root + EXT4 home
-                                            mkfs.btrfs -f --nodiscard "$P2"
-                                            mkfs.ext4 -F "$P3"
-                                            mount "$P2" /mnt
-                                            for sv in @ @snapshots @cache @log; do
-                                                btrfs subvolume create "/mnt/$sv"
-                                            done
-                                            umount /mnt
-                                            mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                            mkdir -p /mnt/{boot,.snapshots,var/cache,var/log,home}
-                                            mount "$P3" /mnt/home
-                                            mount -t vfat "$P1" /mnt/boot
-                                            ;;
-                                    esac
-                                
-                                    echo "→ Partitioning and filesystem setup complete."
-                                }
-
-
+# Install base system
 #=========================================================================================================================================#
-quick_partition_swap_off_root() 
-{
-                            partprobe "$DEV" || true
-                        
-                            # Disk sizes
-                            DISK_SIZE_MIB=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
-                            DISK_GIB=$(lsblk -b -dn -o SIZE "$DEV" | awk '{printf "%.2f\n", $1/1024/1024/1024}')
-                            DISK_GIB_INT=${DISK_GIB%.*}
-                            EFI_SIZE_MIB=1024
-                            BUFFER_MIB=8    # safety buffer to avoid partition overlap / BTRFS edgecases
-                        
-                            # Ask user for root size
-                            while true; do
-                                lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
-                                MAX_ROOT_GIB=$((DISK_GIB_INT - 5))
-                                read -r -p "Enter ROOT partition size in GiB: " ROOT_SIZE_GIB
-                                if ! [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || (( ROOT_SIZE_GIB <= 0 || ROOT_SIZE_GIB > MAX_ROOT_GIB )); then
-                                    echo "Invalid input! ~5-10% Disk Space Must be left for error margin"
-                                    continue
-                                fi
-                        
-                                ROOT_SIZE_MIB=$((ROOT_SIZE_GIB * 1024))
-                                MIN_REQUIRED_MIB=$((ROOT_SIZE_MIB + EFI_SIZE_MIB + BUFFER_MIB))
-                                if (( MIN_REQUIRED_MIB > DISK_SIZE_MIB )); then
-                                    echo "Error: requested root + EFI (with buffer) exceeds disk size!"
-                                    continue
-                                fi
-                                break
-                            done
-                        
-                            echo "Root: $ROOT_SIZE_MIB MiB (~$ROOT_SIZE_GIB GiB), EFI: $EFI_SIZE_MIB MiB"
-                        
-                            # Partition boundaries
-                            p1_start=1
-                            p1_end=$((p1_start + EFI_SIZE_MIB - BUFFER_MIB))
-                            p2_start=$p1_end
-                            p2_end=$((p2_start + ROOT_SIZE_MIB - BUFFER_MIB))
-                        
-                            # Quick safety check that end offsets do not exceed disk
-                            if (( p2_end + BUFFER_MIB > DISK_SIZE_MIB )); then
-                                echo "ERROR: computed partition end (${p2_end} MiB) would exceed disk size (${DISK_SIZE_MIB} MiB)."
-                                echo "Reduce ROOT size and try again."
-                                return 1
-                            fi
-
-
-clear
-echo "#===================================================================================================#"
-echo "| 4)SELECT FILESYSTEM  HOME UNDER ROOT & SWAP OFF                                                   |"
-echo "#===================================================================================================#" 
-                        echo "#                 Table Of Contents:                      #"
-                        echo "|=========================================================|" 
-                        echo "|-Partition table (MiB):                                  |"
-                        echo "|  1) EFI    : ${p1_start}MiB - ${p1_end}MiB (FAT32, boot)|"
-                        echo "|  2) Root   : ${p2_start}MiB - ${p2_end}MiB              |"
-                        echo "|                                                         |"
-                        echo "|---------------------------------------------------------|"  
-                        echo "|Filesystem Partition Options                             |"
-                        echo "|---------------------------------------------------------|"  
-                        echo "|-1) EXT4                                                 |"
-                        echo "|   → The classic, reliable Linux filesystem.             |"
-                        echo "|     • Stable and widely supported                       |"
-                        echo "|     • Simple, fast, and easy to recover                 |"
-                        echo "|     • Recommended for most users                        |"
-                        echo "|---------------------------------------------------------|"  
-                        echo "|-2) BTRFS                                                |"
-                        echo "|   → A modern, advanced filesystem with extra features.  |"
-                        echo "|     • Built-in compression and snapshots                |"
-                        echo "|     • Good for SSDs and frequent backups                |"
-                        echo "|     • Slightly more complex; better for advanced users  |"
-                        echo "|---------------------------------------------------------|"  
-                        echo "|-3) Back to start                                        |"
-                        echo "#---------------------------------------------------------#" 
-                         read -r -p "Select File System [1-2, default=1]: " FS_CHOICE
-                            FS_CHOICE="${FS_CHOICE:-1}"
-                        
-                            # create label and partitions
-                            which parted >/dev/null 2>&1 || die "parted required but not found."
-                            parted -s "$DEV" mklabel gpt
-                        
-                            case "$FS_CHOICE" in
-                                1)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary ext4 "${p2_start}MiB" "${p2_end}MiB"
-                                    ;;
-                                2)
-                                    parted -s "$DEV" mkpart primary fat32 "${p1_start}MiB" "${p1_end}MiB"
-                                    parted -s "$DEV" mkpart primary btrfs "${p2_start}MiB" "${p2_end}MiB"
-                                    ;;
-                                *)
-                                    echo "Invalid choice"; exec "$0"
-                                    ;;
-                            esac
-                        
-                            # finalize device nodes
-                            parted -s "$DEV" set 1 boot on
-                            partprobe "$DEV"
-                            udevadm settle || true
-                            sleep 1
-                        
-                            PSUFF=$(part_suffix "$DEV")
-                            P1="${DEV}${PSUFF}1"  # EFI
-                            P2="${DEV}${PSUFF}2"  # Root
-                        
-                            # Format partitions
-                            mkfs.fat -F32 "$P1"
-                            case "$FS_CHOICE" in
-                                1) mkfs.ext4 -F "$P2" ;;
-                                2) mkfs.btrfs -f "$P2" ;;
-                            esac
-                        
-                            # Mount root
-                            mount "$P2" /mnt
-                            mkdir -p /mnt/home
-                        
-                            # BTRFS subvolumes
-                            if [[ "$FS_CHOICE" == "2" ]]; then
-                                for sv in @ @snapshots @cache @log; do
-                                    btrfs subvolume create "/mnt/$sv"
-                                done
-                                umount /mnt
-                                mount -o noatime,compress=zstd,subvol=@ "$P2" /mnt
-                                mkdir -p /mnt/{home,.snapshots,var/cache,var/log}
-                            fi
-                        
-                            # Mount EFI
-                            mkdir -p /mnt/boot
-                            mount -t vfat "$P1" /mnt/boot
-                        
-                            echo "→ Partitioning and filesystem setup complete."
-}
-
-#=========================================================================================================================================#
-quick_partition()
-{
-sleep 1
-clear
-echo "#===============================================================================================================#" 
-echo "# 1.4 Quick-Partition Mode:                                                                                     #"
-echo "#===============================================================================================================#" 
-            echo "#                            Table Of Contents:                                    #"
-            echo "|==================================================================================|"
-            echo "|-1) Separate partition for home & swap enabled-(DEFAULT OPTION)                   |"
-            echo "|   → Safer choice for most users (especially <16GB RAM).                          |"
-            echo "|   → example: Divides drive into 2 Linux partitions /root and /home (with swap)   |"
-            echo "|----------------------------------------------------------------------------------|"
-            echo "|-2) Home folder on same device as /root & swap enabled                            |"
-            echo "|   → Safer choice for most users (especially <16GB RAM).                          |"
-            echo "|   → example: One big linux partition. (with swap)                                |"
-            echo "|----------------------------------------------------------------------------------|"
-            echo "|-3) Separate partition for home & swap disabled                                   |"
-            echo "|   → Advanced users with lots of RAM or no hibernation.                           |"
-            echo "|   → example: Divides drive into 2 Linux partitions /root and /home (without swap)|"
-            echo "|----------------------------------------------------------------------------------|"
-            echo "|-4) Home folder on same device as /root & swap disabled                           |"
-            echo "|   → Advanced users with lots of RAM or no hibernation.                           |"
-            echo "|   → example: One big linux partition (without swap)                              |"
-            echo "|----------------------------------------------------------------------------------|"
-            echo "|-5) Back to start                                                                 |"
-            echo "#__________________________________________________________________________________#"
-            read -r -p "Select File System [1-2, default=1]: " SWAP_CHOICE        
-            SWAP_CHOICE="${SWAP_CHOICE:-1}"
-
-                    case "$SWAP_CHOICE" in
-                    1)
-                        quick_partition_swap_on  ;; 
-                    2)
-                        quick_partition_swap_on_root  ;; 
-                        
-                    3)  quick_partition_swap_off  ;; 
-                        
-                    4)  quick_partition_swap_off_root ;;
-
-                    5)
-                        echo "Restarting..."
-                        exec "$0"
-                        ;;
-                    *)
-                        echo "Invalid choice."
-                        exec "$0"
-                        ;;
-                esac                        
-}
-#=========================================================================================================================================#
-custom_partition()
-{
-
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.7) Custom Partition Mode: Selected Drive $DEV                                                   #"
-echo "#===================================================================================================#"
-echo
-
-      echo "Under Construction - Feature coming soon, restarting. . . "
-      sleep 3
-      exec "$0"
-}
-#=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 1.3 Choose Partitioning Mode                                                                      #"
-echo "#===================================================================================================#"
-echo
-echo
-
-            echo "Select partitioning method for $DEV:"
-            echo "1) Quick Partitioning  (automated, recommended)"
-            echo "2) Custom Partitioning (manual, using cfdisk)"
-            echo "3) Return back to start"
-            echo
-
-            read -rp "Enter choice [1-2, default=1]: " PART_CHOICE
-            PART_CHOICE="${PART_CHOICE:-1}"
-
-                case "$PART_CHOICE" in
-                    1)
-                        quick_partition  ;;
-                    2)
-                        custom_partition  ;;
-                    3)
-                        echo "Restarting..."
-                        exec "$0"
-                        ;;
-                    *)
-                        echo "Invalid choice."
-                        exec "$0"
-                        ;;
-                esac
-#=========================================================================================================================================#                
+install_base_system() {
 sleep 1
 clear
 echo
@@ -1048,7 +540,6 @@ echo "#=========================================================================
 echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
 echo "#===================================================================================================#"
 echo
-
 # You can modify the package list below as needed.
 PKGS=(
   base
@@ -1073,30 +564,101 @@ PKGS=(
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
+}
 #=========================================================================================================================================#
-clear
-sleep 1
-echo
-echo "#===================================================================================================#"
-echo "# 3) Generating fstab & Showing Partition Table / Mountpoints                                       #"
-echo "#===================================================================================================#"
-echo
-sleep 1
-
-echo "Generating /etc/fstab..."
-genfstab -U /mnt >> /mnt/etc/fstab
-echo "Partition Table and Mountpoints:"
-cat /mnt/etc/fstab
-
+# GRUB installation
 #=========================================================================================================================================#
+install_grub() {
+    detect_boot_mode
+    local ps
+    ps=$(part_suffix "$DEV")
+
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "Installing GRUB for BIOS..."
+        prepare_chroot
+        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install (BIOS) failed"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+    else
+        echo "Installing GRUB (UEFI)..."
+        prepare_chroot
+
+        # Ensure EFI is mounted inside chroot at /boot/efi
+        if ! mountpoint -q /mnt/boot/efi; then
+            mkdir -p /mnt/boot/efi
+            if [[ -n "${P_EFI:-}" ]]; then
+                mount "$P_EFI" /mnt/boot/efi
+            else
+                # fallback: attempt to mount the first partition
+                local psfx
+                psfx=$(part_suffix "$DEV")
+                mount "${DEV}${psfx}1" /mnt/boot/efi || die "Failed to mount EFI partition"
+            fi
+        fi
+
+        # Basic, minimal GRUB modules needed for UEFI boot
+        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+
+        # Run grub-install safely inside chroot
+        arch-chroot /mnt grub-install \
+          --target=x86_64-efi \
+          --efi-directory=/boot/efi \
+          --bootloader-id=GRUB \
+          --modules="$GRUB_MODULES" \
+          --recheck \
+          --no-nvram || die "grub-install (UEFI) failed"
+
+        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
+        echo "→ Copying fallback EFI binary..."
+        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
+        DISK="${DEV}"
+        PARTNUM=1
+        LABEL="Arch Linux"
+        LOADER='\EFI\GRUB\grubx64.efi'
+
+        # Delete stale entries with same label to avoid duplicates
+        # Note: run efibootmgr on host (not inside chroot) so it manipulates the real NVRAM
+        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+          efibootmgr -b "$bootnum" -B || true
+        done
+
+        # Create new entry (host efibootmgr)
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed (but continuing)"
+
+        # Generate GRUB config inside chroot
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+
+        # Secure Boot Integration (optional)
+        if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
+          echo "→ Signing EFI binaries for Secure Boot..."
+          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+          # Note: enroll-keys may require interactive confirmation / manual step depending on sbctl configuration
+          arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed or requires manual action"
+          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
+          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
+        fi
+
+        echo "GRUB installation complete."
+        echo
+        echo "Verifying EFI boot entries..."
+        efibootmgr -v || true
+    fi
+    echo "✅ GRUB installed."
+}
+#=========================================================================================================================================#
+# Configure system
+#=========================================================================================================================================#
+configure_system() {
 sleep 1
 clear
-echo
 echo "#===================================================================================================#"
 echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
 echo "#===================================================================================================#"
 echo
-
+# -------------------------------
+# Prompt for timezone, locale, hostname, and username
+# -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
 read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
 TZ="${TZ:-$DEFAULT_TZ}"
@@ -1112,84 +674,13 @@ HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 DEFAULT_USER="user"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-
-#=========================================================================================================================================#
-clear
-sleep 1
-echo
-echo "#===================================================================================================#"
-echo "# 5) Installing GRUB for UEFI - Works now!!! (Possible in future: Bios support)                     #"
-echo "#===================================================================================================#"
-echo
-sleep 1
-# EFI partition is expected to be mounted on /boot (as done before chroot)
-echo "Installing GRUB (UEFI)..."
-
-# Determine EFI partition mountpoint and ensure it’s /boot/efi
-if ! mountpoint -q /mnt/boot/efi; then
-  echo "→ Ensuring EFI system partition is mounted at /boot/efi..."
-  mkdir -p /mnt/boot/efi
-  mount "$P1" /mnt/boot/efi
-fi
-
-# Basic, minimal GRUB modules needed for UEFI boot
-GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-
-# Run grub-install safely inside chroot
-arch-chroot /mnt grub-install \
-  --target=x86_64-efi \
-  --efi-directory=/boot/efi \
-  --bootloader-id=GRUB \
-  --modules="$GRUB_MODULES" \
-  --recheck \
-  --no-nvram
-
-# Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-echo "→ Copying fallback EFI binary..."
-arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-# Ensure a clean efibootmgr entry (use the parent disk of $P1)
-DISK="${DEV}"
-PARTNUM=1
-LABEL="Arch Linux"
-LOADER='\EFI\GRUB\grubx64.efi'
-
-# Delete stale entries with same label to avoid duplicates
-for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-  efibootmgr -b "$bootnum" -B || true
-done
-
-# Create new entry
-efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER"
-
-# Generate GRUB config inside chroot
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg
-
-# Secure Boot Integration
-if command -v sbctl >/dev/null 2>&1; then
-  echo "→ Signing EFI binaries for Secure Boot..."
-  arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-  arch-chroot /mnt sbctl enroll-keys --microsoft
-  arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi
-  arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux
-fi
-
-echo "GRUB installation complete."
-echo
-echo "Verifying EFI boot entries..."
-efibootmgr -v || true
-
-#=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 6A) Running chroot and setting mkinitcpio - Setting Hostname, Username, enabling services etc.    #"
-echo "#===================================================================================================#"
-echo
-#========================================================#
-# inline script for arch-chroot operations "postinstall.sh"
-# Ask for passwords before chroot (silent input)
+# -------------------------------
+# Prepare chroot (mount pseudo-filesystems etc.)
+# -------------------------------
+prepare_chroot
+# -------------------------------
+# Create postinstall.sh inside chroot
+# -------------------------------
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
@@ -1200,7 +691,6 @@ TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
-
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
@@ -1214,7 +704,8 @@ if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
-
+export LANG="${LANG_LOCALE}"
+export LC_ALL="${LANG_LOCALE}"
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
@@ -1224,7 +715,6 @@ cat > /etc/hosts <<HOSTS
 ::1         localhost
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
-
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
@@ -1232,96 +722,66 @@ echo "KEYMAP=fi" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap fi
 localectl set-x11-keymap fi
-
 #========================================================#
 # 5) Initramfs
 #========================================================#
 mkinitcpio -P
-
 #========================================================#
 # 6) Root + user passwords (interactive)
 #========================================================#
-set +e  # allow retries
-MAX_RETRIES=3
-
-# Ensure user exists
-if ! id "$NEWUSER" &>/dev/null; then
-    echo "Creating user '$NEWUSER'..."
-    useradd -m -G wheel -s /bin/bash "$NEWUSER"
-fi
-#========================================================#
-clear
-# Root password
-echo
-echo "#========================================================#"
-echo " Set ROOT password                                       #"
-echo "#========================================================#"
-for i in $(seq 1 $MAX_RETRIES); do
-    if passwd root; then
-        break
-    else
-        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-    fi
-done
-#========================================================#
-# User password
+: "${NEWUSER:?NEWUSER is not set}"
 echo "#=======================================================#"
 echo " Set password for user '$NEWUSER'                       #"
 echo "#=======================================================#"
-for i in $(seq 1 $MAX_RETRIES); do
-    if passwd "$NEWUSER"; then
-        break
-    else
-        echo "⚠️ Passwords did not match. Try again. ($i/$MAX_RETRIES)"
-    fi
-done
+useradd -m -G wheel -s /bin/bash "${NEWUSER}"
+# User password
+echo "Set password for ${NEWUSER}:"
+retry_cmd 3 passwd "${NEWUSER}" || echo "⚠️ Password setup failed after 3 tries."
+echo "#========================================================#"
+echo " Set ROOT password                                       #"
+echo "#========================================================#"
+echo "Set root password:"
+retry_cmd 3 passwd || echo "⚠️ Root password setup failed after 3 tries."
 #========================================================#
-# Give sudo rights
-echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
-chmod 440 /etc/sudoers.d/$NEWUSER
+# 7) Ensure user has sudo privileges
+#========================================================#
+echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
+chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-
-set -e  # restore strict error handling
-
 #========================================================#
-# 7) Home directory setup
+# 8) Home directory setup
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
-
 #========================================================#
-# 8) Enable basic services
+# 9) Enable basic services
 #========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
-
 echo "Postinstall inside chroot finished."
 EOF
-#=========================================================================================================================================#
-echo "#===================================================================================================#"
-echo "# 6B) Inject variables into /mnt/root/postinstall.sh                                                #"
-echo "#===================================================================================================#"
-
-# Replace placeholders with actual values (safe substitution)
+# -------------------------------
+# Inject actual values into postinstall.sh
+# -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
-
+# -------------------------------
+# Make executable and run inside chroot
+# -------------------------------
 chmod +x /mnt/root/postinstall.sh
-
-# chroot and run postinstall.sh
-echo "Entering chroot to run postinstall.sh..."
 arch-chroot /mnt /root/postinstall.sh
-
-# Remove postinstall.sh after execution
 rm -f /mnt/root/postinstall.sh
-
-echo "✅ Chroot configuration complete."
-
+echo "✅ System configured."
+}
 #=========================================================================================================================================#
+# Network Mirror Selection
+#=========================================================================================================================================#
+network_mirror_selection()
+{
 sleep 1
 clear
 echo
@@ -1329,17 +789,10 @@ echo "#=========================================================================
 echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #"
 echo "#===================================================================================================#"
 echo
-
-echo
-echo "#========================================================#"
-echo "📡 Arch Linux Mirror Selection & Optimization"
-echo "#========================================================#"
-echo "Choose your country or region for faster package downloads."
-
 # Ensure reflector is installed in chroot
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
-}
+    }
 echo "#========================================================#"
 echo "#                   MIRROR SELECTION                     #" 
 echo "#========================================================#"
@@ -1378,11 +831,10 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
         --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror update failed, continuing."
     echo "✅ Mirrors updated."
 fi
+}
 #=========================================================================================================================================#
-#===================================================================================================#
-# 7B) Helper Functions - For Pacman                                                                  
-#===================================================================================================#
-
+# Helper Functions - For Pacman                                                                  
+#=========================================================================================================================================#
 # Resilient installation with retries, key refresh, and mirror recovery
 install_with_retry() {
     local CHROOT_CMD=("${!1}")
@@ -1423,7 +875,7 @@ install_with_retry() {
 
     echo "❌ Installation failed after ${MAX_RETRIES} attempts."
     return 1
-}
+  }
 
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
@@ -1434,12 +886,10 @@ safe_pacman_install() {
         install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
             echo "⚠️ Skipping $PKG"
     done
-}
+   }
 #=========================================================================================================================================#
-#===================================================================================================#
-# 7C) Helper Functions - For AUR (Paru)                                                              
-#===================================================================================================#
-
+# Helper Functions - For AUR (Paru)                                                              
+#=========================================================================================================================================#
 safe_aur_install() {
     local CHROOT_CMD=("${!1}")
     shift
@@ -1497,337 +947,443 @@ EOF
 }
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
-
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
-echo "#===================================================================================================#"
-echo
-
-echo
-echo "#========================================================#"
-echo "🎮 GPU DRIVER INSTALLATION"
-echo "#========================================================#"
-echo "1) Intel"
-echo "2) NVIDIA"
-echo "3) AMD"
-echo "4) All compatible drivers (default)"
-echo "5) Skip"
-read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
-GPU_CHOICE="${GPU_CHOICE:-4}"
-
-GPU_PKGS=()
-
-case "$GPU_CHOICE" in
-    1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
-    2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
-    3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
-    4)
-        GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-        echo "→ AMD skipped to prevent hybrid driver conflicts."
-        ;;
-    5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
-esac
-
-if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-    echo "🔧 Ensuring multilib repository is enabled..."
-    "${CHROOT_CMD[@]}" bash -c '
-        if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-            echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-        fi
-        pacman -Sy --noconfirm
-    '
-    safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
-fi
+# Graphics Driver Selection Menu
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
-echo "#===================================================================================================#"
-echo
-
-echo
-echo "#========================================================#"
-echo "Windof Manager / Desktop Selection"
-echo "#========================================================#"
-    echo "1) Hyprland (Wayland)"
-    echo "2) Sway (Wayland)"
-    echo "3) XFCE (X11)"
-    echo "4) KDE Plasma (X11/Wayland)"
-    echo "5) GNOME (X11/Wayland)"
-    echo "6) Skip WM/DE installation"
-    read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-    WM_CHOICE="${WM_CHOICE:-6}"
-    
-    WM_PKGS=()
-    WM_AUR_PKGS=()
-    
-    case "$WM_CHOICE" in
-        1)
-            echo "→ Selected: Hyprland (Wayland)"
-            WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-        2)
-            echo "→ Selected: Sway (Wayland)"
-            WM_PKGS=(sway swaybg swaylock waybar wofi)
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-        3)
-            echo "→ Selected: XFCE"
-            WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-        4)
-            echo "→ Selected: KDE Plasma"
-            WM_PKGS=(plasma-desktop kde-applications sddm)
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-        5)
-            echo "→ Selected: GNOME"
-            WM_PKGS=(gnome gdm)
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-        6|*)
-            echo "Skipping window manager installation."
-            WM_PKGS=()
-            WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-            ;;
-    esac
-    
-    # Install WM packages
-    if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-        safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
-    fi
-    # Install AUR packages (safe, conflict-handling)
-    safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
-
+gpu_driver()
+{
+     sleep 1
+     clear
+     echo
+     echo "#===================================================================================================#"
+     echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
+     echo "#===================================================================================================#"
+     echo
+     
+     echo
+     echo "#========================================================#"
+     echo "🎮 GPU DRIVER INSTALLATION"
+     echo "#========================================================#"
+     echo "1) Intel"
+     echo "2) NVIDIA"
+     echo "3) AMD"
+     echo "4) All compatible drivers (default)"
+     echo "5) Skip"
+     read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
+     GPU_CHOICE="${GPU_CHOICE:-4}"
+     
+     GPU_PKGS=()
+     
+     case "$GPU_CHOICE" in
+         1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
+         2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
+         3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
+         4)
+             GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+             echo "→ AMD skipped to prevent hybrid driver conflicts."
+             ;;
+         5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
+     esac
+     
+     if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
+         echo "🔧 Ensuring multilib repository is enabled..."
+         "${CHROOT_CMD[@]}" bash -c '
+             if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+                 echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+             fi
+             pacman -Sy --noconfirm
+         '
+         safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
+     fi
+}
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 8C) LM/DM                                                                                         #"
-echo "#===================================================================================================#"
-echo
-
-echo
-echo "#========================================================#"
-echo " Login Manager / Display Manager Selection"
-echo "#========================================================#"
-        echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
-        echo "2) SDDM - If you installed: KDE, XFCE" 
-        echo "3) LightDM - XFCE"
-        echo "4) Ly (AUR) - Sway, Hyprland"
-        echo "5) LXDM - XFCE"
-        echo "6) Skip Display Manager"
-        read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
-        DM_CHOICE="${DM_CHOICE:-6}"
+# Window Manager Selection Menu
+#=========================================================================================================================================#
+window_manager()
+{
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
+    echo "#===================================================================================================#"
+    echo
+    
+    echo
+    echo "#========================================================#"
+    echo "Windof Manager / Desktop Selection"
+    echo "#========================================================#"
+        echo "1) Hyprland (Wayland)"
+        echo "2) Sway (Wayland)"
+        echo "3) XFCE (X11)"
+        echo "4) KDE Plasma (X11/Wayland)"
+        echo "5) GNOME (X11/Wayland)"
+        echo "6) Skip WM/DE installation"
+        read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
+        WM_CHOICE="${WM_CHOICE:-6}"
         
-        DM_PKGS=()
-        DM_AUR_PKGS=()
-        DM_SERVICE=""
+        WM_PKGS=()
+        WM_AUR_PKGS=()
         
-        case "$DM_CHOICE" in
+        case "$WM_CHOICE" in
             1)
-                DM_PKGS=(gdm)
-                DM_SERVICE="gdm.service"
+                echo "→ Selected: Hyprland (Wayland)"
+                WM_PKGS=(hyprland hyprpaper hyprshot hyprlock waybar )
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
-                DM_PKGS=(sddm)
-                DM_SERVICE="sddm.service"
+                echo "→ Selected: Sway (Wayland)"
+                WM_PKGS=(sway swaybg swaylock waybar wofi)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             3)
-                DM_PKGS=(lightdm lightdm-gtk-greeter)
-                DM_SERVICE="lightdm.service"
+                echo "→ Selected: XFCE"
+                WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             4)
-                DM_PKGS=(ly)
-                DM_AUR_PKGS=(ly-themes-git)
-                DM_SERVICE="ly.service"
+                echo "→ Selected: KDE Plasma"
+                WM_PKGS=(plasma-desktop kde-applications sddm)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             5)
-                DM_PKGS=(lxdm)
-                DM_SERVICE="lxdm.service"
+                echo "→ Selected: GNOME"
+                WM_PKGS=(gnome gdm)
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             6|*)
-                echo "Skipping display manager installation."
-                DM_PKGS=()
+                echo "Skipping window manager installation."
+                WM_PKGS=()
+                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
         esac
         
-        # Install display manager packages
-        if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-            safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+        # Install WM packages
+        if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+            safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
         fi
-        
-        # Install AUR display manager packages (safe)
-        safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
-        
-        # Enable chosen service
-        if [[ -n "$DM_SERVICE" ]]; then
-            "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-            echo "✅ Display manager service enabled: $DM_SERVICE"
-        fi
-        
+        # Install AUR packages (safe, conflict-handling)
+        safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
+}
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
-echo "#===================================================================================================#"
-echo
-
-            read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
-            if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
-                read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
-                # Clean list: neofetch removed (deprecated)
-                EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+# Login Manager & Display Manager Menu
+#=========================================================================================================================================#
+lm_dm()
+{
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 8C) LM/DM                                                                                         #"
+    echo "#===================================================================================================#"
+    echo
+    
+    echo
+    echo "#========================================================#"
+    echo " Login Manager / Display Manager Selection"
+    echo "#========================================================#"
+            echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
+            echo "2) SDDM - If you installed: KDE, XFCE" 
+            echo "3) LightDM - XFCE"
+            echo "4) Ly (AUR) - Sway, Hyprland"
+            echo "5) LXDM - XFCE"
+            echo "6) Skip Display Manager"
+            read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
+            DM_CHOICE="${DM_CHOICE:-6}"
             
-                # Filter out non-existent packages before installing
-                VALID_PKGS=()
-                for pkg in "${EXTRA_PKGS[@]}"; do
-                    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
-                        VALID_PKGS+=("$pkg")
-                    else
-                        echo "⚠️  Skipping invalid or missing package: $pkg"
-                    fi
-                done
+            DM_PKGS=()
+            DM_AUR_PKGS=()
+            DM_SERVICE=""
             
-                # Merge validated list with user input
-                EXTRA_PKG=("${VALID_PKGS[@]}")
-                if [[ -n "$EXTRA_PKG_INPUT" ]]; then
-                    read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
-                    EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
-                fi
+            case "$DM_CHOICE" in
+                1)
+                    DM_PKGS=(gdm)
+                    DM_SERVICE="gdm.service"
+                    ;;
+                2)
+                    DM_PKGS=(sddm)
+                    DM_SERVICE="sddm.service"
+                    ;;
+                3)
+                    DM_PKGS=(lightdm lightdm-gtk-greeter)
+                    DM_SERVICE="lightdm.service"
+                    ;;
+                4)
+                    DM_PKGS=(ly)
+                    DM_AUR_PKGS=(ly-themes-git)
+                    DM_SERVICE="ly.service"
+                    ;;
+                5)
+                    DM_PKGS=(lxdm)
+                    DM_SERVICE="lxdm.service"
+                    ;;
+                6|*)
+                    echo "Skipping display manager installation."
+                    DM_PKGS=()
+                    ;;
+            esac
             
-                if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
-                    safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
-                else
-                    echo "⚠️  No valid packages to install."
-                fi
-            else
-                echo "Skipping extra pacman packages."
+            # Install display manager packages
+            if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+                safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
             fi
-
+            
+            # Install AUR display manager packages (safe)
+            safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
+            
+            # Enable chosen service
+            if [[ -n "$DM_SERVICE" ]]; then
+                "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+                echo "✅ Display manager service enabled: $DM_SERVICE"
+            fi
+}        
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
-echo "#===================================================================================================#"
-echo
-
-                read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
-                install_aur="${install_aur:-N}"
-                
-                if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-                    read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
-                
-                    # Predefined extra AUR packages
-                    EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-                
-                    # Merge WM + DM AUR packages with user input
-                    AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
-                
-                    if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-                        read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
-                        AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
-                    fi
-                
-                    echo "🔧 Installing AUR packages inside chroot..."
-                    safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
-                else
-                    echo "Skipping AUR installation."
-                fi
+# Extra Pacman Package Installer
 #=========================================================================================================================================#
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
-echo "#===================================================================================================#"
-echo
-sleep 1
-
-                    # Only proceed if Hyprland was selected (WM_CHOICE == 1)
-                    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-                        echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                        arch-chroot /mnt pacman -S --needed --noconfirm unzip git
-                    
-                        read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-                        if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-                            echo "→ Running Hyprland theme setup inside chroot..."
-                    
-                            arch-chroot /mnt /bin/bash -c "
-                    NEWUSER=\"$NEWUSER\"
-                    HOME_DIR=\"/home/\$NEWUSER\"
-                    CONFIG_DIR=\"\$HOME_DIR/.config\"
-                    REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
-                    
-                    # Ensure home exists
-                    mkdir -p \"\$HOME_DIR\"
-                    chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                    chmod 755 \"\$HOME_DIR\"
-                    
-                    # Clone theme repo
-                    if [[ -d \"\$REPO_DIR\" ]]; then
-                        rm -rf \"\$REPO_DIR\"
-                    fi
-                    sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
-                    
-                    # Copy files to home directory
-                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-                    sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
-                    
-                    # Backup existing .config if not empty
-                    if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-                        mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-                        echo '==> Existing .config backed up.'
-                    fi
-                    mkdir -p \"\$CONFIG_DIR\"
-                    
-                    # Extract config.zip into .config
-                    if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-                        unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
-                        if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
-                            cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
-                            rm -rf \"\$HOME_DIR/temp_unzip\"
-                            echo '==> config.zip contents copied to .config'
+extra_pacman_pkg()
+{    
+    sleep 1
+    clear
+    echo
+    echo "#===================================================================================================#"
+    echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
+    echo "#===================================================================================================#"
+    echo
+    
+                read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+                if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+                    read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                    # Clean list: neofetch removed (deprecated)
+                    EXTRA_PKGS=( zram-generator kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome )
+                
+                    # Filter out non-existent packages before installing
+                    VALID_PKGS=()
+                    for pkg in "${EXTRA_PKGS[@]}"; do
+                        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+                            VALID_PKGS+=("$pkg")
                         else
-                            echo '⚠️ config/ folder not found inside zip, skipping.'
+                            echo "⚠️  Skipping invalid or missing package: $pkg"
                         fi
+                    done
+                
+                    # Merge validated list with user input
+                    EXTRA_PKG=("${VALID_PKGS[@]}")
+                    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+                        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+                        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
+                    fi
+                
+                    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
+                        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
                     else
-                        echo '⚠️ config.zip not found, skipping.'
+                        echo "⚠️  No valid packages to install."
                     fi
-                    
-                    # Extract wallpaper.zip to HOME_DIR
-                    [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
-                    
-                    # Copy wallpaper.sh and make executable
-                    [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
-                    
-                    # Fix ownership
-                    chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                    
-                    # Cleanup cloned repo
-                    rm -rf \"\$REPO_DIR\"
-                    "
-                    
-                            echo "Hyprland theme setup completed."
-                        else
-                            echo "Skipping Hyprland theme setup."
-                        fi
-                    fi
+                else
+                    echo "Skipping extra pacman packages."
+                fi
+}
 #=========================================================================================================================================#
+# Aur Package Installer
+#=========================================================================================================================================#
+optional_aur()
+{    
+     sleep 1
+     clear
+     echo
+     echo "#===================================================================================================#"
+     echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
+     echo "#===================================================================================================#"
+     echo
+     
+                     read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+                     install_aur="${install_aur:-N}"
+                     
+                     if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+                         read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+                     
+                         # Predefined extra AUR packages
+                         EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+                     
+                         # Merge WM + DM AUR packages with user input
+                         AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
+                     
+                         if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+                             read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
+                             AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
+                         fi
+                     
+                         echo "🔧 Installing AUR packages inside chroot..."
+                         safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
+                     else
+                         echo "Skipping AUR installation."
+                     fi
+}
+#=========================================================================================================================================#
+# Hyprland optional Configuration Installer - from http://github.com/terra88/hyprland-setup
+#=========================================================================================================================================#
+hyprland_optional()
+{     
+      sleep 1
+      clear
+      echo
+      echo "#===================================================================================================#"
+      echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
+      echo "#===================================================================================================#"
+      echo
+      sleep 1
+      
+                          # Only proceed if Hyprland was selected (WM_CHOICE == 1)
+                          if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+                              echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git
+                          
+                              read -r -p "Do you want to install the Hyprland theme from GitHub? [Y/n]: " INSTALL_HYPR_THEME
+                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Nn]$ ]]; then
+                                  echo "→ Running Hyprland theme setup inside chroot..."
+                          
+                                  arch-chroot /mnt /bin/bash -c "
+                          NEWUSER=\"$NEWUSER\"
+                          HOME_DIR=\"/home/\$NEWUSER\"
+                          CONFIG_DIR=\"\$HOME_DIR/.config\"
+                          REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+                          
+                          # Ensure home exists
+                          mkdir -p \"\$HOME_DIR\"
+                          chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                          chmod 755 \"\$HOME_DIR\"
+                          
+                          # Clone theme repo
+                          if [[ -d \"\$REPO_DIR\" ]]; then
+                              rm -rf \"\$REPO_DIR\"
+                          fi
+                          sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+                          
+                          # Copy files to home directory
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+                          
+                          # Backup existing .config if not empty
+                          if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+                              mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+                              echo '==> Existing .config backed up.'
+                          fi
+                          mkdir -p \"\$CONFIG_DIR\"
+                          
+                          # Extract config.zip into .config
+                          if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+                              unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
+                              if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
+                                  cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
+                                  rm -rf \"\$HOME_DIR/temp_unzip\"
+                                  echo '==> config.zip contents copied to .config'
+                              else
+                                  echo '⚠️ config/ folder not found inside zip, skipping.'
+                              fi
+                          else
+                              echo '⚠️ config.zip not found, skipping.'
+                          fi
+                          
+                          # Extract wallpaper.zip to HOME_DIR
+                          [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
+                          
+                          # Copy wallpaper.sh and make executable
+                          [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
+                          
+                          # Fix ownership
+                          chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+                          
+                          # Cleanup cloned repo
+                          rm -rf \"\$REPO_DIR\"
+                          "
+                          
+                                  echo "Hyprland theme setup completed."
+                              else
+                                  echo "Skipping Hyprland theme setup."
+                              fi
+                          fi
+}                          
+#=========================================================================================================================================#
+# Quick Partition Main
+#=========================================================================================================================================#
+quick_partition() {
+    detect_boot_mode
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
+
+    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
+
+    safe_disk_cleanup
+    ask_partition_sizes
+    select_filesystem
+    select_swap
+    partition_disk
+    format_and_mount
+    install_base_system
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    
+
+    echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
+}
+#=========================================================================================================================================#
+# Custom partition (placeholder)
+#=========================================================================================================================================#
+custom_partition() {
+
+sleep 1
+clear
+echo "#===================================================================================================#"
+echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
+echo "#===================================================================================================#"
+echo
+    echo "Custom Partition Mode under construction. Restarting..."
+    sleep 2
+    exec "$0"
+}
+#=========================================================================================================================================#
+# Main menu
+#=========================================================================================================================================#
+menu() {
+logo
+echo "#===================================================================================================#"
+echo "# 1 Choose Partitioning Mode                                                                        #"
+echo "#===================================================================================================#"
+            echo "#==================================================#"
+            echo "#     Select partitioning method for $DEV:         #"
+            echo "#==================================================#"
+            echo "|-1) Quick Partitioning  (automated, recommended)  |"
+            echo "|--------------------------------------------------|"
+            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
+            echo "|--------------------------------------------------|"
+            echo "|-3) Return back to start                          |"
+            echo "#==================================================#"
+            read -rp "Enter choice [1-2]: " PART_CHOICE
+            case "$PART_CHOICE" in
+                1) quick_partition ;;
+                2) custom_partition ;;
+                3) echo "Exiting..."; exit 0 ;;
+                *) echo "Invalid choice"; menu ;;
+            esac
+}
+#=========================================================================================================================================#
+# Menu - This is where the first call to Menu Happens.
+#=========================================================================================================================================#
+menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+#=========================================================================================================================================#                  
 sleep 1
 clear
 echo
@@ -1843,7 +1399,7 @@ echo "  - AUR_PKGS[] for AUR software"
 echo " ----------------------------------------------------------------------------------------------------"
 echo "You can now unmount and reboot:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
 echo "  reboot"
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
@@ -1852,7 +1408,7 @@ echo
 echo "Installation base and basic configuration finished."
 echo "To reboot into your new system:"
 echo "  umount -R /mnt"
-echo "  swapoff ${P3} || true"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
 echo "  reboot"
 echo
 echo "Done."
