@@ -1175,7 +1175,7 @@ extra_pacman_pkg()
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
                     # Clean list: neofetch removed (deprecated)
-                    EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
+                    EXTRA_PKGS=( install_extra_packages firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
                     # Filter out non-existent packages before installing
                     VALID_PKGS=()
@@ -1255,22 +1255,7 @@ hyprland_optional()
      
                           # Only proceed if Hyprland was selected (WM_CHOICE == 1)
                           if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-
-                            echo "Enabling multilib repository..."
-
-                            # Enable multilib if not already active
-                            if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-                                sudo sed -i '/\[multilib\]/,/Include/ s/^#//' /etc/pacman.conf
-                                echo "→ Multilib enabled."
-                                sudo pacman -Sy --noconfirm
-                            else
-                                echo "→ Multilib already enabled."
-                            fi
-                        
-                            echo "Installing Hyprland and related packages..."
-                            install_extra_packages firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol
-
-
+                            
                               echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
                               arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
                           
