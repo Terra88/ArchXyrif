@@ -144,7 +144,7 @@ detect_boot_mode() {
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
-        BOOT_SIZE_MIB=$BIOS_BOOT_SIZE_MIB
+        BOOT_SIZE_MIB=$BOOT_SIZE_MIB
         echo -e "${CYAN}Legacy BIOS${RESET} detected."
     fi
 }
@@ -229,7 +229,7 @@ ask_partition_sizes() {
         if [[ "$MODE" == "UEFI" ]]; then
             reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
         else
-            reserved_gib=$(( BIOS_BOOT_SIZE_MIB / 1024 ))
+            reserved_gib=$(( BOOT_SIZE_MIB_MIB / 1024 ))
         fi
 
         local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
