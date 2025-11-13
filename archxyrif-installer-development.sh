@@ -135,6 +135,65 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
+# SAFE DISK UNMOUNT & CLEANUP BEFORE PARTITIONING
+#=========================================================================================================================================#
+safe_disk_cleanup() {
+    [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
+
+    echo
+    echo "#===================================================================================================#"
+    echo "# 0) PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                    #"
+    echo "#===================================================================================================#"
+
+    # 1) Protect the live ISO device
+    local iso_dev
+    iso_dev=$(findmnt -no SOURCE / 2>/dev/null || true)
+    if [[ "$iso_dev" == "$DEV"* ]]; then
+        echo "❌ Refusing to touch the live ISO device ($iso_dev)"
+        return 1
+    fi
+
+    # 2) Deactivate LVMs on this disk
+    echo "→ Deactivating LVM volumes related to $DEV ..."
+    vgchange -an || true
+    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
+        dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
+    done
+
+    # 3) Close any LUKS mappings that belong to this disk
+    echo "→ Closing any LUKS mappings..."
+    for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
+        local backing
+        backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
+        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
+    done
+
+    # 4) Unmount all partitions of $DEV (not anything else!)
+    echo "→ Unmounting mounted partitions of $DEV..."
+    for p in $(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
+        local part="/dev/$p"
+        if mountpoint -q "/dev/$p" 2>/dev/null || grep -q "^$part" /proc/mounts; then
+            umount -R "$part" 2>/dev/null && echo "  Unmounted $part"
+        fi
+    done
+    swapoff "${DEV}"* 2>/dev/null || true
+
+    # 5) Remove old BTRFS subvolume mounts (if any)
+    echo "→ Cleaning BTRFS subvolumes..."
+    for mnt in $(mount | grep "$DEV" | awk '{print $3}' | sort -r); do
+        umount -R "$mnt" 2>/dev/null || true
+    done
+
+    # 6) Optional signature wipe
+    echo "→ Wiping old filesystem / partition signatures..."
+    for part in $(lsblk -ln -o NAME "$DEV" | tail -n +2); do
+        wipefs -af "/dev/$part" 2>/dev/null || true
+    done
+    wipefs -af "$DEV" 2>/dev/null || true
+
+    echo "✅ Disk cleanup complete for $DEV."
+}
+#=========================================================================================================================================#
 # Detect boot mode
 #=========================================================================================================================================#
 detect_boot_mode() {
