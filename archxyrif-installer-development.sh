@@ -293,11 +293,12 @@ select_swap()
     esac
     echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
 }
-
 #=========================================================================================================================================#
 # Ask partition sizes
 #=========================================================================================================================================#
+clear
 ask_partition_sizes() {
+
     detect_boot_mode
     calculate_swap
 
@@ -727,21 +728,35 @@ localectl set-x11-keymap fi
 #========================================================#
 mkinitcpio -P
 #========================================================#
-# 6) Root + user passwords (interactive)
+#========================================================#
+# 6) Root + user passwords (interactive with retries)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-echo "#=======================================================#"
-echo " Set password for user '$NEWUSER'                       #"
-echo "#=======================================================#"
-useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-# User password
-echo "Set password for ${NEWUSER}:"
-retry_cmd 3 passwd "${NEWUSER}" || echo "⚠️ Password setup failed after 3 tries."
-echo "#========================================================#"
-echo " Set ROOT password                                       #"
-echo "#========================================================#"
-echo "Set root password:"
-retry_cmd 3 passwd || echo "⚠️ Root password setup failed after 3 tries."
+
+# Helper for interactive retries (works inside chroot TTY)
+set_password_interactive() {
+    local target="$1"
+    local max_tries=3
+    local i=1
+    while (( i <= max_tries )); do
+        echo "--------------------------------------------------------"
+        echo "Set password for $target (attempt $i/$max_tries)"
+        echo "--------------------------------------------------------"
+        if passwd "$target"; then
+            echo "✅ Password set for $target"
+            return 0
+        fi
+        echo "⚠️ Password setup failed — try again."
+        ((i++))
+    done
+    echo "❌ Giving up after $max_tries failed attempts for $target"
+    return 1
+}
+
+# Create user and set passwords
+useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
+set_password_interactive "${NEWUSER}"
+set_password_interactive "root"
 #========================================================#
 # 7) Ensure user has sudo privileges
 #========================================================#
