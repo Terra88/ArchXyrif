@@ -198,16 +198,15 @@ select_swap()
     echo "|-------------------------------------------------------------------------------|"
     echo "| 3) exit                                                                       |"
     echo "#===============================================================================#"
-    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    read -rp "Select option [default=1]: " SWAP_ON
     SWAP_ON="${SWAP_ON:-1}"
     case "$SWAP_ON" in
-        1) SWAP_ON="1"
-        ;;
-        2) SWAP_ON="2" 
-        ;;
-        3) echo "restarting" exit 1 ;;
-        
-        *) echo "Invalid choice"; exit 1 ;;
+        1) SWAP_ON="1" ;;
+        2) SWAP_ON="0" ;;
+        3) echo "Exiting"; exit 1 ;;
+        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
+    esac
+    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
     esac    
 
 }
@@ -285,30 +284,31 @@ ask_partition_sizes() {
 #=========================================================================================================================================#
 # Partition disk
 #=========================================================================================================================================#
-partition_disk() {
+partition_disk() 
+{
+
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
     local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
-
+    
     if [[ "$MODE" == "BIOS" ]]; then
         if [[ "$SWAP_ON" == "1" ]]; then
             # BIOS + swap
+            # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
+            # 1: bios_grub (~1MiB)
             parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
             parted -s "$DEV" set 1 bios_grub on
-
+            # 2: /boot (ext4)
             boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-            boot_end=$((boot_start+BOOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
-
+            boot_end=$((boot_start + 512)) # 512MiB /boot (reasonable default)
+            parted -s  "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
             swap_start=$boot_end
             swap_end=$((swap_start+SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-
             root_start=$swap_end
             root_end=$((root_start+ROOT_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-
             home_start=$root_end
             # Use 100% if HOME_SIZE_MIB is 0 (ENTER pressed)
             if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
@@ -318,18 +318,18 @@ partition_disk() {
                 parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
             fi
         else
-            # BIOS, no swap
+            # BIOS + swap
+            # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
+            # 1: bios_grub (~1MiB)
             parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_BOOT_SIZE_MIB))MiB
             parted -s "$DEV" set 1 bios_grub on
-
+            # 2: /boot (ext4)
             boot_start=$((1+BIOS_BOOT_SIZE_MIB))
-            boot_end=$((boot_start+BOOT_SIZE_MIB))
-            parted -s "$DEV" mkpart primary fat32 ${boot_start}MiB ${boot_end}MiB
-
+            boot_end=$((boot_start + 512)) # 512MiB /boot (reasonable default)
+            parted -s  "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
             root_start=$boot_end
             root_end=$((root_start+ROOT_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-
             home_start=$root_end
             if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
                 parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
@@ -343,15 +343,12 @@ partition_disk() {
         if [[ "$SWAP_ON" == "1" ]]; then
             parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
             parted -s "$DEV" set 1 boot on
-
             root_start=$((1+EFI_SIZE_MIB))
             root_end=$((root_start+ROOT_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-
             swap_start=$root_end
             swap_end=$((swap_start+SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-
             home_start=$swap_end
             if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
                 parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
@@ -362,11 +359,9 @@ partition_disk() {
         else
             parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
             parted -s "$DEV" set 1 boot on
-
             root_start=$((1+EFI_SIZE_MIB))
             root_end=$((root_start+ROOT_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-
             home_start=$root_end
             if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
                 parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
