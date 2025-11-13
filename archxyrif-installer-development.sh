@@ -229,7 +229,7 @@ ask_partition_sizes() {
         if [[ "$MODE" == "UEFI" ]]; then
             reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
         else
-            reserved_gib=$(( BOOT_SIZE_MIB_MIB / 1024 ))
+            reserved_gib=$(( BOOT_SIZE_MIB / 1024 ))
         fi
 
         local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
