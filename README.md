@@ -134,4 +134,18 @@ known bugs: well it's not really a bug, but the unmount process at the start of 
 -Did error handling so you should not be able to insert values that float over the current disk size.<br>
 -Every option has been tested and should be working correctly.
 <br> <br>
+
+### **Version 1.4 - Release!!!**
+<br><br>
+- I cleaned the script and made more complex & compact scripts to save space and to prevent copying the same code over and over again, for different options, that the install script offers:<br><br>
+- New Features available:<br>
+- The Script now offers support for UEFI and BIOS systems and formats & partitions to both correctly.<br>
+- New menu layout and every install step now has it's own function, so the program starts from the bottom from the "menu" call and continues to main menu and so on, calling the rest of the functions to install arch linux in a clean and correct order.<br>
+- Swap is either on or off and user gets prompted to select either way, still calculated by ram on quick part<br>
+- User sets manually Root and Home partition sizes, to suite your needs.<br>
+- You can format and partition your disk to EXT4 or BTRFS Filesystems.<br>
+- You can create either 1 big filesystem, everything under root or /root /home separate. <br>
+- you can create a BTRFS(root)+Ext4(home) if you want snapshot support root only.<br><br>
+-Every option has been tested and should be working correctly.
+<br><br>
 -Adding custom partition/format section later, to support more file systems and to suppor more options.
