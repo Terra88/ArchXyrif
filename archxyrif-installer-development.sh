@@ -122,6 +122,30 @@ prepare_chroot() {
     echo "✅ Pseudo-filesystems mounted into /mnt."
 }
 #=========================================================================================================================================#
+# Retry Helper (with configurable attempts)
+#=========================================================================================================================================#
+retry_cmd() {
+    local max_attempts="${1:-3}"
+    shift
+    local cmd=("$@")
+
+    local attempt=1
+    local exit_code=0
+
+    while (( attempt <= max_attempts )); do
+        echo "Attempt $attempt/$max_attempts: ${cmd[*]}"
+        "${cmd[@]}" && return 0
+        exit_code=$?
+        echo "⚠️ Command failed (exit=$exit_code)"
+        if (( attempt < max_attempts )); then
+            read -rp "Retry? [Y/n]: " ans
+            [[ "$ans" =~ ^[Nn]$ ]] && break
+        fi
+        ((attempt++))
+    done
+    return "$exit_code"
+}
+#=========================================================================================================================================#
 # Cleanup
 #=========================================================================================================================================#
 cleanup() {
@@ -286,7 +310,7 @@ ask_partition_sizes() {
     echo "Disk $DEV ≈ ${disk_gib_int} GiB"
 
     while true; do
-        lsblk -p -o NAME,SIZE,TYPE,MOUNTPOINT "$DEV"
+        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
 
         # Maximum root size = total disk - swap - reserved (EFI/BIOS) - minimal home
         local reserved_gib
@@ -710,12 +734,14 @@ echo "#=======================================================#"
 echo " Set password for user '$NEWUSER'                       #"
 echo "#=======================================================#"
 useradd -m -G wheel -s /bin/bash "${NEWUSER}"
-echo "Set password for user ${NEWUSER}:"
-passwd "${NEWUSER}"
+# User password
+echo "Set password for ${NEWUSER}:"
+retry_cmd 3 passwd "${NEWUSER}" || echo "⚠️ Password setup failed after 3 tries."
 echo "#========================================================#"
 echo " Set ROOT password                                       #"
 echo "#========================================================#"
-passwd
+echo "Set root password:"
+retry_cmd 3 passwd || echo "⚠️ Root password setup failed after 3 tries."
 #========================================================#
 # 7) Ensure user has sudo privileges
 #========================================================#
@@ -1211,8 +1237,8 @@ hyprland_optional()
                               echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
                               arch-chroot /mnt pacman -S --needed --noconfirm unzip git
                           
-                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+                              read -r -p "Do you want to install the Hyprland theme from GitHub? [Y/n]: " INSTALL_HYPR_THEME
+                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Nn]$ ]]; then
                                   echo "→ Running Hyprland theme setup inside chroot..."
                           
                                   arch-chroot /mnt /bin/bash -c "
@@ -1290,8 +1316,8 @@ quick_partition() {
         [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
     done
 
-    read -rp "This will ERASE all data on $DEV. Continue? [y/N]: " yn
-    [[ "$yn" =~ ^[Yy]$ ]] || die "Aborted by user."
+    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
     safe_disk_cleanup
     ask_partition_sizes
