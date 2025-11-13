@@ -1243,11 +1243,12 @@ hyprland_optional()
       echo "#===================================================================================================#"
       echo
       sleep 1
-      
+      extra_pacman_pkg 
+      EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                           # Only proceed if Hyprland was selected (WM_CHOICE == 1)
                           if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
                               echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol 
+                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
                           
                               read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
                               if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
