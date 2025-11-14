@@ -1447,8 +1447,8 @@ interactive_lvm_encryption_phase() {
     for idx in "${!PARTITIONS[@]}"; do
         IFS=':' read -r PART MNT FS LABEL <<< "${PARTITIONS[$idx]}"
 
-        # Skip swap/none for LV creation, encryption still optional
-        [[ "$MNT" == "swap" || "$MNT" == "none" ]] && continue
+        # Skip boo/swap/none for LV creation, encryption still optional
+        [[ "$MNT" == "swap" || "$MNT" == "none" || "$MNT" == "boot" || "$MNT" == "/boot" || "$MNT" == "/boot/efi" ||  ]] && continue
 
         echo ""
         echo "Partition: $PART (mount=$MNT, fs=$FS, label=${LABEL:-<none>})"
