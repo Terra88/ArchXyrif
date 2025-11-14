@@ -1445,12 +1445,20 @@ convert_to_mib() {
 interactive_lvm_encryption_phase() {
     echo "=== Logical Volume + Boot Partition Phase ==="
 
-    
-    # Make sure the disk is clean
-    safe_disk_cleanup
-    
-    detect_boot_mode  # sets $BOOT_MODE=BIOS or UEFI
+        # Ask user for target disk
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
 
+    # Clean disk before creating partitions/LVs
+    safe_disk_cleanup
+
+    detect_boot_mode  # sets $BOOT_MODE
+    ...
+}
+    
     # --- RAW BOOT PARTITION ---
     if [[ "$BOOT_MODE" == "BIOS" ]]; then
         read -rp "Enter size for /boot partition (e.g., 512M): " BOOT_SIZE
