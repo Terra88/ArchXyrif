@@ -1394,7 +1394,7 @@ custom_partition_wizard() {
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
-    # Get disk size in MiB
+    # Disk size in MiB
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
@@ -1406,8 +1406,30 @@ custom_partition_wizard() {
         die "Invalid partition count."
     fi
 
+    # Helper: convert user input to MiB
+    convert_to_mib() {
+        local SIZE="$1"
+        SIZE="${SIZE^^}"  # uppercase
+        if [[ "$SIZE" == "100%" ]]; then
+            echo "100%"
+            return
+        fi
+        if [[ "$SIZE" =~ GI?B$ ]]; then
+            local NUM=${SIZE%G*}
+            echo $(( NUM * 1024 ))
+        elif [[ "$SIZE" =~ MIB$ ]]; then
+            local NUM=${SIZE%MI*}
+            echo $NUM
+        elif [[ "$SIZE" =~ M$ ]]; then
+            local NUM=${SIZE%M}
+            echo $NUM
+        else
+            die "Invalid size format: $SIZE"
+        fi
+    }
+
     PARTITIONS=()
-    local START=1MiB
+    local START=1  # start in MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
@@ -1416,37 +1438,22 @@ custom_partition_wizard() {
         echo "--- Partition $i ---"
         parted -s "$DEV" unit MiB print
 
-        # Calculate remaining space
-        start_mib=${START%MiB}
-        remaining_mib=$(( disk_mib - start_mib ))
-        echo "Remaining disk space: ${remaining_mib} MiB"
-
-        # Size input
+        # Read size
         while true; do
-            if (( i == COUNT )); then
-                SIZE="100%"
-                echo "Automatically assigning last partition size: $SIZE"
-            else
-                read -rp "Size (ex: 20G, 512M): " SIZE
-                [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
-
-                # Convert to MiB
-                if [[ "$SIZE" =~ G$ ]]; then
-                    SIZE_NUM=${SIZE%G}
-                    SIZE=$(( SIZE_NUM * 1024 ))MiB
-                elif [[ "$SIZE" =~ M$ ]]; then
-                    SIZE_NUM=${SIZE%M}
-                    SIZE=$SIZE_NUM"MiB"
-                fi
-
-                size_mib=${SIZE%MiB}
-                if (( size_mib > remaining_mib )); then
-                    echo "❌ Not enough space! Only ${remaining_mib} MiB left."
-                    continue
-                fi
-            fi
+            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
+            SIZE_MI=$(convert_to_mib "$SIZE")
             break
         done
+
+        # Calculate partition end
+        if [[ "$SIZE_MI" != "100%" ]]; then
+            END=$(( START + SIZE_MI ))
+            PART_SIZE="${START}MiB ${END}MiB"
+        else
+            PART_SIZE="${START}MiB 100%"
+            END="100%"
+        fi
 
         # Mountpoint
         while true; do
@@ -1469,18 +1476,23 @@ custom_partition_wizard() {
         read -rp "Label (optional): " LABEL
 
         # Create partition
-        parted -s "$DEV" mkpart primary "$START" "$SIZE" || die "parted failed"
-
-        # Update START for next partition
-        last_end=$(parted -s "$DEV" unit MiB print | awk '/^ [0-9]+/ {end=$3} END{print end}')
-        last_end=${last_end%MiB}
-        START="${last_end}MiB"
+        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
 
         # Construct partition node
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
+
+        # Update start for next partition (skip if last uses 100%)
+        if [[ "$END" != "100%" ]]; then
+            START=$END
+        fi
+
+        # Show remaining disk
+        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
+        REMAINING=$(( disk_mib - LAST_END ))
+        echo "→ Remaining disk: ${REMAINING}MiB"
     done
 
     echo ""
@@ -1488,6 +1500,7 @@ custom_partition_wizard() {
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
 }
+
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
