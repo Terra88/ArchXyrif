@@ -1611,15 +1611,11 @@ ensure_fs_support_for_custom() {
         if [[ -f /mnt/etc/fstab ]]; then
             while read -r _ _ fs _ _ _; do
                 case "$fs" in
-                    /dev/*|UUID=*|LABEL=*) continue ;; # skip special lines
-                    *) 
-                      case "$fs" in
-                        xfs) want_xfs=1 ;;
-                        f2fs) want_f2fs=1 ;;
-                        btrfs) want_btrfs=1 ;;
-                        ext4) want_ext4=1 ;;
-                      esac
-                    ;;
+                    xfs)  want_xfs=1 ;;
+                    f2fs) want_f2fs=1 ;;
+                    btrfs)want_btrfs=1 ;;
+                    ext4) want_ext4=1 ;;
+                    *) ;; # ignore other lines
                 esac
             done < /mnt/etc/fstab
         fi
@@ -1638,7 +1634,6 @@ ensure_fs_support_for_custom() {
     fi
 
     echo "→ Installing filesystem tools into target: ${pkgs[*]}"
-    # Refresh and install inside chroot (retry once on failure)
     arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
         echo "⚠️ pacman install inside chroot failed once; retrying..."
         sleep 1
@@ -1646,34 +1641,44 @@ ensure_fs_support_for_custom() {
     }
 
     # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
-arch-chroot /mnt /bin/bash << 'CHROOT_EOF'
+    arch-chroot /mnt /bin/bash <<'CHROOT_EOF'
 set -e
-
 MKCONF="/etc/mkinitcpio.conf"
 
-# Ensure HOOKS contains block before filesystems
+echo "→ (chroot) Patching ${MKCONF}..."
+
+# Ensure HOOKS contains 'block' before 'filesystems'. If HOOKS exists, try to ensure order.
 if grep -q '^HOOKS=' "$MKCONF"; then
-    sed -i -r "s/^HOOKS=\((.*)\)/HOOKS=(base udev autodetect modconf block filesystems \1)/" "$MKCONF" || true
-    sed -i -r "s/(block[[:space:]]+block)/block/" "$MKCONF" || true
-    sed -i -r "s/(filesystems[[:space:]]+filesystems)/filesystems/" "$MKCONF" || true
+    # Extract current hooks (naive)
+    current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
+    # Build a desired base sequence and then append any existing hooks not duplicate
+    base="base udev autodetect modconf block filesystems"
+    # Append any tokens from current_hooks that aren't already in base
+    for tok in $current_hooks; do
+        if ! echo " $base " | grep -q " $tok "; then
+            base="$base $tok"
+        fi
+    done
+    # Replace HOOKS line
+    sed -i "s|^HOOKS=(.*)|HOOKS=($base)|" "$MKCONF" 2>/dev/null || sed -i "s|^HOOKS=.*|HOOKS=($base)|" "$MKCONF" || true
 else
     echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
 fi
 
-# Build desired module list
+# Build desired module list depending on available mkfs utilities
 desired_modules=()
-
 command -v mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
 command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
 command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
 command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
 
-# Update MODULES line
+# If MODULES exists, append missing modules; otherwise create it.
 if grep -q '^MODULES=' "$MKCONF"; then
-    existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF")
+    existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF" || echo "")
     for m in "${desired_modules[@]}"; do
-        if ! [[ " $existing " == *" $m "* ]]; then
-            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF"
+        if ! echo " $existing " | grep -q " $m "; then
+            # append module
+            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
         fi
     done
 else
@@ -1682,17 +1687,20 @@ else
     fi
 fi
 
-# Handle unsupported fsck hooks
+# If no fsck helpers found for the installed filesystems, remove fsck hook to avoid mkinitcpio warning
 has_fsck=0
 command -v fsck.ext4 >/dev/null 2>&1 && has_fsck=1
 command -v fsck.f2fs >/dev/null 2>&1 && has_fsck=1
 command -v xfs_repair >/dev/null 2>&1 && has_fsck=1
 
 if [[ $has_fsck -eq 0 ]]; then
-    sed -i '/fsck/d' "$MKCONF"
+    sed -i '/fsck/d' "$MKCONF" || true
 fi
 
+echo "→ (chroot) mkinitcpio.conf patch complete."
 CHROOT_EOF
+
+    echo "→ ensure_fs_support_for_custom() finished."
 }
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
