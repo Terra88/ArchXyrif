@@ -1407,7 +1407,7 @@ custom_partition_wizard() {
     fi
 
     PARTITIONS=()
-    local START=1  # start in MiB
+    local START=1MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
@@ -1416,16 +1416,41 @@ custom_partition_wizard() {
         echo "--- Partition $i ---"
         parted -s "$DEV" unit MiB print
 
-        # Read SIZE (allow 100% for last partition)
+        # Calculate remaining space
+        start_mib=${START%MiB}
+        remaining_mib=$(( disk_mib - start_mib ))
+        echo "Remaining disk space: ${remaining_mib} MiB"
+
+        # Size input
         while true; do
-            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
-            [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
+            if (( i == COUNT )); then
+                SIZE="100%"
+                echo "Automatically assigning last partition size: $SIZE"
+            else
+                read -rp "Size (ex: 20G, 512M): " SIZE
+                [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
+
+                # Convert to MiB
+                if [[ "$SIZE" =~ G$ ]]; then
+                    SIZE_NUM=${SIZE%G}
+                    SIZE=$(( SIZE_NUM * 1024 ))MiB
+                elif [[ "$SIZE" =~ M$ ]]; then
+                    SIZE_NUM=${SIZE%M}
+                    SIZE=$SIZE_NUM"MiB"
+                fi
+
+                size_mib=${SIZE%MiB}
+                if (( size_mib > remaining_mib )); then
+                    echo "❌ Not enough space! Only ${remaining_mib} MiB left."
+                    continue
+                fi
+            fi
             break
         done
 
         # Mountpoint
         while true; do
-            read -rp "Mountpoint (/, /home, /boot, /efi or /boot/efi, /data1, /data2, swap, none): " MNT
+            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
             case "$MNT" in
                 /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
                 *) echo "Invalid mountpoint." ;;
@@ -1443,32 +1468,18 @@ custom_partition_wizard() {
 
         read -rp "Label (optional): " LABEL
 
-        # Calculate absolute end
-        if [[ "$SIZE" == "100%" ]]; then
-            END="100%"
-        else
-            if [[ "$SIZE" =~ G$ ]]; then
-                SIZE_NUM=${SIZE%G}
-                SIZE_NUM=$(( SIZE_NUM * 1024 ))
-            elif [[ "$SIZE" =~ M$ ]]; then
-                SIZE_NUM=${SIZE%M}
-            else
-                die "Size must end with G or M, or be 100%"
-            fi
-            END=$((START + SIZE_NUM))
-        fi
-
-        PART="${DEV}${ps}${i}"
-
         # Create partition
-        if [[ "$END" == "100%" ]]; then
-            parted -s "$DEV" mkpart primary "${START}MiB" 100% || die "parted failed"
-        else
-            parted -s "$DEV" mkpart primary "${START}MiB" "${END}MiB" || die "parted failed"
-            START=$END
-        fi
+        parted -s "$DEV" mkpart primary "$START" "$SIZE" || die "parted failed"
 
+        # Update START for next partition
+        last_end=$(parted -s "$DEV" unit MiB print | awk '/^ [0-9]+/ {end=$3} END{print end}')
+        last_end=${last_end%MiB}
+        START="${last_end}MiB"
+
+        # Construct partition node
+        PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
+
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
     done
 
@@ -1477,7 +1488,6 @@ custom_partition_wizard() {
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
 }
-
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
@@ -1489,10 +1499,10 @@ format_and_mount_custom() {
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
     
-        # Wait for kernel to expose new partition
+        # wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
-        [[ -b "$PART" ]] || die "Partition $PART not available (kernel didn't expose it)."
+        [[ -b "$PART" ]] || die "Partition $PART not available."
 
         echo ">>> $PART ($FS) mount as $MOUNT"
 
@@ -1509,16 +1519,18 @@ format_and_mount_custom() {
         esac
 
         # Apply label if provided
-        [[ -n "$LABEL" ]] && case "$FS" in
-            ext4)  e2label "$PART" "$LABEL" ;;
-            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-            xfs)   xfs_admin -L "$LABEL" "$PART" ;;
-            f2fs)  f2fslabel "$PART" "$LABEL" ;;
-            fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-            swap) mkswap -L "$LABEL" "$PART" ;;
-        esac
+        [[ -n "$LABEL" ]] && {
+            case "$FS" in
+                ext4) e2label "$PART" "$LABEL" ;;
+                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                f2fs) f2fslabel "$PART" "$LABEL" ;;
+                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$PART" ;;
+            esac
+        }
 
-        # Mount partition
+        # Mount according to mountpoint
         case "$MOUNT" in
             "/")
                 if [[ "$FS" == "btrfs" ]]; then
@@ -1557,7 +1569,14 @@ format_and_mount_custom() {
         esac
     done
 
-    echo "✅ All custom partitions formatted and mounted."
+    echo "✅ All custom partitions formatted and mounted correctly."
+
+    echo "Generating /etc/fstab..."
+    
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
+    cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
