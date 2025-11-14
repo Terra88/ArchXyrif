@@ -1439,88 +1439,263 @@ convert_to_mib() {
     fi
 }
 #============================================================================================================================#
-# Fully Interactive Multi-LV + Optional Encryption Phase
-# Updates PARTITIONS array for use in format_and_mount_custom
+# Robust Interactive Multi-LV + Optional Encryption Phase
+# Excludes /boot, /boot/efi, /efi, swap, none
 #============================================================================================================================#
 interactive_lvm_encryption_phase() {
     echo ""
     for idx in "${!PARTITIONS[@]}"; do
         IFS=':' read -r PART MNT FS LABEL <<< "${PARTITIONS[$idx]}"
 
-        # Skip boo/swap/none for LV creation, encryption still optional
-        [[ "$MNT" == "swap" || "$MNT" == "none" || "$MNT" == "boot" || "$MNT" == "/boot" || "$MNT" == "/boot/efi" ||  ]] && continue
+        # Skip partitions that should never be LVM or encrypted
+        if [[ "$MNT" == "swap" || "$MNT" == "none" || "$MNT" == "/boot" || "$MNT" == "/boot/efi" || "$MNT" == "/efi" ]]; then
+            echo "→ Skipping LVM/encryption for $PART ($MNT)"
+            continue
+        fi
 
         echo ""
         echo "Partition: $PART (mount=$MNT, fs=$FS, label=${LABEL:-<none>})"
 
-        # Step 1: Ask for LVM creation
-        read -rp "Do you want to create Logical Volume(s) inside $PART? (yes/no): " LVM_CHOICE
+        # ---------------------------
+        # Step 1: Create Logical Volumes
+        # ---------------------------
+        local LVM_CHOICE
+        while true; do
+            read -rp "Do you want to create Logical Volume(s) inside $PART? (yes/no): " LVM_CHOICE
+            [[ "$LVM_CHOICE" =~ ^[YyNn]$ ]] && break
+            echo "Invalid input, enter yes or no."
+        done
+
         if [[ "$LVM_CHOICE" =~ ^[Yy] ]]; then
             vg_name="vg_$(basename $PART)"
-            pvcreate "$PART"
-            vgcreate "$vg_name" "$PART"
 
-            # Ask number of LVs
-            read -rp "How many LVs to create inside $PART? " LV_COUNT
-            [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || LV_COUNT=1
+            # Create PV and VG with error check
+            pvcreate "$PART" || die "Failed to create PV $PART"
+            vgcreate "$vg_name" "$PART" || die "Failed to create VG $vg_name"
 
-            local LV_SIZE
+            local LV_COUNT
+            while true; do
+                read -rp "How many LVs to create inside $PART? " LV_COUNT
+                [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] && break
+                echo "Invalid number. Must be integer >=1."
+            done
+
             for ((lv=1; lv<=LV_COUNT; lv++)); do
                 lv_name="lv${lv}_$(basename $PART)"
-                read -rp "Size for LV $lv_name (e.g., 10G, 100%FREE): " LV_SIZE
+
+                # LV size input
+                local LV_SIZE
+                while true; do
+                    read -rp "Size for LV $lv_name (e.g., 10G, 512M, 100% for full): " LV_SIZE
+                    if [[ "$LV_SIZE" =~ ^[0-9]+[MG]$ || "$LV_SIZE" == "100%" ]]; then
+                        break
+                    fi
+                    echo "Invalid size. Examples: 10G, 512M, 100%"
+                done
 
                 # Create LV
-                lvcreate -L "$LV_SIZE" -n "$lv_name" "$vg_name"
-                LV_PATH="/dev/$vg_name/$lv_name"
+                if [[ "$LV_SIZE" == "100%" ]]; then
+                    lvcreate -l 100%FREE -n "$lv_name" "$vg_name" || die "Failed to create LV $lv_name"
+                else
+                    lvcreate -L "$LV_SIZE" -n "$lv_name" "$vg_name" || die "Failed to create LV $lv_name"
+                fi
+
+                local LV_PATH="/dev/$vg_name/$lv_name"
                 echo "→ Created LV $LV_PATH"
 
-                # Step 2: Ask if this LV should be encrypted
-                read -rp "Encrypt this LV $LV_PATH? (yes/no): " ENC_LV
+                # ---------------------------
+                # Step 2: Optional encryption for LV
+                # ---------------------------
+                local ENC_LV
+                while true; do
+                    read -rp "Encrypt this LV $LV_PATH? (yes/no): " ENC_LV
+                    [[ "$ENC_LV" =~ ^[YyNn]$ ]] && break
+                    echo "Invalid input, enter yes or no."
+                done
+
                 if [[ "$ENC_LV" =~ ^[Yy] ]]; then
-                    read -rsp "Enter passphrase: " LV_PW
-                    echo
-                    read -rsp "Confirm passphrase: " LV_PW2
-                    echo
-                    if [[ "$LV_PW" != "$LV_PW2" ]]; then
-                        echo "⚠ Passphrases do not match. Skipping encryption for $LV_PATH."
-                        continue
-                    fi
-                    echo -n "$LV_PW" | cryptsetup luksFormat "$LV_PATH" -
-                    echo -n "$LV_PW" | cryptsetup open "$LV_PATH" "cryptlv_$(basename $LV_PATH)" -
+                    local LV_PW LV_PW2
+                    while true; do
+                        read -rsp "Enter passphrase: " LV_PW
+                        echo
+                        read -rsp "Confirm passphrase: " LV_PW2
+                        echo
+                        [[ -n "$LV_PW" && "$LV_PW" == "$LV_PW2" ]] && break
+                        echo "Passphrases empty or do not match. Try again."
+                    done
+
+                    echo -n "$LV_PW" | cryptsetup luksFormat "$LV_PATH" - || die "Failed to encrypt LV $LV_PATH"
+                    echo -n "$LV_PW" | cryptsetup open "$LV_PATH" "cryptlv_$(basename $LV_PATH)" - || die "Failed to map encrypted LV"
                     LV_PATH="/dev/mapper/cryptlv_$(basename $LV_PATH)"
                     echo "→ LV encrypted as $LV_PATH"
                 fi
 
-                # Step 3: Ask filesystem and mountpoint
-                read -rp "Mountpoint for $LV_PATH (/, /home, /boot, /efi, /data1, /data2, swap, none): " LV_MNT
-                read -rp "Filesystem for $LV_PATH (ext4, btrfs, xfs, f2fs, fat32, swap): " LV_FS
+                # ---------------------------
+                # Step 3: Filesystem, mountpoint, label
+                # ---------------------------
+                local LV_FS LV_MNT LV_LABEL
+
+                # Mountpoint
+                while true; do
+                    read -rp "Mountpoint for $LV_PATH (/, /home, /efi, /data1, /data2, swap, none): " LV_MNT
+                    [[ "$LV_MNT" =~ ^(/|/home|/efi|/data[0-9]+|swap|none)$ ]] && break
+                    echo "Invalid mountpoint."
+                done
+
+                # Filesystem
+                while true; do
+                    read -rp "Filesystem for $LV_PATH (ext4, btrfs, xfs, f2fs, fat32, swap): " LV_FS
+                    [[ "$LV_FS" =~ ^(ext4|btrfs|xfs|f2fs|fat32|swap)$ ]] && break
+                    echo "Unsupported filesystem."
+                done
+
                 read -rp "Label (optional): " LV_LABEL
 
-                # Add LV to PARTITIONS array
+                # Add to PARTITIONS array
                 PARTITIONS+=("$LV_PATH:$LV_MNT:$LV_FS:$LV_LABEL")
             done
 
-            # Optionally remove original partition entry if all LVs replace it
+            # Remove original partition entry since LVs replaced it
             unset 'PARTITIONS[idx]'
         else
-            # Step 2: Ask if original partition should be encrypted
-            read -rp "Encrypt raw partition $PART? (yes/no): " ENC
-            if [[ "$ENC" =~ ^[Yy] ]]; then
-                read -rsp "Enter passphrase for $PART: " PASSPHRASE
-                echo
-                read -rsp "Confirm passphrase: " PASSPHRASE2
-                echo
-                if [[ "$PASSPHRASE" != "$PASSPHRASE2" ]]; then
-                    echo "⚠ Passphrases do not match. Skipping encryption."
-                    continue
-                fi
-                echo -n "$PASSPHRASE" | cryptsetup luksFormat "$PART" -
-                echo -n "$PASSPHRASE" | cryptsetup open "$PART" "crypt$(basename $PART)" -
-                MAPPED="/dev/mapper/crypt$(basename $PART)"
-                PARTITIONS[$idx]="$MAPPED:$MNT:$FS:$LABEL"
-                echo "→ Partition $PART is now encrypted as $MAPPED"
+            # ---------------------------
+            # Optional encryption for raw partition
+            # ---------------------------
+            local ENC_PART
+            while true; do
+                read -rp "Encrypt raw partition $PART? (yes/no): " ENC_PART
+                [[ "$ENC_PART" =~ ^[YyNn]$ ]] && break
+                echo "Invalid input, enter yes or no."
+            done
+
+            if [[ "$ENC_PART" =~ ^[Yy] ]]; then
+                local PASSPHRASE PASSPHRASE2
+                while true; do
+                    read -rsp "Enter passphrase for $PART: " PASSPHRASE
+                    echo
+                    read -rsp "Confirm passphrase: " PASSPHRASE2
+                    echo
+                    [[ -n "$PASSPHRASE" && "$PASSPHRASE" == "$PASSPHRASE2" ]] && break
+                    echo "Passphrases empty or do not match. Try again."
+                done
+
+                echo -n "$PASSPHRASE" | cryptsetup luksFormat "$PART" - || die "Failed to encrypt $PART"
+                echo -n "$PASSPHRASE" | cryptsetup open "$PART" "crypt$(basename $PART)" - || die "Failed to map encrypted $PART"
+                PARTITIONS[$idx]="/dev/mapper/crypt$(basename $PART):$MNT:$FS:$LABEL"
+                echo "→ Partition encrypted as ${PARTITIONS[$idx]%%:*}"
             fi
         fi
+    done
+}
+#============================================================================================================================#
+# Show fancy, aligned, colored tree-style partition/LV layout for confirmation, with size info
+#============================================================================================================================#
+confirm_partition_layout_tree_fancy_size() {
+    # Color codes
+    GREEN="\033[0;32m"
+    BLUE="\033[0;34m"
+    RED="\033[0;31m"
+    YELLOW="\033[0;33m"
+    BOLD="\033[1m"
+    NC="\033[0m"  # No Color
+
+    echo ""
+    echo "========================================"
+    echo "    Final Partition / LV Layout (Tree with Size)"
+    echo "========================================"
+
+    declare -A vg_map    # VG -> LVs
+    declare -A lv_info   # LV path -> info
+    declare -A part_info # Raw partition -> info
+
+    # Build maps from PARTITIONS array
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r DEV MNT FS LABEL <<< "$entry"
+        local ENC=""
+        [[ "$DEV" =~ ^/dev/mapper/ ]] && ENC="encrypted"
+
+        if [[ "$DEV" =~ ^/dev/mapper/ ]]; then
+            # It's a mapped LV
+            local vg_name
+            vg_name=$(lvs --noheadings -o vg_name "$DEV" 2>/dev/null | awk '{print $1}')
+            vg_name=${vg_name:-"vg_unknown"}
+            vg_map["$vg_name"]+="$DEV "
+            lv_info["$DEV"]="FS=$FS MNT=$MNT LABEL=${LABEL:-<none>} ENC=$ENC"
+        else
+            # raw partition
+            part_info["$DEV"]="FS=$FS MNT=$MNT LABEL=${LABEL:-<none>} ENC=$ENC"
+        fi
+    done
+
+    # Function to format a line with columns
+    print_line() {
+        local prefix="$1"
+        local dev="$2"
+        local fs="$3"
+        local mnt="$4"
+        local label="$5"
+        local enc="$6"
+        local size="$7"
+        local color="$8"
+
+        # Bold for root mountpoint
+        [[ "$mnt" == "/" ]] && mnt="${BOLD}$mnt${NC}"
+
+        printf "%s %-20s %-8s %-10s %-12s %-10s %s\n" "$prefix" "$dev" "$fs" "$mnt" "$label" "$size" "$color$enc$NC"
+    }
+
+    # Print header
+    printf "%-4s %-20s %-8s %-10s %-12s %-10s %s\n" "" "Device" "FS" "Mount" "Label" "Size" "Enc"
+    echo "--------------------------------------------------------------------------------"
+
+    # Print tree
+    for PART in "${!part_info[@]}"; do
+        # Get partition size in human-readable
+        SIZE=$(lsblk -dn -o SIZE "$PART" 2>/dev/null)
+        print_line "" "$PART" "-" "-" "-" "$SIZE" "$GREEN"
+
+        # Check for VG on this partition
+        if vg_name=$(vgs --noheadings -o vg_name --select pv_name="$PART" 2>/dev/null | awk '{print $1}'); then
+            if [[ -n "$vg_name" ]]; then
+                VG_SIZE=$(vgs --noheadings -o vg_size --units g --nosuffix "$vg_name" 2>/dev/null | awk '{printf "%.2fG", $1}')
+                print_line "  └─" "VG: $vg_name" "-" "-" "-" "$VG_SIZE" "$YELLOW"
+
+                for LV in ${vg_map[$vg_name]}; do
+                    LV_FS=$(echo "${lv_info[$LV]}" | awk -F' ' '{print $1}' | cut -d'=' -f2)
+                    LV_MNT=$(echo "${lv_info[$LV]}" | awk -F' ' '{print $2}' | cut -d'=' -f2)
+                    LV_LABEL=$(echo "${lv_info[$LV]}" | awk -F' ' '{print $3}' | cut -d'=' -f2)
+                    LV_ENC=$(echo "${lv_info[$LV]}" | awk -F' ' '{print $4}' | cut -d'=' -f2)
+
+                    # LV size
+                    LV_SIZE=$(lvs --noheadings -o lv_size --units g --nosuffix "$LV" 2>/dev/null | awk '{printf "%.2fG", $1}')
+
+                    # Color
+                    local col="$BLUE"
+                    [[ "$LV_ENC" == "encrypted" ]] && col="$RED"
+
+                    # Btrfs subvolume detection (optional)
+                    local SUBVOL=""
+                    if [[ "$LV_FS" == "btrfs" ]]; then
+                        if mountpoint -q "$LV_MNT" 2>/dev/null; then
+                            SUBVOL=$(btrfs subvolume list "$LV_MNT" 2>/dev/null | awk '{print $9}')
+                        fi
+                    fi
+
+                    print_line "    └─" "$LV" "$LV_FS" "$LV_MNT" "$LV_LABEL" "$LV_SIZE" "$col$LV_ENC$NC"
+                    [[ -n "$SUBVOL" ]] && echo "         └─ Subvolume(s): $SUBVOL"
+                done
+            fi
+        fi
+    done
+
+    echo ""
+    while true; do
+        read -rp "Proceed with formatting and mounting all above? (yes/no): " CONF
+        case "$CONF" in
+            [Yy]* ) break ;;
+            [Nn]* ) echo "Aborted by user."; exit 1 ;;
+            * ) echo "Please answer yes or no." ;;
+        esac
     done
 }
 #=========================================================================================================================================#
@@ -1835,6 +2010,7 @@ CHROOT_EOF
 custom_partition(){
     custom_partition_wizard
     interactive_lvm_encryption_phase
+    confirm_partition_layout_tree_fancy_size
     format_and_mount_custom
     install_base_system
 
