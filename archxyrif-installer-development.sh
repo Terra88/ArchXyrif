@@ -72,6 +72,9 @@ MODE=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
 SWAP_ON=""
+EFI_FS=""
+BOOT_FS=""
+SWAP_FS="linux-swap"
 ROOT_FS=""
 HOME_FS=""
 ROOT_SIZE_MIB=0
@@ -1392,17 +1395,54 @@ quick_partition() {
 # Custom Partition // Choose Filesystem Custom
 #=========================================================================================================================================#
 choose_filesystems_custom() {
+detect_boot_mode
     echo
     echo "#====================================================================================#"
     echo "# Filesystem selection for each partition                                            #"
     echo "#====================================================================================#"
+   
+    if [[ "$MODE" == "BIOS" ]]; then
+        read -rp "Boot filesystem [ext4/fat32, default=ext4]: " BOOT_FS
+        BOOT_FS="${BOOT_FS:-ext4}"
+    else
+        read -rp "Boot filesystem [ext4/fat32, default=fat32]: " EFI_FS
+        EFI_FS="${EFI_FS:-fat32}"
+    fi
+
+    select_swap
+    
+    if [[ "$SWAP_ON" == "1" ]]; then
+            read -rp "Swap filesystem [linux-swap, default=linux-swap]: " SWAP_FS
+            SWAP_FS="${SWAP_FS:-linux-swap}"
+    else
+            echo "Swap Off"
+    fi
+    
+    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
+    ROOT_FS="${ROOT_FS:-ext4}"
 
     read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
     ROOT_FS="${ROOT_FS:-ext4}"
 
-    read -rp "Home filesystem [same options, default=$ROOT_FS]: " HOME_FS
-    HOME_FS="${HOME_FS:-$ROOT_FS}"
+    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
+    ROOT_FS="${ROOT_FS:-ext4}"
 
+    read -rp "Home filesystem [ext4/btrfs/xfs/f2fs, default=$ROOT_FS]: " HOME_FS
+    HOME_FS="${HOME_FS:-$ROOT_FS}"
+    
+
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Root FS: $BOOT_FS"
+    else
+        echo "→ Root FS: $EFI_FS"
+    fi
+
+    if [[ "$SWAP_ON" == "1" ]]; then
+        echo "→ Swap FS: $SWAP_FS"
+    else
+        echo "→ Swap Off"
+    fi
+    
     echo "→ Root FS: $ROOT_FS"
     echo "→ Home FS: $HOME_FS"
 }
