@@ -700,19 +700,39 @@ install_grub() {
     # Default GRUB modules
     local GRUB_MODULES="part_gpt part_msdos normal boot linux"
 
-    # Auto-detect filesystems on mounted partitions under /mnt
-    echo "→ Detecting filesystems on target partitions..."
-    while read -r mp fs _; do
+    # Function to add filesystem modules
+    add_fs_module() {
+        local fs="$1"
         case "$fs" in
             btrfs) GRUB_MODULES+=" btrfs" ;;
             xfs)    GRUB_MODULES+=" xfs" ;;
             zfs)    GRUB_MODULES+=" zfs" ;;
-            lvm2)   GRUB_MODULES+=" lvm" ;;
-            crypto_LUKS|LUKS) GRUB_MODULES+=" cryptodisk" ;;
+            f2fs)   GRUB_MODULES+=" f2fs" ;;
             ext2|ext3|ext4) GRUB_MODULES+=" ext2" ;;
             vfat|fat32|fat16) GRUB_MODULES+=" fat" ;;
-            f2fs)   GRUB_MODULES+=" f2fs" ;;
         esac
+    }
+
+    # Detect LUKS and LVM
+    echo "→ Detecting encrypted LUKS and LVM volumes..."
+    while read -r name type; do
+        case "$type" in
+            crypto_LUKS|LUKS)
+                echo "→ Found LUKS container: $name"
+                GRUB_MODULES+=" cryptodisk luks"
+                ;;
+            lvm2)
+                echo "→ Found LVM volume group: $name"
+                GRUB_MODULES+=" lvm"
+                ;;
+        esac
+    done < <(lsblk -o NAME,TYPE -nr /mnt | grep -E "crypt|lvm")
+
+    # Detect filesystems on mounted partitions under /mnt
+    echo "→ Detecting filesystems on target partitions..."
+    while read -r mp fs _; do
+        [[ -z "$mp" || -z "$fs" ]] && continue
+        add_fs_module "$fs"
     done < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
 
     echo "→ GRUB modules to install: $GRUB_MODULES"
