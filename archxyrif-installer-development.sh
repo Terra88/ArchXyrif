@@ -1443,20 +1443,40 @@ convert_to_mib() {
 # Excludes /boot, /boot/efi, /efi, swap, none
 #============================================================================================================================#
 interactive_lvm_encryption_phase() {
-    echo "=== Logical Volume Creation Phase ==="
+    echo "=== Logical Volume + Boot Partition Phase ==="
 
-    # Ask if user wants to create LVs at all
-    read -rp "Do you want to create Logical Volumes in this disk? (yes/no): " CREATE_LV
+    
+    # Make sure the disk is clean
+    safe_disk_cleanup
+    
+    detect_boot_mode  # sets $BOOT_MODE=BIOS or UEFI
+
+    # --- RAW BOOT PARTITION ---
+    if [[ "$BOOT_MODE" == "BIOS" ]]; then
+        read -rp "Enter size for /boot partition (e.g., 512M): " BOOT_SIZE
+        read -rp "Label for /boot (optional): " BOOT_LABEL
+        PARTITIONS+=("/dev/${DEV##*/}1:/boot:ext4:$BOOT_LABEL")
+    else
+        read -rp "Enter size for /boot/efi partition (e.g., 512M): " EFI_SIZE
+        read -rp "Label for /boot/efi (optional): " EFI_LABEL
+        PARTITIONS+=("/dev/${DEV##*/}1:/boot/efi:fat32:$EFI_LABEL")
+    fi
+
+    # --- Ask if user wants to create LVs ---
+    read -rp "Do you want to create Logical Volumes on this disk? (yes/no): " CREATE_LV
     case "$CREATE_LV" in [Yy]*) ;; *) echo "Skipping LV creation."; return ;; esac
 
-    # Show available VGs
     echo "Available Volume Groups:"
     vgs --noheadings -o vg_name,vg_size --units g --nosuffix
 
-    # Ask for VG name
-    read -rp "Enter VG name for LVs: " VG
-    [[ -n "$VG" ]] || die "No VG selected."
+    # Ask for VG name or create new one
+    read -rp "Enter VG name for LVs (or type NEW to create a new VG): " VG
+    if [[ "$VG" == "NEW" ]]; then
+        read -rp "Enter name for new Volume Group: " VG
+        vgcreate "$VG" /dev/${DEV##*/}2-   # remaining space for LVs
+    fi
 
+    # Get VG free size info
     VG_SIZE=$(vgs --noheadings -o vg_size --units g --nosuffix "$VG" | awk '{printf "%.2f", $1}')
     VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
@@ -1465,9 +1485,9 @@ interactive_lvm_encryption_phase() {
     read -rp "How many LVs to create in $VG? " LV_COUNT
     [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
 
+    # --- Loop to create LVs ---
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
-        
         # LV name
         while true; do
             read -rp "LV name: " LV_NAME
@@ -1496,20 +1516,19 @@ interactive_lvm_encryption_phase() {
             case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Unsupported FS." ;; esac
         done
 
-        # Optional encryption (skip boot, swap, none)
+        # Optional encryption
         ENC=0
         if [[ "$MNT" != "/boot" && "$MNT" != "/boot/efi" && "$MNT" != "swap" && "$MNT" != "none" ]]; then
             read -rp "Encrypt this LV? (yes/no): " ENCRYPT
             case "$ENCRYPT" in [Yy]*) ENC=1 ;; *) ENC=0 ;; esac
         fi
 
-        # LV size with safe 100%FREE handling
+        # LV size
         while true; do
             read -rp "Size for LV $LV_NAME (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
             LV_SIZE=${LV_SIZE^^}
 
             if [[ "$LV_SIZE" == "100%FREE" ]]; then
-                # subtract 1 PE to prevent rounding issues
                 SAFE_EXT=$((VG_FREE_EXT - 1))
                 SIZE_GB=$(awk -v ext="$SAFE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
                 LV_CREATE_ARG="-l 100%FREE"
@@ -1548,8 +1567,9 @@ interactive_lvm_encryption_phase() {
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
     done
 
-    echo "✅ All LVs created successfully."
+    echo "✅ Boot partition and all LVs created successfully."
 }
+
 
 #============================================================================================================================#
 # Show colored tree-style partition/LV layout with size and pre-flight validation
@@ -1941,14 +1961,40 @@ CHROOT_EOF
 #=========================================================================================================================================#
 custom_partition(){
     custom_partition_wizard
-    interactive_lvm_encryption_phase
-    confirm_partition_layout_tree_fancy_size
     format_and_mount_custom
     install_base_system
 
     # If we ran custom partitioning, ensure the target has needed fs tools
     ensure_fs_support_for_custom
 
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+}
+#=========================================================================================================================================#
+# LVM & Luks Custom Partition Path
+#=========================================================================================================================================#
+custom_lvm_luks_partition(){
+
+    interactive_lvm_encryption_phase
+    confirm_partition_layout_tree_fancy_validate
+
+    # Format and mount
+    format_and_mount_custom
+
+    # Base system installation
+    install_base_system
+
+    # Ensure filesystem tools are present
+    ensure_fs_support_for_custom
+
+    # Continue system configuration
     configure_system
     install_grub
     network_mirror_selection
@@ -1972,13 +2018,16 @@ logo
             echo "|--------------------------------------------------|"
             echo "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
             echo "|--------------------------------------------------|"
-            echo "|-3) Return back to start                          |"
+            echo "|-3) Logical Volume - Custom Partition Route       |"
+            echo "|--------------------------------------------------|"
+            echo "|-4) Return back to start                          |"
             echo "#==================================================#"
             read -rp "Enter choice [1-2]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) echo "Exiting..."; exit 0 ;;
+                3) custom_lvm_luks_partition ;;
+                4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
 }
