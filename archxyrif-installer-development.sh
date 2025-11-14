@@ -1394,65 +1394,92 @@ custom_partition_wizard() {
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
-    # Detect disk size
-    local disk_bytes disk_mib disk_gib_float disk_gib_int
+    # Detect disk size (MiB)
+    local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
-    disk_gib_int=${disk_gib_float%.*}
-
     echo "Disk size: ${disk_gib_float} GiB"
 
     read -rp "How many partitions would you like to create? " COUNT
+    if ! [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]]; then
+        die "Invalid partition count."
+    fi
 
     PARTITIONS=()
 
+    # initial start (parted-friendly)
     local START="1MiB"
-    local USED_MIB=1    # first MiB reserved for GPT
-    local REMAIN_MIB=$disk_mib
 
-    # NVMe suffix
+    # NVMe suffix (p)
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
     for ((i=1; i<=COUNT; i++)); do
         echo ""
         echo "--- Partition $i ---"
-        echo "Remaining space: $((REMAIN_MIB/1024)) GiB  ($REMAIN_MIB MiB)"
 
-        read -rp "Size (ex: 20G, 512M, 100%): " SIZE
-        read -rp "Mountpoint (/, /home, /boot, /efi, swap, none): " MNT
-        read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
+        # show current partition table so user can plan
+        parted -s "$DEV" unit MiB print
+
+        # Read SIZE (let parted parse it). Accept 100% as last partition.
+        while true; do
+            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
+            # don't try to calculate — parted will validate
+            break
+        done
+
+        # MOUNT must be either a path starting with /, or known keywords
+        while true; do
+            read -rp "Mountpoint (/, /home, /boot, /efi or /boot/efi, swap, none): " MNT
+            if [[ "$MNT" == "/" || "$MNT" == "/home" || "$MNT" == "/boot" || "$MNT" == "/efi" || "$MNT" == "/boot/efi" || "$MNT" == "swap" || "$MNT" == "none" ]]; then
+                break
+            fi
+            echo "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi swap none"
+        done
+
+        # FS validation
+        while true; do
+            read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
+            case "$FS" in
+                ext4|xfs|btrfs|fat32|swap) break ;;
+                *) echo "Unsupported FS. Choose ext4, xfs, btrfs, fat32 or swap." ;;
+            esac
+        done
+
         read -rp "Label (optional): " LABEL
 
-        local END="$SIZE"   # let parted interpret size directly
-
-        # Make partition
-        if ! parted -s "$DEV" mkpart primary "$START" "$END"; then
-            echo "❌ Partition creation failed. Check size."
+        # Create partition with parted — let parted interpret sizes (START and SIZE)
+        if ! parted -s "$DEV" mkpart primary "$START" "$SIZE"; then
+            echo "❌ parted failed to create partition. Please re-run this step or check your inputs."
             exit 1
         fi
 
-        # Convert size to MiB for remaining calc
-        local size_mib
-        size_mib=$(numfmt --from=auto --to=iec --to-unit=MiB "$SIZE" 2>/dev/null)
-        if [[ -z "$size_mib" ]]; then
-            echo "⚠ Using remaining space for final partition."
-            size_mib=$REMAIN_MIB
+        # After creation, ask parted for the end of the last partition and set next START to that end.
+        # We use 'unit MiB' for consistency and parse the last partition line.
+        local last_end
+        last_end=$(parted -s "$DEV" unit MiB print | awk '/^ [0-9]+/ {end=$3} END{print end}')
+        # parted prints something like "1050MiB" — accept that directly as next START
+        if [[ -z "$last_end" ]]; then
+            echo "⚠ Unable to compute next START from parted output — aborting to be safe."
+            exit 1
         fi
+        START="$last_end"
 
-        USED_MIB=$((USED_MIB + size_mib))
-        REMAIN_MIB=$((disk_mib - USED_MIB))
-
+        # Construct partition node name (works for sda and nvme)
         PART="${DEV}${ps}${i}"
+
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
-        START="$END"
+        echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
     done
 
     echo ""
     echo "=== Partition layout created ==="
     printf "%s\n" "${PARTITIONS[@]}"
+    # Show final table
+    parted -s "$DEV" unit MiB print
 }
 
 #=========================================================================================================================================#
@@ -1465,6 +1492,13 @@ format_and_mount_custom() {
 
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+    
+        # wait for kernel to expose new partition (partprobe/udevadm settle)
+        partprobe "$PART" 2>/dev/null || true
+        udevadm settle --timeout=5 || true
+        if [[ ! -b "$PART" ]]; then
+            die "Partition $PART not available (kernel didn't expose it)."
+        fi
 
         echo ">>> $PART ($FS) mount as $MOUNT"
 
