@@ -1457,8 +1457,10 @@ interactive_lvm_encryption_phase() {
     read -rp "WARNING: This will ERASE all data on $DEV. Continue? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
-    # --- Detect boot mode and assign variables ---
-    detect_boot_mode
+    # --- Detect boot mode safely ---
+    detect_boot_mode || true
+    BOOT_MODE="${BOOT_MODE:-BIOS}"  # default to BIOS if detect_boot_mode fails
+    echo "→ Detected boot mode: $BOOT_MODE"
 
     # --- Clear mountpoints and previous LVs / PVs ---
     safe_disk_cleanup
@@ -1466,7 +1468,7 @@ interactive_lvm_encryption_phase() {
     # --- Ask about boot partition creation ---
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
         echo "Creating EFI System Partition (FAT32) for /boot/efi..."
-        # Example: EFI_SIZE_MIB should be set globally before calling this function
+        EFI_SIZE_MIB=${EFI_SIZE_MIB:-512} # default to 512MiB if not set
         parted -s "$DEV" mkpart ESP fat32 1MiB ${EFI_SIZE_MIB}MiB
         PART_ESP="${DEV}1"
         mkfs.fat -F32 "$PART_ESP"
@@ -1474,6 +1476,7 @@ interactive_lvm_encryption_phase() {
         mount "$PART_ESP" /mnt/boot/efi
     else
         echo "Creating BIOS boot partition (ext4) for /boot..."
+        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512} # default to 512MiB if not set
         parted -s "$DEV" mkpart primary ext4 1MiB ${BOOT_SIZE_MIB}MiB
         PART_BOOT="${DEV}1"
         mkfs.ext4 -F "$PART_BOOT"
