@@ -697,46 +697,44 @@ install_grub() {
     local ps
     ps=$(part_suffix "$DEV")
 
+    # Default GRUB modules
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux"
+
+    # Auto-detect filesystems on mounted partitions under /mnt
+    echo "→ Detecting filesystems on target partitions..."
+    while read -r mp fs _; do
+        case "$fs" in
+            btrfs) GRUB_MODULES+=" btrfs" ;;
+            xfs)    GRUB_MODULES+=" xfs" ;;
+            zfs)    GRUB_MODULES+=" zfs" ;;
+            lvm2)   GRUB_MODULES+=" lvm" ;;
+            crypto_LUKS|LUKS) GRUB_MODULES+=" cryptodisk" ;;
+            ext2|ext3|ext4) GRUB_MODULES+=" ext2" ;;
+            vfat|fat32|fat16) GRUB_MODULES+=" fat" ;;
+            f2fs)   GRUB_MODULES+=" f2fs" ;;
+        esac
+    done < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+
+    echo "→ GRUB modules to install: $GRUB_MODULES"
+
+    prepare_chroot
+
     if [[ "$MODE" == "BIOS" ]]; then
         echo "Installing GRUB for BIOS..."
-        prepare_chroot
-        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install (BIOS) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" --modules="$GRUB_MODULES" || die "grub-install (BIOS) failed"
     else
         echo "Installing GRUB (UEFI)..."
-        prepare_chroot
 
-        # Ensure EFI is mounted inside chroot at /boot/efi
+        # Ensure EFI is mounted
         if ! mountpoint -q /mnt/boot/efi; then
             mkdir -p /mnt/boot/efi
             if [[ -n "${P_EFI:-}" ]]; then
                 mount "$P_EFI" /mnt/boot/efi
             else
-                local psfx
-                psfx=$(part_suffix "$DEV")
-                mount "${DEV}${psfx}1" /mnt/boot/efi || die "Failed to mount EFI partition"
+                mount "${DEV}1" /mnt/boot/efi || die "Failed to mount EFI partition"
             fi
         fi
 
-        # Default GRUB modules for UEFI boot
-        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-
-        # Auto-detect filesystems on mounted partitions and append needed modules
-        echo "→ Detecting filesystems for GRUB modules..."
-        while read -r mp fs _; do
-            case "$fs" in
-                btrfs) GRUB_MODULES+=" btrfs" ;;
-                xfs)   GRUB_MODULES+=" xfs" ;;
-                f2fs)  GRUB_MODULES+=" f2fs " ;;
-                zfs)   GRUB_MODULES+=" zfs" ;;
-                lvm2)  GRUB_MODULES+=" lvm" ;;
-                crypto_LUKS|LUKS) GRUB_MODULES+=" cryptodisk" ;;
-            esac
-        done < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')  # only mounted partitions under /mnt
-
-        echo "→ GRUB modules to install: $GRUB_MODULES"
-
-        # Run grub-install safely inside chroot
         arch-chroot /mnt grub-install \
           --target=x86_64-efi \
           --efi-directory=/boot/efi \
@@ -746,7 +744,6 @@ install_grub() {
           --no-nvram || die "grub-install (UEFI) failed"
 
         # Fallback EFI
-        echo "→ Copying fallback EFI binary..."
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
         # efibootmgr entry
@@ -755,28 +752,26 @@ install_grub() {
         LABEL="Arch Linux"
         LOADER='\EFI\GRUB\grubx64.efi'
         for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-          efibootmgr -b "$bootnum" -B || true
+            efibootmgr -b "$bootnum" -B || true
         done
         efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed"
-
-        # Generate GRUB config
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-        # Secure Boot
-        if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
-            echo "→ Signing EFI binaries for Secure Boot..."
-            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-            arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed"
-            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
-            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
-        fi
-
-        echo "GRUB installation complete."
-        echo
-        echo "Verifying EFI boot entries..."
-        efibootmgr -v || true
     fi
-    echo "✅ GRUB installed."
+
+    # Generate GRUB config
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+
+    # Optional: Secure Boot signing
+    if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
+        echo "→ Signing EFI binaries for Secure Boot..."
+        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+        arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed"
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
+    fi
+
+    echo "✅ GRUB installed successfully."
+    echo "→ Verifying EFI boot entries..."
+    efibootmgr -v || true
 }
 #=========================================================================================================================================#
 # Configure system
