@@ -226,7 +226,6 @@ encrypt_with_lvm_custom() {
     P_HOME="/dev/vg0/home"
     [[ -n "$LV_SWAP_SIZE" ]] && P_SWAP="/dev/vg0/swap"
 }
-
 #=========================================================================================================================================#
 # Helper Functions - For Pacman                                                                  
 #=========================================================================================================================================#
@@ -346,15 +345,18 @@ CHROOT_CMD=(arch-chroot /mnt)
 # Detect boot mode
 #=========================================================================================================================================#
 detect_boot_mode() {
+    # Determine boot mode and set both BOOT_MODE and MODE for compatibility
     if [[ -d /sys/firmware/efi ]]; then
+        BOOT_MODE="UEFI"
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
-        BOOT_SIZE_MIB=$EFI_SIZE_MIB
+        BOOT_SIZE_MIB=${EFI_SIZE_MIB:-1024}
         echo -e "${CYAN}UEFI${RESET} detected."
     else
+        BOOT_MODE="BIOS"
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
-        BOOT_SIZE_MIB=$BOOT_SIZE_MIB
+        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
         echo -e "${CYAN}Legacy BIOS${RESET} detected."
     fi
 }
@@ -1377,42 +1379,7 @@ hyprland_optional()
                               fi
                           fi
 }                          
-#=========================================================================================================================================#
-# Quick Partition Main
-#=========================================================================================================================================#
-quick_partition() {
-    detect_boot_mode
-    echo "Available disks:"
-    lsblk -d -o NAME,SIZE,MODEL,TYPE
-    while true; do
-        read -rp "Enter target disk (e.g. /dev/sda): " DEV
-        DEV="/dev/${DEV##*/}"
-        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
-    done
 
-    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
-    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
-
-    safe_disk_cleanup
-    ask_partition_sizes
-    select_filesystem
-    select_swap
-    partition_disk
-    format_and_mount
-    install_base_system
-    configure_system
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-    
-
-    echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
-}
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #====================================== Custom Partition // Choose Filesystem Custom #====================================================#
@@ -1449,8 +1416,8 @@ interactive_lvm_encryption_phase() {
     while true; do
         echo "Available disks:"
         lsblk -d -o NAME,SIZE,MODEL,TYPE
-        read -rp "Enter target disk for LVM (e.g., /dev/sda): " DEV
-        DEV="/dev/${DEV##*/}"
+        read -rp "Enter target disk for LVM (e.g., /dev/sda or nvme0n1): " DEV_IN
+        DEV="/dev/${DEV_IN##*/}"
         [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
     done
 
@@ -1459,52 +1426,98 @@ interactive_lvm_encryption_phase() {
 
     # --- Detect boot mode safely ---
     detect_boot_mode || true
-    BOOT_MODE="${BOOT_MODE:-BIOS}"  # default to BIOS if detect_boot_mode fails
-    echo "→ Detected boot mode: $BOOT_MODE"
+    BOOT_MODE="${BOOT_MODE:-BIOS}"
+    echo "→ Using boot mode: $BOOT_MODE"
 
-    # --- Clear mountpoints and previous LVs / PVs ---
+    # --- Clear disk state (requires $DEV) ---
     safe_disk_cleanup
 
-    # --- Ask about boot partition creation ---
+    # --- Create GPT label if not present ---
+    parted -s "$DEV" mklabel gpt || die "Failed to make GPT label on $DEV"
+
+    # --- Create boot partition (1) ---
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        echo "Creating EFI System Partition (FAT32) for /boot/efi..."
-        EFI_SIZE_MIB=${EFI_SIZE_MIB:-512} # default to 512MiB if not set
-        parted -s "$DEV" mkpart ESP fat32 1MiB ${EFI_SIZE_MIB}MiB
-        PART_ESP="${DEV}1"
-        mkfs.fat -F32 "$PART_ESP"
-        mkdir -p /mnt/boot/efi
-        mount "$PART_ESP" /mnt/boot/efi
+        EFI_SIZE_MIB=${EFI_SIZE_MIB:-1024}
+        echo "→ Creating EFI partition (1MiB - ${EFI_SIZE_MIB}MiB) for /boot/efi"
+        parted -s "$DEV" mkpart primary fat32 1MiB ${EFI_SIZE_MIB}MiB || die "Failed to create EFI partition"
+        part_suffix=$(part_suffix "$DEV")
+        PART_BOOT="${DEV}${part_suffix}1"
+        mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed for $PART_BOOT"
+        echo "→ EFI partition: $PART_BOOT"
     else
-        echo "Creating BIOS boot partition (ext4) for /boot..."
-        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512} # default to 512MiB if not set
-        parted -s "$DEV" mkpart primary ext4 1MiB ${BOOT_SIZE_MIB}MiB
-        PART_BOOT="${DEV}1"
-        mkfs.ext4 -F "$PART_BOOT"
-        mkdir -p /mnt/boot
-        mount "$PART_BOOT" /mnt/boot
+        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
+        echo "→ Creating BIOS /boot partition (1MiB - ${BOOT_SIZE_MIB}MiB)"
+        parted -s "$DEV" mkpart primary ext4 1MiB ${BOOT_SIZE_MIB}MiB || die "Failed to create /boot partition"
+        part_suffix=$(part_suffix "$DEV")
+        PART_BOOT="${DEV}${part_suffix}1"
+        mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed for $PART_BOOT"
+        echo "→ BIOS /boot partition: $PART_BOOT"
     fi
 
-    # --- Ask if user wants to create Logical Volumes ---
-    read -rp "Do you want to create Logical Volumes on this disk? (yes/no): " CREATE_LV
-    case "$CREATE_LV" in [Yy]*) ;; *) echo "Skipping LV creation."; return ;; esac
+    # --- Create an LVM partition occupying the remaining space (partition 2) ---
+    echo "→ Creating LVM partition on remaining disk space (for PV)."
+    # Start at next MiB after boot partition
+    local start_mib end_spec
+    start_mib=$(( (BOOT_MODE == "UEFI") ? EFI_SIZE_MIB + 1 : BOOT_SIZE_MIB + 1 ))
+    # Use 100% for end
+    parted -s "$DEV" mkpart primary  ${start_mib}MiB 100% || die "Failed to create LVM partition"
+    PART_SUFFIX=$(part_suffix "$DEV")
+    PV_PART="${DEV}${PART_SUFFIX}2"
+    # Set partition type to LVM (optional / informative)
+    parted -s "$DEV" set 2 lvm on || true
 
-    # --- Create Physical Volume and Volume Group ---
-    pvcreate "$DEV" || die "pvcreate failed"
-    read -rp "Enter a name for the Volume Group (VG): " VG
-    [[ -n "$VG" ]] || die "VG name required."
-    vgcreate "$VG" "$DEV" || die "vgcreate failed"
+    # Wait for kernel to recognize partitions
+    partprobe "$DEV" 2>/dev/null || true
+    udevadm settle --timeout=5 2>/dev/null || true
+    sleep 1
 
+    # --- Offer to create PV & VG on that partition ---
+    read -rp "Create LVM Physical Volume on ${PV_PART} and a new Volume Group? (yes/no): " do_pv
+    case "$do_pv" in [Yy]* )
+        pvcreate "$PV_PART" || die "pvcreate failed on $PV_PART"
+        read -rp "Enter name for new Volume Group (VG): " VG
+        [[ -n "$VG" ]] || die "VG name required"
+        vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
+        ;;
+    *)
+        echo "Skipping LVM PV/VG creation. You may create a VG manually and re-run LV creation later."
+        # But still present existing VGs for selection
+        ;;
+    esac
+
+    # Show existing volume groups
+    echo "Available Volume Groups (after creation attempt):"
+    vgs --noheadings -o vg_name,vg_size --units g --nosuffix || true
+
+    # If no VG created earlier, ask whether to use an existing VG
+    if ! vgs "$VG" &>/dev/null; then
+        read -rp "Enter name of existing VG to use, or type NEW to create a VG now: " VG_CHOICE
+        if [[ "$VG_CHOICE" == "NEW" ]]; then
+            read -rp "Enter name for new VG: " VG
+            [[ -n "$VG" ]] || die "VG name required"
+            vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
+        else
+            # Use existing
+            VG="$VG_CHOICE"
+            [[ -n "$VG" ]] || die "No VG specified"
+            vgs "$VG" &>/dev/null || die "Volume group $VG not found"
+        fi
+    fi
+
+    # --- Gather VG info for sizing checks ---
     VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
     VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
+
+    # --- Ask whether create LVs now ---
+    read -rp "Do you want to create Logical Volumes in VG '$VG' now? (yes/no): " create_lvs
+    case "$create_lvs" in [Yy]* ) ;; *) echo "Skipping LV creation."; return ;; esac
 
     read -rp "How many LVs to create in $VG? " LV_COUNT
     [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
 
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
-
-        # LV name
         while true; do
             read -rp "LV name: " LV_NAME
             [[ -n "$LV_NAME" ]] && break || echo "LV name required."
@@ -1515,8 +1528,8 @@ interactive_lvm_encryption_phase() {
             read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
             case "$MNT" in
                 /|/home|/data1|/data2|swap|none)
-                    if printf '%s\n' "${PARTITIONS[@]}" | grep -q ":$MNT:"; then
-                        echo "⚠️  Mountpoint $MNT already assigned."
+                    if printf '%s\n' "${PARTITIONS[@]:-}" | grep -q ":$MNT:"; then
+                        echo "⚠️  Mountpoint $MNT already assigned. Choose another."
                         continue
                     fi
                     break
@@ -1525,64 +1538,76 @@ interactive_lvm_encryption_phase() {
             esac
         done
 
-        # Filesystem
+        # FS choice
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
             case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Unsupported FS." ;; esac
         done
 
-        # Optional encryption
+        # Encryption (skip for swap/none)
         ENC=0
-        if [[ "$MNT" != "/boot" && "$MNT" != "/boot/efi" && "$MNT" != "swap" && "$MNT" != "none" ]]; then
-            read -rp "Encrypt this LV? (yes/no): " ENCRYPT
-            case "$ENCRYPT" in [Yy]*) ENC=1 ;; *) ENC=0 ;; esac
+        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
+            read -rp "Encrypt this LV? (yes/no): " encrypt_ans
+            case "$encrypt_ans" in [Yy]*) ENC=1 ;; *) ENC=0 ;; esac
         fi
 
-        # LV size
+        # Size input (allow 100%FREE)
         while true; do
             read -rp "Size for LV $LV_NAME (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
             LV_SIZE=${LV_SIZE^^}
-
             if [[ "$LV_SIZE" == "100%FREE" ]]; then
+                LV_CREATE_ARG="-l 100%FREE"
                 SAFE_EXT=$((VG_FREE_EXT - 1))
                 SIZE_GB=$(awk -v ext="$SAFE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
-                LV_CREATE_ARG="-l 100%FREE"
             elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
-                VAL=${BASH_REMATCH[1]}
-                UNIT=${BASH_REMATCH[2]}
-                SIZE_GB=$(( UNIT=="M" ? VAL/1024 : VAL ))
+                VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
+                if [[ "$UNIT" == "M" ]]; then
+                    SIZE_GB=$(awk -v v="$VAL" 'BEGIN{printf "%.2f", v/1024}')
+                else
+                    SIZE_GB="$VAL"
+                fi
                 LV_CREATE_ARG="-L ${SIZE_GB}G"
             else
                 echo "Invalid size format."
                 continue
             fi
 
+            # Compare numerically using bc
             if (( $(echo "$SIZE_GB > $VG_FREE_GB" | bc -l) )); then
-                echo "⚠️  LV size exceeds remaining VG space ($VG_FREE_GB G)."
+                echo "⚠️  LV size exceeds remaining VG space ($VG_FREE_GB G). Choose smaller."
                 continue
             fi
             break
         done
 
-        # Create LV
+        # Create the LV
         if (( ENC )); then
             lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
-            cryptsetup luksFormat /dev/$VG/$LV_NAME
-            cryptsetup open /dev/$VG/$LV_NAME $LV_NAME
+            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
+            cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
             LV_PATH="/dev/mapper/$LV_NAME"
         else
             lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
             LV_PATH="/dev/$VG/$LV_NAME"
         fi
 
+        # Add to PARTITIONS[] for format_and_mount_custom
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
 
-        # Update free space info
+        # Refresh VG free info
         VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
     done
 
-    echo -e "✅ All LVs created successfully.\n"
+    # Finally, add boot partition to PARTITIONS[] if not already present
+    # Determine mountpoint for boot partition from BOOT_MODE
+    if [[ "$BOOT_MODE" == "UEFI" ]]; then
+        PARTITIONS=("${PARTITIONS[@]}" "$PART_BOOT:/boot/efi:fat32:EFI")
+    else
+        PARTITIONS=("${PARTITIONS[@]}" "$PART_BOOT:/boot:ext4:BOOT")
+    fi
+
+    echo -e "✅ Boot partition and LVs created. PARTITIONS array updated."
 }
 
 
@@ -1971,17 +1996,10 @@ CHROOT_EOF
 
     echo "→ ensure_fs_support_for_custom() finished."
 }
-#=========================================================================================================================================#
-# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
-#=========================================================================================================================================#
-custom_partition(){
-    custom_partition_wizard
-    format_and_mount_custom
-    install_base_system
-
-    # If we ran custom partitioning, ensure the target has needed fs tools
-    ensure_fs_support_for_custom
-
+#==============================================================
+# Post-Partition Steps (all routes)
+#==============================================================
+post_partition_steps() {
     configure_system
     install_grub
     network_mirror_selection
@@ -1991,55 +2009,56 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+    echo -e "${GREEN}✅ Arch Linux installation complete!${NC}"
 }
-#=========================================================================#
-# LVM & LUKS Custom Partition Path Runner
-#=========================================================================#
-custom_lvm_luks_partition() {
+#=========================================================================================================================================#
+# Quick Partition Main
+#=========================================================================================================================================#
+quick_partition() {
+    detect_boot_mode
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
 
-    # Step 1: Interactive LVM & LUKS creation
-    interactive_lvm_encryption_phase
+    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
-    # Step 2: Confirm the partition layout
-    confirm_partition_layout_tree_fancy_validate
-
-    # Step 3: Format and mount all partitions
-    format_and_mount_custom
-
-    # Step 4: Install base system
+    safe_disk_cleanup
+    ask_partition_sizes
+    select_filesystem
+    select_swap
+    partition_disk
+    format_and_mount
     install_base_system
-
-    # Step 5: Ensure filesystem tools are present in target
+    post_partition_steps
+}
+#==============================================================
+# Custom Partition Route
+#==============================================================
+custom_partition() {
+    detect_boot_mode
+    custom_partition_wizard      # user-defined partitions
+    format_and_mount_custom      # auto mount based on $BOOT_MODE
+    install_base_system
     ensure_fs_support_for_custom
+    post_partition_steps
+}
 
-    # Step 6: System configuration
-    configure_system
-
-    # Step 7: Install GRUB
-    install_grub
-
-    # Step 8: Network & mirrors
-    network_mirror_selection
-
-    # Step 9: GPU drivers
-    gpu_driver
-
-    # Step 10: Window manager / Desktop environment
-    window_manager
-
-    # Step 11: Login manager / display manager
-    lm_dm
-
-    # Step 12: Extra packages via pacman
-    extra_pacman_pkg
-
-    # Step 13: Optional AUR packages
-    optional_aur
-
-    # Step 14: Optional Hyprland installation
-    hyprland_optional
-
-    echo -e "${GREEN}✅ Arch Linux installation complete with LVM & LUKS.${RESET}"
+#==============================================================
+# LVM + LUKS Partition Route
+#==============================================================
+custom_lvm_luks_partition() {
+    interactive_lvm_encryption_phase
+    confirm_partition_layout_tree_fancy_validate
+    format_and_mount_custom
+    install_base_system
+    ensure_fs_support_for_custom
+    install_base_system
+    post_partition_steps
 }
 #=========================================================================================================================================#
 # Main menu
@@ -2048,7 +2067,7 @@ menu() {
 clear
 logo
             echo "#==================================================#"
-            echo "#     Select partitioning method for $DEV:         #"
+            echo "#          Select partitioning method              #"
             echo "#==================================================#"
             echo "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
             echo "|--------------------------------------------------|"
@@ -2076,7 +2095,7 @@ sleep 1
 clear
 echo
 echo "#===================================================================================================#"
-echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
+echo "# Cleanup postinstall script & Final Messages & Instructions                                        #"
 echo "#===================================================================================================#"
 echo
 echo 
