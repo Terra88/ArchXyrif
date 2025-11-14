@@ -1831,61 +1831,100 @@ custom_partition_wizard() {
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
 format_and_mount_custom() {
-    echo "→ Formatting and mounting custom partitions & LVs..."
+    echo "→ Formatting and mounting custom partitions..."
+
     mkdir -p /mnt
 
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-
-        # Wait for device to settle
+    
+        # wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
-        [[ -b "$PART" || "$PART" =~ /dev/mapper/ ]] || die "Device $PART not available."
+        [[ -b "$PART" ]] || die "Partition $PART not available."
 
         echo ">>> $PART ($FS) mount as $MOUNT"
 
-        # Format
+        # Format partition
         case "$FS" in
             ext4)  mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
             xfs)   mkfs.xfs -f "$PART" ;;
             f2fs)  mkfs.f2fs -f "$PART" ;;
+            fat32|vfat) mkfs.fat -F32 "$PART" ;;
             swap)  mkswap "$PART"; swapon "$PART"; continue ;;
-            *) die "Unsupported FS: $FS" ;;
+            none)  continue ;;
+            *) die "Unsupported filesystem: $FS" ;;
         esac
 
-        # Label if provided
+        # Apply label if provided
         [[ -n "$LABEL" ]] && {
             case "$FS" in
-                ext4)  e2label "$PART" "$LABEL" ;;
+                ext4) e2label "$PART" "$LABEL" ;;
                 btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)   xfs_admin -L "$LABEL" "$PART" ;;
-                f2fs)  f2fslabel "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                f2fs) f2fslabel "$PART" "$LABEL" ;;
+                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$PART" ;;
             esac
         }
 
-        # Mountpoint
+        # Mount according to mountpoint
         case "$MOUNT" in
-            "/") mount "$PART" /mnt ;;
-            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
-            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
-            /efi|/boot/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
-            /data1) mkdir -p /mnt/data1; mount "$PART" /mnt/data1 ;;
-            /data2) mkdir -p /mnt/data2; mount "$PART" /mnt/data2 ;;
-            *) mkdir -p "/mnt$MOUNT"; mount "$PART" "/mnt$MOUNT" ;;
+            "/")
+                if [[ "$FS" == "btrfs" ]]; then
+                    mount "$PART" /mnt
+                    btrfs subvolume create /mnt/@
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                else
+                    mount "$PART" /mnt
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$PART" /mnt/home
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$PART" /mnt/boot
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi
+                ;;
+            /data1)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data1
+                ;;
+            /data2)
+                mkdir -p /mnt/data2
+                mount "$PART" /mnt/data2
+                ;;
+            *)
+                mkdir -p "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
+                ;;
         esac
     done
 
-    echo "✅ All partitions & LVs formatted and mounted successfully."
+    echo "✅ All custom partitions formatted and mounted correctly."
 
-    echo "→ Generating /etc/fstab..."
+    echo "Generating /etc/fstab..."
+    
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
+#=====================================================================
+# Ensure filesystem tools & mkinitcpio config for custom partition mode
+# Install FS tools inside target and patch mkinitcpio.conf so that
+# mkinitcpio (run later inside chroot) includes required modules/hooks.
+#=====================================================================
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
