@@ -1438,6 +1438,91 @@ convert_to_mib() {
         return 1
     fi
 }
+#============================================================================================================================#
+# Fully Interactive Multi-LV + Optional Encryption Phase
+# Updates PARTITIONS array for use in format_and_mount_custom
+#============================================================================================================================#
+interactive_lvm_encryption_phase() {
+    echo ""
+    for idx in "${!PARTITIONS[@]}"; do
+        IFS=':' read -r PART MNT FS LABEL <<< "${PARTITIONS[$idx]}"
+
+        # Skip swap/none for LV creation, encryption still optional
+        [[ "$MNT" == "swap" || "$MNT" == "none" ]] && continue
+
+        echo ""
+        echo "Partition: $PART (mount=$MNT, fs=$FS, label=${LABEL:-<none>})"
+
+        # Step 1: Ask for LVM creation
+        read -rp "Do you want to create Logical Volume(s) inside $PART? (yes/no): " LVM_CHOICE
+        if [[ "$LVM_CHOICE" =~ ^[Yy] ]]; then
+            vg_name="vg_$(basename $PART)"
+            pvcreate "$PART"
+            vgcreate "$vg_name" "$PART"
+
+            # Ask number of LVs
+            read -rp "How many LVs to create inside $PART? " LV_COUNT
+            [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || LV_COUNT=1
+
+            local LV_SIZE
+            for ((lv=1; lv<=LV_COUNT; lv++)); do
+                lv_name="lv${lv}_$(basename $PART)"
+                read -rp "Size for LV $lv_name (e.g., 10G, 100%FREE): " LV_SIZE
+
+                # Create LV
+                lvcreate -L "$LV_SIZE" -n "$lv_name" "$vg_name"
+                LV_PATH="/dev/$vg_name/$lv_name"
+                echo "→ Created LV $LV_PATH"
+
+                # Step 2: Ask if this LV should be encrypted
+                read -rp "Encrypt this LV $LV_PATH? (yes/no): " ENC_LV
+                if [[ "$ENC_LV" =~ ^[Yy] ]]; then
+                    read -rsp "Enter passphrase: " LV_PW
+                    echo
+                    read -rsp "Confirm passphrase: " LV_PW2
+                    echo
+                    if [[ "$LV_PW" != "$LV_PW2" ]]; then
+                        echo "⚠ Passphrases do not match. Skipping encryption for $LV_PATH."
+                        continue
+                    fi
+                    echo -n "$LV_PW" | cryptsetup luksFormat "$LV_PATH" -
+                    echo -n "$LV_PW" | cryptsetup open "$LV_PATH" "cryptlv_$(basename $LV_PATH)" -
+                    LV_PATH="/dev/mapper/cryptlv_$(basename $LV_PATH)"
+                    echo "→ LV encrypted as $LV_PATH"
+                fi
+
+                # Step 3: Ask filesystem and mountpoint
+                read -rp "Mountpoint for $LV_PATH (/, /home, /boot, /efi, /data1, /data2, swap, none): " LV_MNT
+                read -rp "Filesystem for $LV_PATH (ext4, btrfs, xfs, f2fs, fat32, swap): " LV_FS
+                read -rp "Label (optional): " LV_LABEL
+
+                # Add LV to PARTITIONS array
+                PARTITIONS+=("$LV_PATH:$LV_MNT:$LV_FS:$LV_LABEL")
+            done
+
+            # Optionally remove original partition entry if all LVs replace it
+            unset 'PARTITIONS[idx]'
+        else
+            # Step 2: Ask if original partition should be encrypted
+            read -rp "Encrypt raw partition $PART? (yes/no): " ENC
+            if [[ "$ENC" =~ ^[Yy] ]]; then
+                read -rsp "Enter passphrase for $PART: " PASSPHRASE
+                echo
+                read -rsp "Confirm passphrase: " PASSPHRASE2
+                echo
+                if [[ "$PASSPHRASE" != "$PASSPHRASE2" ]]; then
+                    echo "⚠ Passphrases do not match. Skipping encryption."
+                    continue
+                fi
+                echo -n "$PASSPHRASE" | cryptsetup luksFormat "$PART" -
+                echo -n "$PASSPHRASE" | cryptsetup open "$PART" "crypt$(basename $PART)" -
+                MAPPED="/dev/mapper/crypt$(basename $PART)"
+                PARTITIONS[$idx]="$MAPPED:$MNT:$FS:$LABEL"
+                echo "→ Partition $PART is now encrypted as $MAPPED"
+            fi
+        fi
+    done
+}
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
@@ -1633,11 +1718,6 @@ format_and_mount_custom() {
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
-#=====================================================================
-# Ensure filesystem tools & mkinitcpio config for custom partition mode
-# Install FS tools inside target and patch mkinitcpio.conf so that
-# mkinitcpio (run later inside chroot) includes required modules/hooks.
-#=====================================================================
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
@@ -1754,6 +1834,7 @@ CHROOT_EOF
 #=========================================================================================================================================#
 custom_partition(){
     custom_partition_wizard
+    interactive_lvm_encryption_phase
     format_and_mount_custom
     install_base_system
 
