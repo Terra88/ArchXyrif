@@ -1346,6 +1346,7 @@ quick_partition() {
     read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
+    safe_disk_cleanup
     ask_partition_sizes
     select_filesystem
     select_swap
@@ -1502,7 +1503,6 @@ format_and_mount_custom() {
 # Main menu
 #=========================================================================================================================================#
 menu() {
-safe_disk_cleanup
 logo
             echo "#==================================================#"
             echo "#     Select partitioning method for $DEV:         #"
