@@ -1545,7 +1545,13 @@ format_and_mount_custom() {
                 mkdir -p /mnt/boot/efi
                 mount "$PART" /mnt/boot/efi
                 ;;
-            none)
+            /data1)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data
+                ;;
+            /data2)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data
                 ;;
             *)
                 mkdir -p "/mnt$MOUNT"
