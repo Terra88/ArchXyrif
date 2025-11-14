@@ -722,7 +722,7 @@ install_grub() {
         GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
 
         # Add custom FS modules if using custom_partition path
-        if [[ "$INSTALL_MODE" == "custom_partition" ]]; then
+        if [[ "${INSTALL_MODE:-}" == "custom_partition" ]]; then
             echo "→ Adding custom filesystem modules for GRUB..."
             # Example: add btrfs, xfs, zfs, encrypted LUKS support as needed
             GRUB_MODULES+=" btrfs xfs f2fs zfs lvm cryptodisk"
@@ -1738,8 +1738,8 @@ logo
             echo "|--------------------------------------------------|"
             echo "|-3) Return back to start                          |"
             echo "#==================================================#"
-            read -rp "Enter choice [1-2]: " PART_CHOICE
-            case "$PART_CHOICE" in
+            read -rp "Enter choice [1-2]: " INSTALL_MODE
+            case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
                 3) echo "Exiting..."; exit 0 ;;
