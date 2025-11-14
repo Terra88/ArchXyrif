@@ -1051,7 +1051,7 @@ window_manager()
         case "$WM_CHOICE" in
             1)
                 echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock waybar )
+                WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock waybar kitty )
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
