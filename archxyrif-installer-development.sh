@@ -361,7 +361,7 @@ detect_boot_mode() {
 #=========================================================================================================================================#
 # Swap calculation
 #=========================================================================================================================================#
-calculate_swap() {
+calculate_swap_quick() {
     local ram_kb ram_mib
     ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     ram_mib=$(( (ram_kb + 1023) / 1024 ))
@@ -423,7 +423,7 @@ select_swap()
 #=========================================================================================================================================#
 ask_partition_sizes() {
     detect_boot_mode
-    calculate_swap
+    calculate_swap_quick
 
     local disk_bytes disk_mib disk_gib_val disk_gib_int
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
@@ -1392,7 +1392,9 @@ quick_partition() {
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
 }
 #=========================================================================================================================================#
-# Custom Partition // Choose Filesystem Custom
+#=========================================================================================================================================#
+#====================================== Custom Partition // Choose Filesystem Custom #====================================================#
+#=========================================================================================================================================#
 #=========================================================================================================================================#
 choose_filesystems_custom() {
 detect_boot_mode
@@ -1421,12 +1423,6 @@ detect_boot_mode
     read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
     ROOT_FS="${ROOT_FS:-ext4}"
 
-    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
-    ROOT_FS="${ROOT_FS:-ext4}"
-
-    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
-    ROOT_FS="${ROOT_FS:-ext4}"
-
     read -rp "Home filesystem [ext4/btrfs/xfs/f2fs, default=$ROOT_FS]: " HOME_FS
     HOME_FS="${HOME_FS:-$ROOT_FS}"
     
@@ -1451,8 +1447,54 @@ detect_boot_mode
 #=========================================================================================================================================#
 format_and_mount_custom() {
     echo "Formatting partitions..."
-    [[ -n "$P_SWAP" ]] && { mkswap "$P_SWAP"; swapon "$P_SWAP"; }
 
+    # -----------------------------------------------------------------------
+    # 1) Format boot/EFI
+    # -----------------------------------------------------------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        case "$BOOT_FS" in
+            ext4)
+                mkfs.ext4 -F "$P_BOOT"
+                ;;
+            fat32|vfat)
+                mkfs.fat -F32 "$P_BOOT"
+                ;;
+            *)
+                die "Unsupported BIOS boot filesystem: $BOOT_FS"
+                ;;
+        esac
+    else
+        case "$EFI_FS" in
+            fat32|vfat)
+                mkfs.fat -F32 "$P_EFI"
+                ;;
+            ext4)
+                mkfs.ext4 -F "$P_EFI"
+                ;;
+            *)
+                die "Unsupported EFI filesystem: $EFI_FS"
+                ;;
+        esac
+    fi
+
+    # -----------------------------------------------------------------------
+    # 2) Format swap
+    # -----------------------------------------------------------------------
+    if [[ "$SWAP_ON" == "1" ]]; then
+        case "$SWAP_FS" in
+            linux-swap)
+                mkswap "$P_SWAP"
+                swapon "$P_SWAP"
+                ;;
+            *)
+                die "Unsupported swap filesystem: $SWAP_FS"
+                ;;
+        esac
+    fi
+
+    # -----------------------------------------------------------------------
+    # 3) Format ROOT
+    # -----------------------------------------------------------------------
     case "$ROOT_FS" in
         btrfs)
             mkfs.btrfs -f "$P_ROOT"
@@ -1461,16 +1503,63 @@ format_and_mount_custom() {
             umount /mnt
             mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
             ;;
-        ext4) mkfs.ext4 "$P_ROOT"; mount "$P_ROOT" /mnt ;;
-        xfs)  mkfs.xfs -f "$P_ROOT"; mount "$P_ROOT" /mnt ;;
-        f2fs) mkfs.f2fs "$P_ROOT"; mount "$P_ROOT" /mnt ;;
+        ext4)
+            mkfs.ext4 -F "$P_ROOT"
+            mount "$P_ROOT" /mnt
+            ;;
+        xfs)
+            mkfs.xfs -f "$P_ROOT"
+            mount "$P_ROOT" /mnt
+            ;;
+        f2fs)
+            mkfs.f2fs -f "$P_ROOT"
+            mount "$P_ROOT" /mnt
+            ;;
+        *)
+            die "Unsupported root filesystem: $ROOT_FS"
+            ;;
     esac
 
+    # -----------------------------------------------------------------------
+    # 4) Home partition
+    # -----------------------------------------------------------------------
     mkdir -p /mnt/home
-    [[ "$HOME_FS" == "btrfs" ]] && mkfs.btrfs -f "$P_HOME" && \
-      mount -o compress=zstd "$P_HOME" /mnt/home || mkfs."$HOME_FS" "$P_HOME" && mount "$P_HOME" /mnt/home
 
-    echo "✅ Custom filesystems mounted under /mnt."
+    case "$HOME_FS" in
+        btrfs)
+            mkfs.btrfs -f "$P_HOME"
+            mount -o compress=zstd "$P_HOME" /mnt/home
+            ;;
+        ext4)
+            mkfs.ext4 -F "$P_HOME"
+            mount "$P_HOME" /mnt/home
+            ;;
+        xfs)
+            mkfs.xfs -f "$P_HOME"
+            mount "$P_HOME" /mnt/home
+            ;;
+        f2fs)
+            mkfs.f2fs -f "$P_HOME"
+            mount "$P_HOME" /mnt/home
+            ;;
+        *)
+            die "Unsupported home filesystem: $HOME_FS"
+            ;;
+    esac
+
+    # -----------------------------------------------------------------------
+    # 5) Mount boot or EFI
+    # -----------------------------------------------------------------------
+    mkdir -p /mnt/boot
+
+    if [[ "$MODE" == "BIOS" ]]; then
+        mount "$P_BOOT" /mnt/boot
+    else
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi
+    fi
+
+    echo "✅ Custom partitioning and mounting complete."
 }
 
 #=========================================================================================================================================#
