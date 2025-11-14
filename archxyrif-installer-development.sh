@@ -1443,49 +1443,54 @@ convert_to_mib() {
 # Excludes /boot, /boot/efi, /efi, swap, none
 #============================================================================================================================#
 interactive_lvm_encryption_phase() {
-    echo "=== Logical Volume + Boot Partition Phase ==="
+    echo -e "\n=== Logical Volume & LUKS Creation Phase ==="
 
-        # Ask user for target disk
+    # --- Select target disk ---
     while true; do
-        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        echo "Available disks:"
+        lsblk -d -o NAME,SIZE,MODEL,TYPE
+        read -rp "Enter target disk for LVM (e.g., /dev/sda): " DEV
         DEV="/dev/${DEV##*/}"
         [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
     done
 
-    # Clean disk before creating partitions/LVs
+    read -rp "WARNING: This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
+
+    # --- Detect boot mode and assign variables ---
+    detect_boot_mode
+
+    # --- Clear mountpoints and previous LVs / PVs ---
     safe_disk_cleanup
 
-    detect_boot_mode  # sets $BOOT_MODE
-    ...
-}
-    
-    # --- RAW BOOT PARTITION ---
-    if [[ "$BOOT_MODE" == "BIOS" ]]; then
-        read -rp "Enter size for /boot partition (e.g., 512M): " BOOT_SIZE
-        read -rp "Label for /boot (optional): " BOOT_LABEL
-        PARTITIONS+=("/dev/${DEV##*/}1:/boot:ext4:$BOOT_LABEL")
+    # --- Ask about boot partition creation ---
+    if [[ "$BOOT_MODE" == "UEFI" ]]; then
+        echo "Creating EFI System Partition (FAT32) for /boot/efi..."
+        # Example: EFI_SIZE_MIB should be set globally before calling this function
+        parted -s "$DEV" mkpart ESP fat32 1MiB ${EFI_SIZE_MIB}MiB
+        PART_ESP="${DEV}1"
+        mkfs.fat -F32 "$PART_ESP"
+        mkdir -p /mnt/boot/efi
+        mount "$PART_ESP" /mnt/boot/efi
     else
-        read -rp "Enter size for /boot/efi partition (e.g., 512M): " EFI_SIZE
-        read -rp "Label for /boot/efi (optional): " EFI_LABEL
-        PARTITIONS+=("/dev/${DEV##*/}1:/boot/efi:fat32:$EFI_LABEL")
+        echo "Creating BIOS boot partition (ext4) for /boot..."
+        parted -s "$DEV" mkpart primary ext4 1MiB ${BOOT_SIZE_MIB}MiB
+        PART_BOOT="${DEV}1"
+        mkfs.ext4 -F "$PART_BOOT"
+        mkdir -p /mnt/boot
+        mount "$PART_BOOT" /mnt/boot
     fi
 
-    # --- Ask if user wants to create LVs ---
+    # --- Ask if user wants to create Logical Volumes ---
     read -rp "Do you want to create Logical Volumes on this disk? (yes/no): " CREATE_LV
     case "$CREATE_LV" in [Yy]*) ;; *) echo "Skipping LV creation."; return ;; esac
 
-    echo "Available Volume Groups:"
-    vgs --noheadings -o vg_name,vg_size --units g --nosuffix
+    # --- Create Physical Volume and Volume Group ---
+    pvcreate "$DEV" || die "pvcreate failed"
+    read -rp "Enter a name for the Volume Group (VG): " VG
+    [[ -n "$VG" ]] || die "VG name required."
+    vgcreate "$VG" "$DEV" || die "vgcreate failed"
 
-    # Ask for VG name or create new one
-    read -rp "Enter VG name for LVs (or type NEW to create a new VG): " VG
-    if [[ "$VG" == "NEW" ]]; then
-        read -rp "Enter name for new Volume Group: " VG
-        vgcreate "$VG" /dev/${DEV##*/}2-   # remaining space for LVs
-    fi
-
-    # Get VG free size info
-    VG_SIZE=$(vgs --noheadings -o vg_size --units g --nosuffix "$VG" | awk '{printf "%.2f", $1}')
     VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
     VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
@@ -1493,14 +1498,13 @@ interactive_lvm_encryption_phase() {
     read -rp "How many LVs to create in $VG? " LV_COUNT
     [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
 
-    # --- Loop to create LVs ---
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
+
         # LV name
         while true; do
             read -rp "LV name: " LV_NAME
-            [[ -n "$LV_NAME" ]] || echo "LV name required." && continue
-            break
+            [[ -n "$LV_NAME" ]] && break || echo "LV name required."
         done
 
         # Mountpoint
@@ -1509,7 +1513,7 @@ interactive_lvm_encryption_phase() {
             case "$MNT" in
                 /|/home|/data1|/data2|swap|none)
                     if printf '%s\n' "${PARTITIONS[@]}" | grep -q ":$MNT:"; then
-                        echo "⚠️  Mountpoint $MNT already assigned in partitions."
+                        echo "⚠️  Mountpoint $MNT already assigned."
                         continue
                     fi
                     break
@@ -1575,7 +1579,7 @@ interactive_lvm_encryption_phase() {
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
     done
 
-    echo "✅ Boot partition and all LVs created successfully."
+    echo -e "✅ All LVs created successfully.\n"
 }
 
 
@@ -1985,33 +1989,54 @@ custom_partition(){
     optional_aur
     hyprland_optional
 }
-#=========================================================================================================================================#
-# LVM & Luks Custom Partition Path
-#=========================================================================================================================================#
-custom_lvm_luks_partition(){
+#=========================================================================#
+# LVM & LUKS Custom Partition Path Runner
+#=========================================================================#
+custom_lvm_luks_partition() {
 
+    # Step 1: Interactive LVM & LUKS creation
     interactive_lvm_encryption_phase
+
+    # Step 2: Confirm the partition layout
     confirm_partition_layout_tree_fancy_validate
 
-    # Format and mount
+    # Step 3: Format and mount all partitions
     format_and_mount_custom
 
-    # Base system installation
+    # Step 4: Install base system
     install_base_system
 
-    # Ensure filesystem tools are present
+    # Step 5: Ensure filesystem tools are present in target
     ensure_fs_support_for_custom
 
-    # Continue system configuration
+    # Step 6: System configuration
     configure_system
+
+    # Step 7: Install GRUB
     install_grub
+
+    # Step 8: Network & mirrors
     network_mirror_selection
+
+    # Step 9: GPU drivers
     gpu_driver
+
+    # Step 10: Window manager / Desktop environment
     window_manager
+
+    # Step 11: Login manager / display manager
     lm_dm
+
+    # Step 12: Extra packages via pacman
     extra_pacman_pkg
+
+    # Step 13: Optional AUR packages
     optional_aur
+
+    # Step 14: Optional Hyprland installation
     hyprland_optional
+
+    echo -e "${GREEN}✅ Arch Linux installation complete with LVM & LUKS.${RESET}"
 }
 #=========================================================================================================================================#
 # Main menu
