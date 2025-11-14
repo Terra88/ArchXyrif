@@ -697,101 +697,125 @@ install_grub() {
     local ps
     ps=$(part_suffix "$DEV")
 
-    # Default GRUB modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux"
+    # Start with minimal essential modules
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid"
 
-    # Function to add filesystem modules
+    #--------------------------------------#
+    # Add FS module (idempotent)
+    #--------------------------------------#
     add_fs_module() {
         local fs="$1"
         case "$fs" in
-            btrfs) GRUB_MODULES+=" btrfs" ;;
-            xfs)    GRUB_MODULES+=" xfs" ;;
-            zfs)    GRUB_MODULES+=" zfs" ;;
-            f2fs)   GRUB_MODULES+=" f2fs" ;;
-            ext2|ext3|ext4) GRUB_MODULES+=" ext2" ;;
-            vfat|fat32|fat16) GRUB_MODULES+=" fat" ;;
+            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
+            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
+            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
+            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
+            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
+            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
         esac
     }
 
-    # Detect LUKS and LVM
-    echo "→ Detecting encrypted LUKS and LVM volumes..."
-    while read -r name type; do
-        case "$type" in
-            crypto_LUKS|LUKS)
-                echo "→ Found LUKS container: $name"
-                GRUB_MODULES+=" cryptodisk luks"
-                ;;
-            lvm2)
-                echo "→ Found LVM volume group: $name"
-                GRUB_MODULES+=" lvm"
-                ;;
-        esac
-    done < <(lsblk -o NAME,TYPE -nr /mnt | grep -E "crypt|lvm")
+    #--------------------------------------#
+    # Detect RAID (mdadm)
+    #--------------------------------------#
+    echo "→ Detecting RAID arrays..."
+    if lsblk -o TYPE -nr /mnt | grep -q "raid"; then
+        echo "→ Found md RAID."
+        GRUB_MODULES+=" mdraid1x"
+    fi
 
-    # Detect filesystems on mounted partitions under /mnt
-    echo "→ Detecting filesystems on target partitions..."
-    while read -r mp fs _; do
-        [[ -z "$mp" || -z "$fs" ]] && continue
-        add_fs_module "$fs"
-    done < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    #--------------------------------------#
+    # Detect LUKS (outermost layer)
+    #--------------------------------------#
+    echo "→ Detecting LUKS containers..."
+    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
+    for line in "${luks_lines[@]}"; do
+        echo "→ LUKS container: $line"
+        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
+    done
 
-    echo "→ GRUB modules to install: $GRUB_MODULES"
+    #--------------------------------------#
+    # Detect LVM (next layer)
+    #--------------------------------------#
+    echo "→ Detecting LVM volumes..."
+    if lsblk -o TYPE -nr | grep -q "lvm"; then
+        echo "→ Found LVM."
+        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
+    fi
 
+    #--------------------------------------#
+    # Detect filesystems under /mnt (final layer)
+    #--------------------------------------#
+    echo "→ Detecting filesystems..."
+    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    for line in "${fs_lines[@]}"; do
+        fs=$(awk '{print $2}' <<< "$line")
+        [[ -n "$fs" ]] && add_fs_module "$fs"
+    done
+
+    echo "→ Final GRUB modules: $GRUB_MODULES"
+
+    #--------------------------------------#
+    # BIOS MODE
+    #--------------------------------------#
     prepare_chroot
-
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" --modules="$GRUB_MODULES" || die "grub-install (BIOS) failed"
+        echo "→ Installing GRUB for BIOS..."
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --modules="$GRUB_MODULES" \
+            --recheck "$DEV" || die "grub-install BIOS failed"
+
+    #--------------------------------------#
+    # UEFI MODE
+    #--------------------------------------#
     else
-        echo "Installing GRUB (UEFI)..."
+        echo "→ Installing GRUB for UEFI..."
 
         # Ensure EFI is mounted
         if ! mountpoint -q /mnt/boot/efi; then
             mkdir -p /mnt/boot/efi
-            if [[ -n "${P_EFI:-}" ]]; then
-                mount "$P_EFI" /mnt/boot/efi
-            else
-                mount "${DEV}1" /mnt/boot/efi || die "Failed to mount EFI partition"
-            fi
+            mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI"
         fi
 
         arch-chroot /mnt grub-install \
-          --target=x86_64-efi \
-          --efi-directory=/boot/efi \
-          --bootloader-id=GRUB \
-          --modules="$GRUB_MODULES" \
-          --recheck \
-          --no-nvram || die "grub-install (UEFI) failed"
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=GRUB \
+            --modules="$GRUB_MODULES" \
+            --recheck \
+            --no-nvram || die "grub-install UEFI failed"
 
-        # Fallback EFI
+        # Fallback BOOTX64.EFI
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-        # efibootmgr entry
-        DISK="${DEV}"
-        PARTNUM=1
+        # Reset stale entries
         LABEL="Arch Linux"
-        LOADER='\EFI\GRUB\grubx64.efi'
-        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-            efibootmgr -b "$bootnum" -B || true
+        for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+            efibootmgr -b "$num" -B || true
         done
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed"
+
+        # Create entry
+        efibootmgr -c -d "$DEV" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
     fi
 
+    #--------------------------------------#
     # Generate GRUB config
+    #--------------------------------------#
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
-    # Optional: Secure Boot signing
-    if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
-        echo "→ Signing EFI binaries for Secure Boot..."
+    #--------------------------------------#
+    # Optional Secure Boot
+    #--------------------------------------#
+    if arch-chroot /mnt command -v sbctl &>/dev/null; then
+        echo "→ Secure Boot: signing binaries"
         arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-        arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed"
-        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
-        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
+        arch-chroot /mnt sbctl enroll-keys --microsoft || true
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
     fi
 
-    echo "✅ GRUB installed successfully."
-    echo "→ Verifying EFI boot entries..."
-    efibootmgr -v || true
+    echo "✅ GRUB fully installed and configured."
 }
 #=========================================================================================================================================#
 # Configure system
