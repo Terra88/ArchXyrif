@@ -1441,10 +1441,10 @@ custom_partition_wizard() {
 
         # FS validation
         while true; do
-            read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
+            read -rp "Filesystem (ext4, xfs, btrfs, fat32, linux-swap): " FS
             case "$FS" in
                 ext4|xfs|btrfs|fat32|swap) break ;;
-                *) echo "Unsupported FS. Choose ext4, xfs, btrfs, fat32 or swap." ;;
+                *) echo "Unsupported FS. Choose ext4, xfs, btrfs, fat32 or linux-swap." ;;
             esac
         done
 
