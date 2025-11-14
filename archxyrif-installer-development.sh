@@ -1407,7 +1407,7 @@ custom_partition_wizard() {
     fi
 
     PARTITIONS=()
-    local START=1MiB
+    local START=1  # start in MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
@@ -1422,17 +1422,6 @@ custom_partition_wizard() {
             [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
             break
         done
-
-        # Convert G/M to MiB, leave 100% as is
-        if [[ "$SIZE" != "100%" ]]; then
-            if [[ "$SIZE" =~ G$ ]]; then
-                SIZE_NUM=${SIZE%G}
-                SIZE=$(( SIZE_NUM * 1024 ))MiB
-            elif [[ "$SIZE" =~ M$ ]]; then
-                SIZE_NUM=${SIZE%M}
-                SIZE=$SIZE_NUM"MiB"
-            fi
-        fi
 
         # Mountpoint
         while true; do
@@ -1454,19 +1443,32 @@ custom_partition_wizard() {
 
         read -rp "Label (optional): " LABEL
 
-        # Create partition
-        parted -s "$DEV" mkpart primary "$START" "$SIZE" || die "parted failed"
+        # Calculate absolute end
+        if [[ "$SIZE" == "100%" ]]; then
+            END="100%"
+        else
+            if [[ "$SIZE" =~ G$ ]]; then
+                SIZE_NUM=${SIZE%G}
+                SIZE_NUM=$(( SIZE_NUM * 1024 ))
+            elif [[ "$SIZE" =~ M$ ]]; then
+                SIZE_NUM=${SIZE%M}
+            else
+                die "Size must end with G or M, or be 100%"
+            fi
+            END=$((START + SIZE_NUM))
+        fi
 
-        # Update START for next partition
-        local last_end
-        last_end=$(parted -s "$DEV" unit MiB print | awk '/^ [0-9]+/ {end=$3} END{print end}')
-        last_end=${last_end%MiB}
-        START="${last_end}MiB"
-
-        # Construct partition node
         PART="${DEV}${ps}${i}"
-        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
+        # Create partition
+        if [[ "$END" == "100%" ]]; then
+            parted -s "$DEV" mkpart primary "${START}MiB" 100% || die "parted failed"
+        else
+            parted -s "$DEV" mkpart primary "${START}MiB" "${END}MiB" || die "parted failed"
+            START=$END
+        fi
+
+        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
     done
 
@@ -1487,15 +1489,14 @@ format_and_mount_custom() {
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
     
-        # wait for kernel to expose new partition (partprobe/udevadm settle)
+        # Wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
-        if [[ ! -b "$PART" ]]; then
-            die "Partition $PART not available (kernel didn't expose it)."
-        fi
+        [[ -b "$PART" ]] || die "Partition $PART not available (kernel didn't expose it)."
 
         echo ">>> $PART ($FS) mount as $MOUNT"
 
+        # Format partition
         case "$FS" in
             ext4)  mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
@@ -1507,17 +1508,17 @@ format_and_mount_custom() {
             *) die "Unsupported filesystem: $FS" ;;
         esac
 
-        [[ -n "$LABEL" ]] && {
-            case "$FS" in
-                ext4) e2label "$PART" "$LABEL" ;;
-                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
-                f2fs)  f2fslabel "$PART" "$LABEL" ;;  # fixed
-                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-                swap) mkswap -L "$LABEL" "$PART" ;;
-            esac
-        }
-        
+        # Apply label if provided
+        [[ -n "$LABEL" ]] && case "$FS" in
+            ext4)  e2label "$PART" "$LABEL" ;;
+            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+            xfs)   xfs_admin -L "$LABEL" "$PART" ;;
+            f2fs)  f2fslabel "$PART" "$LABEL" ;;
+            fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+            swap) mkswap -L "$LABEL" "$PART" ;;
+        esac
+
+        # Mount partition
         case "$MOUNT" in
             "/")
                 if [[ "$FS" == "btrfs" ]]; then
@@ -1543,11 +1544,11 @@ format_and_mount_custom() {
                 ;;
             /data1)
                 mkdir -p /mnt/data1
-                mount "$PART" /mnt/data
+                mount "$PART" /mnt/data1
                 ;;
             /data2)
-                mkdir -p /mnt/data1
-                mount "$PART" /mnt/data
+                mkdir -p /mnt/data2
+                mount "$PART" /mnt/data2
                 ;;
             *)
                 mkdir -p "/mnt$MOUNT"
