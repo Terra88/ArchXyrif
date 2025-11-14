@@ -1387,7 +1387,8 @@ convert_to_mib() {
     elif [[ "$SIZE" =~ ^([0-9]+)(m|mi|mib)$ ]]; then
         echo "${BASH_REMATCH[1]}"
     else
-        die "Invalid size format: $1 (use M, MiB, G, GiB)"
+        echo "Invalid size format: $1. Use M, MiB, G, GiB, or 100%" >&2
+        return 1
     fi
 }
 #=========================================================================================================================================#
@@ -1409,7 +1410,6 @@ custom_partition_wizard() {
     [[ "$CONFIRM" == "YES" ]] || die "Aborted."
 
     safe_disk_cleanup
-
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
@@ -1421,31 +1421,7 @@ custom_partition_wizard() {
     echo "Disk size: ${disk_gib_float} GiB"
 
     read -rp "How many partitions would you like to create? " COUNT
-    if ! [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]]; then
-        die "Invalid partition count."
-    fi
-
-    # Helper: convert user input to MiB
-    convert_to_mib() {
-        local SIZE="$1"
-        SIZE="${SIZE^^}"  # uppercase
-        if [[ "$SIZE" == "100%" ]]; then
-            echo "100%"
-            return
-        fi
-        if [[ "$SIZE" =~ GI?B$ ]]; then
-            local NUM=${SIZE%G*}
-            echo $(( NUM * 1024 ))
-        elif [[ "$SIZE" =~ MIB$ ]]; then
-            local NUM=${SIZE%MI*}
-            echo $NUM
-        elif [[ "$SIZE" =~ M$ ]]; then
-            local NUM=${SIZE%M}
-            echo $NUM
-        else
-            die "Invalid size format: $SIZE"
-        fi
-    }
+    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
     PARTITIONS=()
     local START=1  # start in MiB
@@ -1460,8 +1436,7 @@ custom_partition_wizard() {
         # Read size
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
-            [[ -n "$SIZE" ]] || { echo "Size required."; continue; }
-            SIZE_MI=$(convert_to_mib "$SIZE")
+            SIZE_MI=$(convert_to_mib "$SIZE") || continue
             break
         done
 
@@ -1504,9 +1479,7 @@ custom_partition_wizard() {
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
 
         # Update start for next partition (skip if last uses 100%)
-        if [[ "$END" != "100%" ]]; then
-            START=$END
-        fi
+        [[ "$END" != "100%" ]] && START=$END
 
         # Show remaining disk
         LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
@@ -1519,6 +1492,7 @@ custom_partition_wizard() {
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
 }
+
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
