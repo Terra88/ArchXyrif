@@ -1377,7 +1377,8 @@ detect_boot_mode
     echo "#====================================================================================#"
     echo "# Filesystem selection for each partition                                            #"
     echo "#====================================================================================#"
-   
+
+   lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     if [[ "$MODE" == "BIOS" ]]; then
         read -rp "Boot filesystem [ext4/fat32, default=ext4]: " BOOT_FS
         BOOT_FS="${BOOT_FS:-ext4}"
@@ -1385,29 +1386,31 @@ detect_boot_mode
         read -rp "Boot filesystem [ext4/fat32, default=fat32]: " EFI_FS
         EFI_FS="${EFI_FS:-fat32}"
     fi
-
-    select_swap
     
+    select_swap
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     if [[ "$SWAP_ON" == "1" ]]; then
             read -rp "Swap filesystem [linux-swap, default=linux-swap]: " SWAP_FS
             SWAP_FS="${SWAP_FS:-linux-swap}"
     else
             echo "Swap Off"
     fi
-    
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
     ROOT_FS="${ROOT_FS:-ext4}"
-
+    
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     read -rp "Home filesystem [ext4/btrfs/xfs/f2fs, default=$ROOT_FS]: " HOME_FS
     HOME_FS="${HOME_FS:-$ROOT_FS}"
     
-
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     if [[ "$MODE" == "BIOS" ]]; then
         echo "→ Root FS: $BOOT_FS"
     else
         echo "→ Root FS: $EFI_FS"
     fi
 
+    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
     if [[ "$SWAP_ON" == "1" ]]; then
         echo "→ Swap FS: $SWAP_FS"
     else
