@@ -1432,19 +1432,19 @@ custom_partition_wizard() {
 
         # MOUNT must be either a path starting with /, or known keywords
         while true; do
-            read -rp "Mountpoint (/, /home, /boot, /efi or /boot/efi, swap, none): " MNT
-            if [[ "$MNT" == "/" || "$MNT" == "/home" || "$MNT" == "/boot" || "$MNT" == "/efi" || "$MNT" == "/boot/efi" || "$MNT" == "swap" || "$MNT" == "none" ]]; then
+            read -rp "Mountpoint (/, /home, /boot, /efi or /boot/efi, /data1, /data2, swap, none): " MNT
+            if [[ "$MNT" == "/" || "$MNT" == "/home" || "$MNT" == "/boot" || "$MNT" == "/efi" || "$MNT" == "/boot/efi" || "$MNT" == "/data1" || "$MNT" == "/data2" || "$MNT" == "swap" || "$MNT" == "none" ]]; then
                 break
             fi
-            echo "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi swap none"
+            echo "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi /data1 /data2 swap none"
         done
 
         # FS validation
         while true; do
-            read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
             case "$FS" in
                 ext4|xfs|btrfs|fat32|swap) break ;;
-                *) echo "Unsupported FS. Choose ext4, xfs, btrfs, fat32 or swap." ;;
+                *) echo "Unsupported FS. Choose ext4, brfs, xfs, f2fs, fat32 or swap." ;;
             esac
         done
 
