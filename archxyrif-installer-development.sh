@@ -1646,60 +1646,53 @@ ensure_fs_support_for_custom() {
     }
 
     # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
-    arch-chroot /mnt /bin/bash -e <<'CHROOT_EOF'
-MKCONF=/etc/mkinitcpio.conf
+arch-chroot /mnt /bin/bash << 'CHROOT_EOF'
+set -e
+
+MKCONF="/etc/mkinitcpio.conf"
+
 # Ensure HOOKS contains block before filesystems
-if grep -q '^HOOKS=' $MKCONF; then
-    # Put block before filesystems and keep other hooks intact
-    sed -i -r "s/^HOOKS=\((.*)\)/HOOKS=(base udev autodetect modconf block filesystems \1)/" $MKCONF || true
-    # Remove duplicate tokens if they appear
-    sed -i -r "s/(block[[:space:]]+block)/block/" $MKCONF || true
-    sed -i -r "s/(filesystems[[:space:]]+filesystems)/filesystems/" $MKCONF || true
+if grep -q '^HOOKS=' "$MKCONF"; then
+    sed -i -r "s/^HOOKS=\((.*)\)/HOOKS=(base udev autodetect modconf block filesystems \1)/" "$MKCONF" || true
+    sed -i -r "s/(block[[:space:]]+block)/block/" "$MKCONF" || true
+    sed -i -r "s/(filesystems[[:space:]]+filesystems)/filesystems/" "$MKCONF" || true
 else
-    # Create a sane default if absent
-    echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> $MKCONF
+    echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
 fi
 
-# Ensure MODULES line includes needed modules (we'll append missing ones)
-# Build desired modules list depending on installed tools (best-effort)
+# Build desired module list
 desired_modules=()
-command -v /usr/bin/mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
-command -v /usr/bin/mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
-command -v /usr/bin/mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
-command -v /usr/sbin/mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
 
-# If MODULES exists, try to append missing, otherwise create it
-if grep -q '^MODULES=' $MKCONF; then
-    # extract current modules content between parentheses
-    current=$(awk -F'=' '/^MODULES=/{print substr($0, index($0,$2))}' $MKCONF)
-    # normalize (remove parentheses/quotes)
-    current=$(echo "$current" | sed -E 's/[()"']//g' | tr -s ' ')
+command -v mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
+command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
+command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
+command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
+
+# Update MODULES line
+if grep -q '^MODULES=' "$MKCONF"; then
+    existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF")
     for m in "${desired_modules[@]}"; do
-        if ! echo " $current " | grep -q " ${m} "; then
-            # append module before closing parenthesis
-            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 ${m})/" $MKCONF || true
+        if ! [[ " $existing " == *" $m "* ]]; then
+            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF"
         fi
     done
 else
-    # create MODULES line
     if (( ${#desired_modules[@]} > 0 )); then
-        modline="MODULES=(${desired_modules[*]})"
-        # place near top of file
-        sed -i "1i${modline}" $MKCONF || echo "${modline}" >> $MKCONF
+        echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
     fi
 fi
 
-# If no fsck helpers are present for given filesystems, remove fsck hook to avoid mkinitcpio warning.
-has_helpers=0
-command -v /usr/bin/fsck.ext4 >/dev/null 2>&1 && has_helpers=1
-command -v /usr/bin/fsck.f2fs >/dev/null 2>&1 && has_helpers=1
-command -v /usr/sbin/xfs_repair >/dev/null 2>&1 && has_helpers=1
-if [[ $has_helpers -eq 0 ]]; then
-    sed -i '/fsck/d' $MKCONF || true
-fi
-CHROOT_EOF
+# Handle unsupported fsck hooks
+has_fsck=0
+command -v fsck.ext4 >/dev/null 2>&1 && has_fsck=1
+command -v fsck.f2fs >/dev/null 2>&1 && has_fsck=1
+command -v xfs_repair >/dev/null 2>&1 && has_fsck=1
 
-    echo "→ mkinitcpio.conf patched in target (will take effect when mkinitcpio runs inside chroot)."
+if [[ $has_fsck -eq 0 ]]; then
+    sed -i '/fsck/d' "$MKCONF"
+fi
+
+CHROOT_EOF
 }
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
