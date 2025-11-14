@@ -1371,240 +1371,133 @@ quick_partition() {
 #====================================== Custom Partition // Choose Filesystem Custom #====================================================#
 #=========================================================================================================================================#
 #=========================================================================================================================================#
-choose_filesystems_custom() {
-detect_boot_mode
-    echo
-    echo "#====================================================================================#"
-    echo "# Filesystem selection for each partition                                            #"
-    echo "#====================================================================================#"
-
-   lsblk 
-    if [[ "$MODE" == "BIOS" ]]; then
-        read -rp "Boot filesystem [ext4/fat32, default=ext4]: " BOOT_FS
-        BOOT_FS="${BOOT_FS:-ext4}"
-    else
-        read -rp "Boot filesystem [ext4/fat32, default=fat32]: " EFI_FS
-        EFI_FS="${EFI_FS:-fat32}"
-    fi
-    
-    select_swap
-    lsblk
-    if [[ "$SWAP_ON" == "1" ]]; then
-            read -rp "Swap filesystem [linux-swap, default=linux-swap]: " SWAP_FS
-            SWAP_FS="${SWAP_FS:-linux-swap}"
-    else
-            echo "Swap Off"
-    fi
-    lsblk 
-    read -rp "Root filesystem [ext4/btrfs/xfs/f2fs, default=ext4]: " ROOT_FS
-    ROOT_FS="${ROOT_FS:-ext4}"
-    
-    lsblk -
-    read -rp "Home filesystem [ext4/btrfs/xfs/f2fs, default=$ROOT_FS]: " HOME_FS
-    HOME_FS="${HOME_FS:-$ROOT_FS}"
-    
-    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Root FS: $BOOT_FS"
-    else
-        echo "→ Root FS: $EFI_FS"
-    fi
-
-    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
-    if [[ "$SWAP_ON" == "1" ]]; then
-        echo "→ Swap FS: $SWAP_FS"
-    else
-        echo "→ Swap Off"
-    fi
-    
-    echo "→ Root FS: $ROOT_FS"
-    echo "→ Home FS: $HOME_FS"
-}
 #=========================================================================================================================================#
-# Format and mount Custom
+# Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
-format_and_mount_custom() {
-    echo "Formatting partitions..."
-
-    # -----------------------------------------------------------------------
-    # 1) Format boot/EFI
-    # -----------------------------------------------------------------------
-    if [[ "$MODE" == "BIOS" ]]; then
-        case "$BOOT_FS" in
-            ext4)
-                mkfs.ext4 -F "$P_BOOT"
-                ;;
-            fat32|vfat)
-                mkfs.fat -F32 "$P_BOOT"
-                ;;
-            *)
-                die "Unsupported BIOS boot filesystem: $BOOT_FS"
-                ;;
-        esac
-    else
-        case "$EFI_FS" in
-            fat32|vfat)
-                mkfs.fat -F32 "$P_EFI"
-                ;;
-            ext4)
-                mkfs.ext4 -F "$P_EFI"
-                ;;
-            *)
-                die "Unsupported EFI filesystem: $EFI_FS"
-                ;;
-        esac
-    fi
-
-    # -----------------------------------------------------------------------
-    # 2) Format swap
-    # -----------------------------------------------------------------------
-    if [[ "$SWAP_ON" == "1" ]]; then
-        case "$SWAP_FS" in
-            linux-swap)
-                mkswap "$P_SWAP"
-                swapon "$P_SWAP"
-                ;;
-            *)
-                die "Unsupported swap filesystem: $SWAP_FS"
-                ;;
-        esac
-    fi
-
-    # -----------------------------------------------------------------------
-    # 3) Format ROOT
-    # -----------------------------------------------------------------------
-    case "$ROOT_FS" in
-        btrfs)
-            mkfs.btrfs -f "$P_ROOT"
-            mount "$P_ROOT" /mnt
-            btrfs subvolume create /mnt/@
-            umount /mnt
-            mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
-            ;;
-        ext4)
-            mkfs.ext4 -F "$P_ROOT"
-            mount "$P_ROOT" /mnt
-            ;;
-        xfs)
-            mkfs.xfs -f "$P_ROOT"
-            mount "$P_ROOT" /mnt
-            ;;
-        f2fs)
-            mkfs.f2fs -f "$P_ROOT"
-            mount "$P_ROOT" /mnt
-            ;;
-        *)
-            die "Unsupported root filesystem: $ROOT_FS"
-            ;;
-    esac
-
-    # -----------------------------------------------------------------------
-    # 4) Home partition
-    # -----------------------------------------------------------------------
-    mkdir -p /mnt/home
-
-    case "$HOME_FS" in
-        btrfs)
-            mkfs.btrfs -f "$P_HOME"
-            mount -o compress=zstd "$P_HOME" /mnt/home
-            ;;
-        ext4)
-            mkfs.ext4 -F "$P_HOME"
-            mount "$P_HOME" /mnt/home
-            ;;
-        xfs)
-            mkfs.xfs -f "$P_HOME"
-            mount "$P_HOME" /mnt/home
-            ;;
-        f2fs)
-            mkfs.f2fs -f "$P_HOME"
-            mount "$P_HOME" /mnt/home
-            ;;
-        *)
-            die "Unsupported home filesystem: $HOME_FS"
-            ;;
-    esac
-
-    # -----------------------------------------------------------------------
-    # 5) Mount boot or EFI
-    # -----------------------------------------------------------------------
-    mkdir -p /mnt/boot
-
-    if [[ "$MODE" == "BIOS" ]]; then
-        mount "$P_BOOT" /mnt/boot
-    else
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi
-    fi
-
-    echo "✅ Custom partitioning and mounting complete."
-}
-
-#=========================================================================================================================================#
-# Custom partition (placeholder)
-#=========================================================================================================================================#
-custom_partition() {
-    clear
-    echo "#===================================================================================================#"
-    echo "# 1.3) Custom Partition Mode: Advanced Setup                                                        #"
-    echo "#===================================================================================================#"
-    echo
-
+custom_partition_wizard() {
     detect_boot_mode
 
-    echo "Available disks:"
-    lsblk -d -o NAME,SIZE,MODEL,FSTYPE,TYPE
-    read -rp "Enter target disk (e.g. /dev/nvme0n1): " DEV
-    DEV="/dev/${DEV##*/}"
-    [[ -b "$DEV" ]] || die "Invalid device."
+    echo
+    echo "=== Custom Partitioning ==="
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    read -rp "⚠️ This will modify $DEV. Continue? [y/N]: " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || die "Aborted."
+    read -rp "Enter target disk (e.g., /dev/sda or /dev/nvme0n1): " DEV
+    DEV="/dev/${DEV##*/}"
+    [[ -b "$DEV" ]] || die "Device $DEV not found."
+
+    echo "WARNING: This will erase everything on $DEV"
+    read -rp "Type YES to continue: " CONFIRM
+    [[ "$CONFIRM" == "YES" ]] || die "Aborted."
 
     safe_disk_cleanup
+    
+    echo "→ Creating GPT partition table..."
+    parted -s "$DEV" mklabel gpt
 
-    echo
-    echo "#====================================================================================#"
-    echo "# Partitioning Options                                                               #"
-    echo "#====================================================================================#"
-    echo "| 1) Manual partitioning with cfdisk (recommended for full control)                  |"
-    echo "| 2) Scripted custom layout wizard (interactive)                                     |"
-    echo "#====================================================================================#"
-    read -rp "Select option [default=1]: " PART_MODE
-    PART_MODE="${PART_MODE:-1}"
+    read -rp "How many partitions would you like to create? " COUNT
 
-    if [[ "$PART_MODE" == "1" ]]; then
-        echo "→ Launching cfdisk..."
-        cfdisk "$DEV"
-    fi
+    # NVMe suffix (p) or no suffix
+    local ps=""
+    if [[ "$DEV" =~ nvme ]]; then ps="p"; fi
 
-    # Optional: prompt for encryption
-    echo
-    echo "#====================================================================================#"
-    echo "# Encryption and Logical Volume Management                                           #"
-    echo "#====================================================================================#"
-    echo "| 1) No encryption / plain partitions                                                |"
-    echo "| 2) LUKS-encrypted root partition                                                   |"
-    echo "| 3) LUKS + LVM (VG inside encrypted container)                                      |"
-    echo "| 4) LVM only (no encryption)                                                        |"
-    echo "#====================================================================================#"
-    read -rp "Select option [default=1]: " ENC_MODE
-    ENC_MODE="${ENC_MODE:-1}"
+    PARTITIONS=()   # global array to store details
+    local START="1MiB"
 
-    case "$ENC_MODE" in
-        2) encrypt_root_custom ;;
-        3) encrypt_with_lvm_custom ;;
-        4) create_lvm_plain ;;
-        *) echo "→ Proceeding without encryption or LVM." ;;
-    esac
+    for ((i=1; i<=COUNT; i++)); do
+        echo ""
+        echo "--- Partition $i ---"
 
-    # Ask for filesystem per partition
-    choose_filesystems_custom
+        read -rp "Size (example: 500M, 20G, 100%): " SIZE
+        read -rp "Mountpoint (/, /home, /boot, /efi, swap, none): " MNT
+        read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
+        read -rp "Label (optional): " LABEL
 
-    # Format and mount accordingly
-    format_and_mount_custom
+        local END
+        if [[ "$SIZE" == "100%" ]]; then
+            END="100%"
+        else
+            END=$(echo "scale=2; $SIZE" | awk '{print $1}')
+        fi
 
-    echo "✅ Custom partitioning and mounting complete."
+        parted -s "$DEV" mkpart primary "$START" "$SIZE"
+
+        PART="${DEV}${ps}${i}"
+
+        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
+
+        START="$SIZE"
+    done
+
+    echo ""
+    echo "=== Partition table created ==="
+    printf "%s\n" "${PARTITIONS[@]}"
+}
+#=========================================================================================================================================#
+#  Formato AND MOUNTO CUSTOMMO
+#=========================================================================================================================================#
+format_and_mount_custom() {
+    echo "→ Formatting and mounting custom partitions..."
+
+    mkdir -p /mnt
+
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+
+        echo ">>> $PART ($FS) mount as $MOUNT"
+
+        case "$FS" in
+            ext4)  mkfs.ext4 -F "$PART" ;;
+            xfs)   mkfs.xfs -f "$PART" ;;
+            btrfs) mkfs.btrfs -f "$PART" ;;
+            fat32|vfat) mkfs.fat -F32 "$PART" ;;
+            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
+            none)  continue ;;
+            *) die "Unsupported filesystem: $FS" ;;
+        esac
+
+        [[ -n "$LABEL" ]] && {
+            case "$FS" in
+                ext4) e2label "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$PART" ;;
+            esac
+        }
+
+        case "$MOUNT" in
+            "/")
+                if [[ "$FS" == "btrfs" ]]; then
+                    mount "$PART" /mnt
+                    btrfs subvolume create /mnt/@
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                else
+                    mount "$PART" /mnt
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$PART" /mnt/home
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$PART" /mnt/boot
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi
+                ;;
+            none)
+                ;;
+            *)
+                mkdir -p "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
+                ;;
+        esac
+    done
+
+    echo "✅ All custom partitions formatted and mounted."
 }
 #=========================================================================================================================================#
 # Main menu
@@ -1623,7 +1516,7 @@ logo
             read -rp "Enter choice [1-2]: " PART_CHOICE
             case "$PART_CHOICE" in
                 1) quick_partition ;;
-                2) custom_partition ;;
+                2) custom_partition_wizard ;;
                 3) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
