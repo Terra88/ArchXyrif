@@ -721,12 +721,20 @@ install_grub() {
         # Default GRUB modules for UEFI boot
         GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
 
-        # Add custom FS modules if using custom_partition path
-        if [[ "${INSTALL_MODE:-}" == "custom_partition" ]]; then
-            echo "→ Adding custom filesystem modules for GRUB..."
-            # Example: add btrfs, xfs, zfs, encrypted LUKS support as needed
-            GRUB_MODULES+=" btrfs xfs f2fs zfs lvm cryptodisk"
-        fi
+        # Auto-detect filesystems on mounted partitions and append needed modules
+        echo "→ Detecting filesystems for GRUB modules..."
+        while read -r mp fs _; do
+            case "$fs" in
+                btrfs) GRUB_MODULES+=" btrfs" ;;
+                xfs)   GRUB_MODULES+=" xfs" ;;
+                f2fs)  GRUB_MODULES+=" f2fs " ;;
+                zfs)   GRUB_MODULES+=" zfs" ;;
+                lvm2)  GRUB_MODULES+=" lvm" ;;
+                crypto_LUKS|LUKS) GRUB_MODULES+=" cryptodisk" ;;
+            esac
+        done < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')  # only mounted partitions under /mnt
+
+        echo "→ GRUB modules to install: $GRUB_MODULES"
 
         # Run grub-install safely inside chroot
         arch-chroot /mnt grub-install \
