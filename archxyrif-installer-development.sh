@@ -1583,14 +1583,135 @@ format_and_mount_custom() {
     echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
+#============================================================================================================================#
+#ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
+#============================================================================================================================#
+#=====================================================================
+# Ensure filesystem tools & mkinitcpio config for custom partition mode
+# Install FS tools inside target and patch mkinitcpio.conf so that
+# mkinitcpio (run later inside chroot) includes required modules/hooks.
+#=====================================================================
+ensure_fs_support_for_custom() {
+    echo "→ Running ensure_fs_support_for_custom()"
+
+    # Detect requested FS types (prefer PARTITIONS array)
+    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+    if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
+        for e in "${PARTITIONS[@]}"; do
+            IFS=':' read -r p m f l <<< "$e"
+            case "$f" in
+                xfs)   want_xfs=1 ;;
+                f2fs)  want_f2fs=1 ;;
+                btrfs) want_btrfs=1 ;;
+                ext4)  want_ext4=1 ;;
+            esac
+        done
+    else
+        # Fallback: inspect /mnt/etc/fstab if present
+        if [[ -f /mnt/etc/fstab ]]; then
+            while read -r _ _ fs _ _ _; do
+                case "$fs" in
+                    /dev/*|UUID=*|LABEL=*) continue ;; # skip special lines
+                    *) 
+                      case "$fs" in
+                        xfs) want_xfs=1 ;;
+                        f2fs) want_f2fs=1 ;;
+                        btrfs) want_btrfs=1 ;;
+                        ext4) want_ext4=1 ;;
+                      esac
+                    ;;
+                esac
+            done < /mnt/etc/fstab
+        fi
+    fi
+
+    # Build package list to install inside the target
+    local pkgs=()
+    (( want_xfs ))  && pkgs+=(xfsprogs)
+    (( want_f2fs )) && pkgs+=(f2fs-tools)
+    (( want_btrfs ))&& pkgs+=(btrfs-progs)
+    (( want_ext4 )) && pkgs+=(e2fsprogs)
+
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        echo "→ No special filesystem tools required for custom install."
+        return 0
+    fi
+
+    echo "→ Installing filesystem tools into target: ${pkgs[*]}"
+    # Refresh and install inside chroot (retry once on failure)
+    arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+        echo "⚠️ pacman install inside chroot failed once; retrying..."
+        sleep 1
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
+    }
+
+    # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
+    arch-chroot /mnt /bin/bash -e <<'CHROOT_EOF'
+MKCONF=/etc/mkinitcpio.conf
+# Ensure HOOKS contains block before filesystems
+if grep -q '^HOOKS=' $MKCONF; then
+    # Put block before filesystems and keep other hooks intact
+    sed -i -r "s/^HOOKS=\((.*)\)/HOOKS=(base udev autodetect modconf block filesystems \1)/" $MKCONF || true
+    # Remove duplicate tokens if they appear
+    sed -i -r "s/(block[[:space:]]+block)/block/" $MKCONF || true
+    sed -i -r "s/(filesystems[[:space:]]+filesystems)/filesystems/" $MKCONF || true
+else
+    # Create a sane default if absent
+    echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> $MKCONF
+fi
+
+# Ensure MODULES line includes needed modules (we'll append missing ones)
+# Build desired modules list depending on installed tools (best-effort)
+desired_modules=()
+command -v /usr/bin/mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
+command -v /usr/bin/mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
+command -v /usr/bin/mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
+command -v /usr/sbin/mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
+
+# If MODULES exists, try to append missing, otherwise create it
+if grep -q '^MODULES=' $MKCONF; then
+    # extract current modules content between parentheses
+    current=$(awk -F'=' '/^MODULES=/{print substr($0, index($0,$2))}' $MKCONF)
+    # normalize (remove parentheses/quotes)
+    current=$(echo "$current" | sed -E 's/[()"']//g' | tr -s ' ')
+    for m in "${desired_modules[@]}"; do
+        if ! echo " $current " | grep -q " ${m} "; then
+            # append module before closing parenthesis
+            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 ${m})/" $MKCONF || true
+        fi
+    done
+else
+    # create MODULES line
+    if (( ${#desired_modules[@]} > 0 )); then
+        modline="MODULES=(${desired_modules[*]})"
+        # place near top of file
+        sed -i "1i${modline}" $MKCONF || echo "${modline}" >> $MKCONF
+    fi
+fi
+
+# If no fsck helpers are present for given filesystems, remove fsck hook to avoid mkinitcpio warning.
+has_helpers=0
+command -v /usr/bin/fsck.ext4 >/dev/null 2>&1 && has_helpers=1
+command -v /usr/bin/fsck.f2fs >/dev/null 2>&1 && has_helpers=1
+command -v /usr/sbin/xfs_repair >/dev/null 2>&1 && has_helpers=1
+if [[ $has_helpers -eq 0 ]]; then
+    sed -i '/fsck/d' $MKCONF || true
+fi
+CHROOT_EOF
+
+    echo "→ mkinitcpio.conf patched in target (will take effect when mkinitcpio runs inside chroot)."
+}
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
 #=========================================================================================================================================#
 custom_partition(){
-
     custom_partition_wizard
     format_and_mount_custom
     install_base_system
+
+    # If we ran custom partitioning, ensure the target has needed fs tools
+    ensure_fs_support_for_custom
+
     configure_system
     install_grub
     network_mirror_selection
@@ -1600,8 +1721,6 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
-    
-    
 }
 #=========================================================================================================================================#
 # Main menu
