@@ -1559,6 +1559,26 @@ format_and_mount_custom() {
     echo "✅ All custom partitions formatted and mounted."
 }
 #=========================================================================================================================================#
+# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+#=========================================================================================================================================#
+custom_partition(){
+
+    custom_partition_wizard
+    format_and_mount_custom
+    install_base_system
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    
+    
+}
+#=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
 menu() {
@@ -1576,7 +1596,7 @@ logo
             read -rp "Enter choice [1-2]: " PART_CHOICE
             case "$PART_CHOICE" in
                 1) quick_partition ;;
-                2) custom_partition_wizard ;;
+                2) custom_partition ;;
                 3) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
