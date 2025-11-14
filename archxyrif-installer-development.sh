@@ -1373,29 +1373,21 @@ quick_partition() {
 #=========================================================================================================================================#
 #HELPERS
 convert_to_mib() {
-    local size="$1"
+    local SIZE="$1"
+    SIZE="${SIZE,,}"   # lowercase
+    SIZE="${SIZE// /}" # remove spaces
 
-    if [[ "$size" == "100%" ]]; then
+    if [[ "$SIZE" == "100%" ]]; then
         echo "100%"
         return
     fi
 
-    # Remove spaces
-    size="${size// /}"
-
-    # Check for units
-    if [[ "$size" =~ ^([0-9]+([.][0-9]+)?)G(iB)?$ ]]; then
-        # Convert GiB/G to MiB
-        local g=${BASH_REMATCH[1]}
-        # Multiply float by 1024
-        awk "BEGIN{printf \"%d\", $g*1024}"
-    elif [[ "$size" =~ ^([0-9]+([.][0-9]+)?)M(iB)?$ ]]; then
-        # Convert MiB/M to MiB
-        local m=${BASH_REMATCH[1]}
-        awk "BEGIN{printf \"%d\", $m}"
+    if [[ "$SIZE" =~ ^([0-9]+)(g|gi|gib)$ ]]; then
+        echo $(( ${BASH_REMATCH[1]} * 1024 ))
+    elif [[ "$SIZE" =~ ^([0-9]+)(m|mi|mib)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
     else
-        echo "Invalid size format: $size" >&2
-        return 1
+        die "Invalid size format: $1 (use M, MiB, G, GiB)"
     fi
 }
 #=========================================================================================================================================#
