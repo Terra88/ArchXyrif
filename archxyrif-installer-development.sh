@@ -712,15 +712,21 @@ install_grub() {
             if [[ -n "${P_EFI:-}" ]]; then
                 mount "$P_EFI" /mnt/boot/efi
             else
-                # fallback: attempt to mount the first partition
                 local psfx
                 psfx=$(part_suffix "$DEV")
                 mount "${DEV}${psfx}1" /mnt/boot/efi || die "Failed to mount EFI partition"
             fi
         fi
 
-        # Basic, minimal GRUB modules needed for UEFI boot
+        # Default GRUB modules for UEFI boot
         GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
+
+        # Add custom FS modules if using custom_partition path
+        if [[ "$INSTALL_MODE" == "custom_partition" ]]; then
+            echo "→ Adding custom filesystem modules for GRUB..."
+            # Example: add btrfs, xfs, zfs, encrypted LUKS support as needed
+            GRUB_MODULES+=" btrfs xfs f2fs zfs lvm cryptodisk"
+        fi
 
         # Run grub-install safely inside chroot
         arch-chroot /mnt grub-install \
@@ -731,36 +737,30 @@ install_grub() {
           --recheck \
           --no-nvram || die "grub-install (UEFI) failed"
 
-        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
+        # Fallback EFI
         echo "→ Copying fallback EFI binary..."
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
+        # efibootmgr entry
         DISK="${DEV}"
         PARTNUM=1
         LABEL="Arch Linux"
         LOADER='\EFI\GRUB\grubx64.efi'
-
-        # Delete stale entries with same label to avoid duplicates
-        # Note: run efibootmgr on host (not inside chroot) so it manipulates the real NVRAM
         for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
           efibootmgr -b "$bootnum" -B || true
         done
+        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed"
 
-        # Create new entry (host efibootmgr)
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed (but continuing)"
-
-        # Generate GRUB config inside chroot
+        # Generate GRUB config
         arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
-        # Secure Boot Integration (optional)
+        # Secure Boot
         if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
-          echo "→ Signing EFI binaries for Secure Boot..."
-          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-          # Note: enroll-keys may require interactive confirmation / manual step depending on sbctl configuration
-          arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed or requires manual action"
-          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
-          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
+            echo "→ Signing EFI binaries for Secure Boot..."
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed"
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
         fi
 
         echo "GRUB installation complete."
