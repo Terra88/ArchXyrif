@@ -1504,8 +1504,9 @@ format_and_mount_custom() {
 
         case "$FS" in
             ext4)  mkfs.ext4 -F "$PART" ;;
-            xfs)   mkfs.xfs -f "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
+            xfs)   mkfs.xfs -f "$PART" ;;
+            f2fs)  mkfs.f2fs -f "$PART" ;;
             fat32|vfat) mkfs.fat -F32 "$PART" ;;
             swap)  mkswap "$PART"; swapon "$PART"; continue ;;
             none)  continue ;;
@@ -1515,13 +1516,14 @@ format_and_mount_custom() {
         [[ -n "$LABEL" ]] && {
             case "$FS" in
                 ext4) e2label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
                 btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                f2fs)  f2fslabel "$PART" "$LABEL" ;;  # fixed
                 fat32|vfat) fatlabel "$PART" "$LABEL" ;;
                 swap) mkswap -L "$LABEL" "$PART" ;;
             esac
         }
-
+        
         case "$MOUNT" in
             "/")
                 if [[ "$FS" == "btrfs" ]]; then
