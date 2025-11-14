@@ -1375,13 +1375,13 @@ quick_partition() {
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
 custom_partition_wizard() {
+    clear
     detect_boot_mode
 
-    echo
     echo "=== Custom Partitioning ==="
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    read -rp "Enter target disk (e.g., /dev/sda or /dev/nvme0n1): " DEV
+    read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
     DEV="/dev/${DEV##*/}"
     [[ -b "$DEV" ]] || die "Device $DEV not found."
 
@@ -1390,48 +1390,71 @@ custom_partition_wizard() {
     [[ "$CONFIRM" == "YES" ]] || die "Aborted."
 
     safe_disk_cleanup
-    
+
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
+    # Detect disk size
+    local disk_bytes disk_mib disk_gib_float disk_gib_int
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+    disk_gib_int=${disk_gib_float%.*}
+
+    echo "Disk size: ${disk_gib_float} GiB"
+
     read -rp "How many partitions would you like to create? " COUNT
 
-    # NVMe suffix (p) or no suffix
-    local ps=""
-    if [[ "$DEV" =~ nvme ]]; then ps="p"; fi
+    PARTITIONS=()
 
-    PARTITIONS=()   # global array to store details
     local START="1MiB"
+    local USED_MIB=1    # first MiB reserved for GPT
+    local REMAIN_MIB=$disk_mib
+
+    # NVMe suffix
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
 
     for ((i=1; i<=COUNT; i++)); do
         echo ""
         echo "--- Partition $i ---"
+        echo "Remaining space: $((REMAIN_MIB/1024)) GiB  ($REMAIN_MIB MiB)"
 
-        read -rp "Size (example: 500M, 20G, 100%): " SIZE
+        read -rp "Size (ex: 20G, 512M, 100%): " SIZE
         read -rp "Mountpoint (/, /home, /boot, /efi, swap, none): " MNT
         read -rp "Filesystem (ext4, xfs, btrfs, fat32, swap): " FS
         read -rp "Label (optional): " LABEL
 
-        local END
-        if [[ "$SIZE" == "100%" ]]; then
-            END="100%"
-        else
-            END=$(echo "scale=2; $SIZE" | awk '{print $1}')
+        local END="$SIZE"   # let parted interpret size directly
+
+        # Make partition
+        if ! parted -s "$DEV" mkpart primary "$START" "$END"; then
+            echo "❌ Partition creation failed. Check size."
+            exit 1
         fi
 
-        parted -s "$DEV" mkpart primary "$START" "$SIZE"
+        # Convert size to MiB for remaining calc
+        local size_mib
+        size_mib=$(numfmt --from=auto --to=iec --to-unit=MiB "$SIZE" 2>/dev/null)
+        if [[ -z "$size_mib" ]]; then
+            echo "⚠ Using remaining space for final partition."
+            size_mib=$REMAIN_MIB
+        fi
+
+        USED_MIB=$((USED_MIB + size_mib))
+        REMAIN_MIB=$((disk_mib - USED_MIB))
 
         PART="${DEV}${ps}${i}"
-
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
-        START="$SIZE"
+        START="$END"
     done
 
     echo ""
-    echo "=== Partition table created ==="
+    echo "=== Partition layout created ==="
     printf "%s\n" "${PARTITIONS[@]}"
 }
+
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
@@ -1503,6 +1526,7 @@ format_and_mount_custom() {
 # Main menu
 #=========================================================================================================================================#
 menu() {
+clear
 logo
             echo "#==================================================#"
             echo "#     Select partitioning method for $DEV:         #"
