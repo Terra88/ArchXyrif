@@ -3,7 +3,7 @@
 Warning! this is an install tool, that will format and repartition your system. Handle with care.<br>
 
 
-Currently UEFI Support only. <br>
+UEFI/Bios Support. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
 Aim of the project:<br> 
