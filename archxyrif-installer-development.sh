@@ -1425,166 +1425,143 @@ lvm_luks_setup() {
     detect_boot_mode
     echo "=== Logical Volume + Optional LUKS Setup ==="
 
-    # List disks
     lsblk -d -o NAME,SIZE,MODEL,TYPE
+    read -rp "Target disk (e.g. /dev/sda): " DEV
+    DEV="/dev/${DEV##*/}"
+    [[ -b "$DEV" ]] || die "$DEV not found"
 
-    # Select disk
-    local DEV=""
-    while true; do
-        read -rp "Target disk (e.g. /dev/sda): " DEV
-        DEV="/dev/${DEV##*/}"
-        [[ -b "$DEV" ]] && break
-        echo "⚠️ Device $DEV not found. Try again."
-    done
+    # Boot partition size based on BIOS/UEFI
+    BOOT_SIZE=$([[ "$BOOT_MODE" == "UEFI" ]] && echo 512 || echo 1024)
+    echo "→ Boot mode: $BOOT_MODE, suggested boot partition: ${BOOT_SIZE}MiB"
 
-    # Boot partition size
-    local BOOT_SIZE=$([[ "$BOOT_MODE" == "UEFI" ]] && echo 1024 || echo 512)
-    echo "→ Boot mode: $BOOT_MODE, Boot partition size: ${BOOT_SIZE}MiB"
-
-    # Clean disk
     wipefs -af "$DEV"
     parted -s "$DEV" mklabel gpt
-
     PARTITIONS=()
     declare -A used_mounts
-    local START_MB=$BOOT_SIZE
+    START_MB=1
 
-    #========================
-    # Raw partitions
-    #========================
-    local RAW_COUNT=0
+    # --- Boot Partition ---
+    echo "--- Boot Partition ---"
+    MNT_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "/boot/efi" || echo "/boot")
     while true; do
-        read -rp "How many raw partitions before LVM? " RAW_COUNT
-        [[ "$RAW_COUNT" =~ ^[0-9]+$ ]] && break
-        echo "⚠️ Invalid number"
+        read -rp "Boot partition size (MiB) [default ${BOOT_SIZE}]: " BOOT_INPUT
+        BOOT_INPUT="${BOOT_INPUT:-$BOOT_SIZE}"
+        (( BOOT_INPUT > 0 )) && break || echo "Invalid size"
     done
+    END=$((START_MB + BOOT_INPUT))
+    FS_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "fat32" || echo "ext4")
+    parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB"
+    PART_BOOT="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")1"
+    PARTITIONS+=("$PART_BOOT:$MNT_BOOT:$FS_BOOT:boot")
+    used_mounts[$MNT_BOOT]=1
+    echo "Created boot partition $PART_BOOT -> mount=$MNT_BOOT fs=$FS_BOOT"
+    START_MB=$END
+
+    # --- Raw Partitions ---
+    read -rp "How many raw partitions before LVM? " RAW_COUNT
+    [[ "$RAW_COUNT" =~ ^[0-9]+$ ]] || die "Invalid number"
 
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
 
-        # Size
-        local SIZE=""
-        local SIZE_MI END
+        # Size prompt with remaining disk space
+        DISK_SIZE_MB=$(lsblk -b -dn -o SIZE "$DEV")
+        DISK_SIZE_MB=$(( DISK_SIZE_MB / 1024 / 1024 ))
+        REMAINING=$((DISK_SIZE_MB - START_MB))
+        echo "→ Remaining disk space: ${REMAINING}MiB ($(awk -v m="$REMAINING" 'BEGIN{printf "%.2f", m/1024}') GiB)"
+
         while true; do
-            read -rp "Size (e.g. 20G, 512M, 100% for last): " SIZE
+            read -rp "Size (MiB or G, last partition use 100%): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
             if [[ "$SIZE_MI" == "100%" ]]; then
-                END=$(( $(lsblk -b -dn -o SIZE "$DEV")/1024/1024 ))
+                END=$DISK_SIZE_MB
             else
-                END=$(( START_MB + SIZE_MI ))
+                END=$((START_MB + SIZE_MI))
             fi
-            if (( END <= $(lsblk -b -dn -o SIZE "$DEV")/1024/1024 )); then
-                break
-            else
-                echo "⚠️ Too large, try again."
-            fi
-        done
-
-        # Mountpoint
-        local MNT=""
-        while true; do
-            read -rp "Mountpoint (/ /boot /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "⚠️ Mountpoint already used"; continue; }
-            used_mounts[$MNT]=1
+            (( END <= DISK_SIZE_MB )) || { echo "Too large"; continue; }
             break
         done
 
-        # Filesystem
-        local FS=""
         while true; do
-            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
-            case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "⚠️ Invalid FS" ;; esac
+            read -rp "Mountpoint (/ /home /data1 /data2 swap none): " MNT
+            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount used"; continue; }
+            used_mounts[$MNT]=1; break
         done
 
-        # Label
-        read -rp "Label (optional): " LABEL
+        while true; do
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "Invalid FS" ;; esac
+        done
 
-        # Create partition
+        read -rp "Label (optional): " LABEL
         parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB"
-        local PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$i"
-        PARTITIONS+=("$PART:$MNT:$FS:${LABEL:-}")
+        PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$((i+1))"
+        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
         START_MB=$END
     done
 
-    #========================
-    # LVM Partition
-    #========================
+    # --- LVM Partition on remaining space ---
     echo "→ Creating LVM partition on remaining space"
-    parted -a optimal -s "$DEV" mkpart primary ${START_MB}MiB 100%
-    local LVM_PART="${DEV}$(($(parted -s "$DEV" print | grep -c 'primary')))"
+    parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" 100%
+    LVM_PART="${DEV}$(($(parted -s "$DEV" print | grep -c 'primary')))"
     parted -s "$DEV" set $(($(parted -s "$DEV" print | grep -c 'primary'))) lvm on
     partprobe "$DEV"
 
-    # Create VG
-    local VG=""
-    while true; do
-        read -rp "Create new VG on $LVM_PART? (yes/no): " do_pv
-        if [[ "$do_pv" =~ ^[Yy] ]]; then
-            read -rp "VG name: " VG
-            pvcreate "$LVM_PART"
-            vgcreate "$VG" "$LVM_PART"
-            break
-        else
-            read -rp "Existing VG name: " VG
-            vgs "$VG" &>/dev/null && break
-            echo "⚠️ VG not found"
-        fi
-    done
+    read -rp "Create new VG on $LVM_PART? (yes/no): " do_pv
+    if [[ "$do_pv" =~ ^[Yy] ]]; then
+        read -rp "VG name: " VG
+        pvcreate "$LVM_PART"; vgcreate "$VG" "$LVM_PART"
+        echo "Volume group '$VG' successfully created."
+    else
+        read -rp "Existing VG name: " VG
+        vgs "$VG" &>/dev/null || die "VG not found"
+    fi
 
-    # Create LVs
-    local CREATE_LV=""
+    # --- LVs ---
     read -rp "Create LVs? (yes/no): " CREATE_LV
-    [[ "$CREATE_LV" =~ ^[Yy] ]] || { export PARTITIONS; return; }
-
-    local LV_COUNT=0
-    while true; do
-        read -rp "Number of LVs: " LV_COUNT
-        [[ "$LV_COUNT" =~ ^[0-9]+$ ]] && break
-        echo "⚠️ Invalid number"
-    done
+    [[ "$CREATE_LV" =~ ^[Yy] ]] || return
+    read -rp "Number of LVs: " LV_COUNT
+    [[ "$LV_COUNT" =~ ^[0-9]+$ ]] || die "Invalid number"
 
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
         read -rp "LV name: " LV_NAME
 
-        # Mountpoint
         while true; do
             read -rp "Mountpoint (/ /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "⚠️ Mountpoint already used"; continue; }
-            used_mounts[$MNT]=1
+            [[ -z "${used_mounts[$MNT]:-}" || "$MNT" == "swap" || "$MNT" == "none" ]] || { echo "Mount used"; continue; }
+            [[ "$MNT" != "swap" && "$MNT" != "none" ]] && used_mounts[$MNT]=1
             break
         done
 
-        # Filesystem
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
-            case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "⚠️ Invalid FS" ;; esac
+            case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Invalid FS";; esac
         done
 
-        # Encryption
-        local ENC=0
-        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
-            read -rp "Encrypt this LV? (yes/no): " enc
-            [[ "$enc" =~ ^[Yy] ]] && ENC=1
-        fi
+        ENC=0
+        [[ "$MNT" != "swap" && "$MNT" != "none" ]] && read -rp "Encrypt this LV? (yes/no): " enc && [[ "$enc" =~ ^[Yy] ]] && ENC=1
 
-        # LV size
-        local VG_FREE=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
-        local PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
-        local VG_FREE_GB=$(awk -v f="$VG_FREE" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", f*pe/1024}')
+        VG_FREE=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
+        PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
+        VG_FREE_GB=$(awk -v f="$VG_FREE" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", f*pe/1024}')
+        echo "→ Max available size for this LV: ${VG_FREE_GB}G"
 
         while true; do
             read -rp "LV size (10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
             LV_SIZE=${LV_SIZE^^}
-            if [[ "$LV_SIZE" == "100%FREE" ]]; then LV_CREATE_ARG="-l 100%FREE"; break
+            if [[ "$LV_SIZE" == "100%FREE" ]]; then
+                LV_CREATE_ARG="-l 100%FREE"
+                break
             elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
-                VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
-                SIZE_GB=$(( UNIT=="M"?VAL/1024:VAL ))
+                VAL=${BASH_REMATCH[1]}
+                UNIT=${BASH_REMATCH[2]}
+                SIZE_GB=$(( UNIT=="M"?VAL/1024:VAL ))   # <-- fixed unbound variable bug
                 (( $(echo "$SIZE_GB <= $VG_FREE_GB" | bc -l) )) && LV_CREATE_ARG="-L ${SIZE_GB}G" && break
-                echo "⚠️ Too big"
+                echo "Too big"
             else
-                echo "⚠️ Invalid size"
+                echo "Invalid size"
             fi
         done
 
@@ -1596,13 +1573,11 @@ lvm_luks_setup() {
         else
             LV_PATH="/dev/$VG/$LV_NAME"
         fi
-
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
         echo "→ LV created: $LV_PATH mounted at $MNT fs=$FS label=$LV_NAME"
     done
 
     echo "✅ Raw + LVM + LUKS setup complete."
-    export PARTITIONS
     printf '%s\n' "${PARTITIONS[@]}"
 }
 
