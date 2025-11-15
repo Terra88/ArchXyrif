@@ -22,6 +22,7 @@ logo(){
 echo "#===================================================================================================#"
 echo "| The Great Monolith of Installing Arch Linux!                                                      |"
 echo "#===================================================================================================#"
+echo "|                                                                                                   |"
 echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
 echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
 echo "|      d88P888                 888        Y88o88P                        888                        |"
@@ -34,6 +35,7 @@ echo "|                                                        888              
 echo "|                                                   Y8b d88P                                        |"
 echo "|                                                     Y88P                                          |"
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
+echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
 echo "#===================================================================================================#"
 echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
@@ -41,16 +43,16 @@ echo "#=========================================================================
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
-echo "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
+echo "|-4)Setting Basic variables         |- Manual Resize for Root/Home & Swap on or off options         |"
 echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
 echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
-echo "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
-echo "|-Optional:                         |- 3) LV & LUKS Custom partition format route                   |"
+echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------|"
+echo "|-Optional:                         |  ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ    |"
 echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
 echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
+echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo "#===================================================================================================#"
 }
@@ -67,7 +69,6 @@ set -euo pipefail
 #----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
-BOOT_MODE=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
 SWAP_ON=""
@@ -135,31 +136,6 @@ cleanup() {
     echo "✅ Cleanup done."
 }
 trap cleanup EXIT INT TERM
-#=========================================================================================================================================#
-# SAFE MKPART
-#=========================================================================================================================================#
-# Safe wrapper for parted mkpart with diagnostic output (prevents set -e from killing script silently)
-safe_mkpart() {
-    local dev="$1"
-    local start="$2"
-    local end="$3"
-    local desc="${4:-}"
-
-    echo "→ Creating partition on $dev: ${start}MiB → ${end}MiB $desc"
-
-    set +e
-    parted -a optimal -s "$dev" mkpart primary "${start}MiB" "${end}MiB"
-    local rc=$?
-    set -e
-
-    if (( rc != 0 )); then
-        echo "❌ parted mkpart failed (exit $rc). Disk layout:"
-        parted -m "$dev" unit MiB print || true
-        return $rc
-    fi
-
-    return 0
-}
 #=========================================================================================================================================#
 # SAFE DISK UNMOUNT & CLEANUP BEFORE PARTITIONING
 #=========================================================================================================================================#
@@ -250,6 +226,7 @@ encrypt_with_lvm_custom() {
     P_HOME="/dev/vg0/home"
     [[ -n "$LV_SWAP_SIZE" ]] && P_SWAP="/dev/vg0/swap"
 }
+
 #=========================================================================================================================================#
 # Helper Functions - For Pacman                                                                  
 #=========================================================================================================================================#
@@ -369,18 +346,15 @@ CHROOT_CMD=(arch-chroot /mnt)
 # Detect boot mode
 #=========================================================================================================================================#
 detect_boot_mode() {
-    # Determine boot mode and set both BOOT_MODE and MODE for compatibility
     if [[ -d /sys/firmware/efi ]]; then
-        BOOT_MODE="UEFI"
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
-        BOOT_SIZE_MIB=${EFI_SIZE_MIB:-1024}
+        BOOT_SIZE_MIB=$EFI_SIZE_MIB
         echo -e "${CYAN}UEFI${RESET} detected."
     else
-        BOOT_MODE="BIOS"
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
-        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
+        BOOT_SIZE_MIB=$BOOT_SIZE_MIB
         echo -e "${CYAN}Legacy BIOS${RESET} detected."
     fi
 }
@@ -901,8 +875,8 @@ if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
-export LANG="${LANG_LOCALE}"   # OK
-# do NOT export LC_ALL
+export LANG="${LANG_LOCALE}"
+export LC_ALL="${LANG_LOCALE}"
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
@@ -1403,480 +1377,66 @@ hyprland_optional()
                               fi
                           fi
 }                          
+#=========================================================================================================================================#
+# Quick Partition Main
+#=========================================================================================================================================#
+quick_partition() {
+    detect_boot_mode
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
 
+    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
+
+    safe_disk_cleanup
+    ask_partition_sizes
+    select_filesystem
+    select_swap
+    partition_disk
+    format_and_mount
+    install_base_system
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    
+
+    echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
+}
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #====================================== Custom Partition // Choose Filesystem Custom #====================================================#
 #=========================================================================================================================================#
 #=========================================================================================================================================#
-# Convert user-entered size to MiB
-# Convert human-readable size (10G, 512M) to MiB
+#HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 convert_to_mib() {
-    local SIZE="${1^^}" SIZE="${SIZE// /}"
-    [[ "$SIZE" == "100%" || "$SIZE" == "100%FREE" ]] && echo "100%" && return
-    if [[ "$SIZE" =~ ^([0-9]+)(G|GB|GI|GIB)$ ]]; then echo $(( ${BASH_REMATCH[1]} * 1024 ))
-    elif [[ "$SIZE" =~ ^([0-9]+)(M|MB|MI|MIB)$ ]]; then echo "${BASH_REMATCH[1]}"
-    else die "Invalid size format: $1 (use M/MiB, G/GiB, or 100%)"; fi
-}
-#=========================================================================#
-# Preview Partition Tree (Safe Version)
-#=========================================================================#
-preview_partition_tree() {
-    echo "=== Preview Partition Layout ==="
+    local SIZE="$1"
+    SIZE="${SIZE,,}"   # lowercase
+    SIZE="${SIZE// /}" # remove spaces
 
-    if [[ -z "${PARTITIONS[@]}" ]]; then
-        echo "⚠️  No partitions defined yet."
+    if [[ "$SIZE" == "100%" ]]; then
+        echo "100%"
         return
     fi
 
-    printf "%-20s %-10s %-10s %-15s\n" "Partition" "Mount" "FS" "Label"
-    printf "%-20s %-10s %-10s %-15s\n" "---------" "-----" "--" "-----"
-
-    for entry in "${PARTITIONS[@]}"; do
-        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-        MOUNT="${MOUNT:-none}"
-        FS="${FS:-unknown}"
-        LABEL="${LABEL:-<none>}"
-
-        printf "%-20s %-10s %-10s %-15s\n" "$PART" "$MOUNT" "$FS" "$LABEL"
-    done
-
-    echo "================================"
-}
-#====================================================================#
-# Boot Partition Setup Prompt (BIOS / UEFI) - Luks/LV
-#====================================================================#
-# Boot partition setup — accepts disk as $1 or falls back to $DEV
-setup_boot_partition() {
-    local dev="${1:-${DEV:-}}"
-    if [[ -z "$dev" ]]; then
-        echo "No device provided to setup_boot_partition()."
+    if [[ "$SIZE" =~ ^([0-9]+)(g|gi|gib)$ ]]; then
+        echo $(( ${BASH_REMATCH[1]} * 1024 ))
+    elif [[ "$SIZE" =~ ^([0-9]+)(m|mi|mib)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "Invalid size format: $1. Use M, MiB, G, GiB, or 100%" >&2
         return 1
     fi
-
-    clear
-    echo "============================================="
-    echo " BOOT PARTITION SETUP for $dev"
-    echo "============================================="
-
-    # Get total disk size in MiB
-    local disk_bytes
-    disk_bytes=$(lsblk -b -dn -o SIZE "$dev") || die "Cannot read disk size for $dev"
-    local disk_mib=$(( disk_bytes / 1024 / 1024 ))
-
-    echo "Disk: $dev  (${disk_mib} MiB total)"
-    # Provide sensible defaults based on detected boot mode (detect_boot_mode should have been called)
-    local default_fs="fat32"
-    if [[ "${BOOT_MODE:-}" == "BIOS" || "${BOOT_MODE:-}" == "Legacy" ]]; then
-        default_fs="ext4"
-    fi
-
-    # Prompt size (MiB)
-    local BOOT_SIZE
-    while true; do
-        read -rp "Boot partition size in MiB (e.g. 512) [default 512]: " BOOT_SIZE
-        BOOT_SIZE="${BOOT_SIZE:-512}"
-        [[ "$BOOT_SIZE" =~ ^[0-9]+$ ]] && break
-        echo "Please enter a valid integer number of MiB."
-    done
-
-    # Prompt filesystem
-    local BOOT_FS
-    while true; do
-        read -rp "Boot filesystem (fat32/ext4) [default ${default_fs}]: " BOOT_FS
-        BOOT_FS="${BOOT_FS:-$default_fs}"
-        case "$BOOT_FS" in fat32|ext4) break ;; *) echo "Choose fat32 or ext4." ;; esac
-    done
-
-    # Prompt mountpoint
-    local BOOT_MP
-    read -rp "Boot mountpoint [default /boot]: " BOOT_MP
-    BOOT_MP="${BOOT_MP:-/boot}"
-
-    local START_MB=1
-    local END=$(( START_MB + BOOT_SIZE ))
-    if (( END > disk_mib )); then
-        die "Boot partition size exceeds disk size (${disk_mib} MiB)."
-    fi
-
-    if ! safe_mkpart "$dev" "$START_MB" "$END" "boot"; then
-        die "Failed to create boot partition on $dev"
-    fi
-
-    # partition name resolution (handle nvme p suffix)
-    local part_suffix=""
-    [[ "$dev" =~ nvme|mmcblk ]] && part_suffix="p"
-    local PART="${dev}${part_suffix}1"
-
-    # format
-    case "$BOOT_FS" in
-        fat32) mkfs.fat -F32 "$PART" ;; 
-        ext4)  mkfs.ext4 -F "$PART" ;;
-    esac
-
-    # Export relevant values for caller if needed
-    BOOT_PART="$PART"
-    BOOT_MOUNT="$BOOT_MP"
-    BOOT_FS_TYPE="$BOOT_FS"
-
-    echo "✔ Boot partition created: $PART  FS=$BOOT_FS MOUNT=$BOOT_MP SIZE=${BOOT_SIZE}MiB"
-    return 0
-}
-#==============================================================
-# Route 3: LVM + LUKS Custom Partition Setup
-#==============================================================
-#==============================================================
-# Route 3: LVM + optional LUKS + optional LVs (MODEL A)
-# - RAW partitions first (same UI as custom_partition_wizard)
-# - Then optional LVM on remaining space
-# - PV encryption optional, per-LV encryption optional
-# - All partitions (raw + lvs/mapped) appended to PARTITIONS[]
-# - Prevent duplicate mountpoints
-#==============================================================
-lvm_luks_setup() {
-    clear
-    echo "============================================="
-    echo " LVM / (optional) LUKS Partitioning (ROUTE 3)"
-    echo "============================================="
-
-    # device selection (fall back logic)
-    if [[ -n "${1:-}" ]]; then
-        DEV="$1"
-    elif [[ -n "${SELECTED_DISK:-}" ]]; then
-        DEV="$SELECTED_DISK"
-    else
-        echo "Available disks:"
-        lsblk -d -o NAME,SIZE,MODEL,TYPE
-        read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
-        DEV="/dev/${DEV##*/}"
-    fi
-    [[ -b "$DEV" ]] || die "Device $DEV not found."
-
-    echo "WARNING: This will ERASE everything on $DEV"
-    read -rp "Type YES to continue: " CONFIRM
-    [[ "$CONFIRM" == "YES" ]] || die "Aborted."
-
-    safe_disk_cleanup
-    parted -s "$DEV" mklabel gpt
-
-    # disk size in MiB (and GiB float for user messages)
-    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
-    disk_mib=$(( disk_bytes / 1024 / 1024 ))
-    disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
-
-    echo "Disk size: ${disk_gib_float} GiB (${disk_mib} MiB)"
-
-    PARTITIONS=()   # reset global array for this flow
-    declare -A used_mounts
-    local ps=""
-    [[ "$DEV" =~ nvme|mmcblk ]] && ps="p"
-
-    # START index in MiB — first usable MiB
-    local START=1
-    local part_index=1   # partition numbering starts at 1
-
-    # ----------------------------
-    # Boot partition (prompted first)
-    # ----------------------------
-    read -rp "Create a boot partition now? (recommended) [Y/n]: " DO_BOOT
-    DO_BOOT="${DO_BOOT:-Y}"
-    if [[ "$DO_BOOT" =~ ^[Yy]$ ]]; then
-        # sensible defaults based on boot mode
-        detect_boot_mode || true
-        local DEFAULT_BOOT_SIZE_MIB=512
-        local DEFAULT_BOOT_FS="fat32"
-        if [[ "${BOOT_MODE:-}" == "BIOS" ]]; then
-            DEFAULT_BOOT_FS="ext4"
-            DEFAULT_BOOT_SIZE_MIB=512
-        else
-            DEFAULT_BOOT_FS="fat32"
-            DEFAULT_BOOT_SIZE_MIB=1024
-        fi
-
-        # Ask boot size (accepts human input via convert_to_mib)
-        while true; do
-            read -rp "Boot partition size (e.g. 512M, 1G) [default ${DEFAULT_BOOT_SIZE_MIB}M]: " BOOT_IN
-            BOOT_IN="${BOOT_IN:-${DEFAULT_BOOT_SIZE_MIB}M}"
-            BOOT_MI=$(convert_to_mib "$BOOT_IN") || { echo "Invalid size format"; continue; }
-            # convert_to_mib returns numeric MiB, so OK
-            if [[ "$BOOT_MI" == "100%" ]]; then
-                BOOT_END=$disk_mib
-            else
-                BOOT_END=$(( START + BOOT_MI ))
-            fi
-            if (( BOOT_END > disk_mib )); then
-                echo "⚠️ Boot partition too large for disk."
-                continue
-            fi
-            break
-        done
-
-        # filesystem selection
-        while true; do
-            read -rp "Boot filesystem (fat32/ext4) [default ${DEFAULT_BOOT_FS}]: " BOOT_FS
-            BOOT_FS="${BOOT_FS:-$DEFAULT_BOOT_FS}"
-            case "$BOOT_FS" in fat32|ext4) break ;; *) echo "Choose fat32 or ext4." ;; esac
-        done
-
-        # mountpoint default
-        read -rp "Boot mountpoint [default /boot]: " BOOT_MNT
-        BOOT_MNT="${BOOT_MNT:-/boot}"
-
-        # sanity: ensure mountpoint not used
-        if [[ -n "${used_mounts[$BOOT_MNT]:-}" ]]; then
-            die "Mountpoint $BOOT_MNT already in use."
-        fi
-        used_mounts[$BOOT_MNT]=1
-
-        # Create partition: START -> BOOT_END (MiB)
-        if ! safe_mkpart "$DEV" "$START" "$BOOT_END" "boot"; then
-            die "Failed to create boot partition on $DEV"
-        fi
-
-        # Resolve partition name (handle nvme p suffix)
-        PART_BOOT="${DEV}${ps}${part_index}"
-        # Format boot
-        case "$BOOT_FS" in
-            fat32) mkfs.fat -F32 "$PART_BOOT" ;;
-            ext4)  mkfs.ext4 -F "$PART_BOOT" ;;
-        esac
-
-        PARTITIONS+=("$PART_BOOT:$BOOT_MNT:$BOOT_FS:boot")
-        echo "Created boot partition: $PART_BOOT -> $BOOT_MNT ($BOOT_FS) size ${BOOT_MI}MiB"
-
-        # update START & partition index
-        if [[ "$BOOT_END" -ne "$disk_mib" ]]; then
-            START=$BOOT_END
-            ((part_index++))
-        else
-            # full-disk assigned to boot partition — nothing left
-            preview_partition_tree
-            return 0
-        fi
-    fi
-
-    # ----------------------------
-    # Raw partitions (same behavior as custom_partition_wizard)
-    # ----------------------------
-    read -rp "How many RAW partitions would you like to create before LVM? " COUNT
-    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 0 ]] || die "Invalid partition count."
-
-    for ((i=1; i<=COUNT; i++)); do
-        echo ""
-        echo "--- Raw Partition $i ---"
-        parted -s "$DEV" unit MiB print
-
-        REMAINING=$(( disk_mib - START ))
-        REMAINING_GB=$(awk -v m="$REMAINING" 'BEGIN{printf "%.2f", m/1024}')
-        echo "→ Remaining disk: ${REMAINING}MiB (${REMAINING_GB} GiB)"
-
-        # Size prompt (allow 100% when last)
-        while true; do
-            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE_IN
-            SIZE_IN="${SIZE_IN:-}"
-            SIZE_MI=$(convert_to_mib "${SIZE_IN}") || { echo "Invalid size format"; continue; }
-
-            if [[ "$SIZE_MI" == "100%" ]]; then
-                END=$disk_mib
-            else
-                END=$(( START + SIZE_MI ))
-            fi
-
-            if (( END > disk_mib )); then
-                echo "⚠️  Partition too large! Max allowed: ${REMAINING} MiB (${REMAINING_GB} GiB)"
-                continue
-            fi
-            break
-        done
-
-        # Mountpoint
-        while true; do
-            read -rp "Mountpoint (/, /boot, /boot/efi, /home, /data1, /data2, swap, none): " MNT
-            case "$MNT" in
-                /|/boot|/boot/efi|/home|/data1|/data2|swap|none) ;;
-                *) echo "Invalid mountpoint." ; continue ;;
-            esac
-            if [[ "$MNT" != "none" && "$MNT" != "swap" && -n "${used_mounts[$MNT]:-}" ]]; then
-                echo "Mountpoint $MNT already used; choose another."
-            else
-                [[ "$MNT" != "swap" && "$MNT" != "none" ]] && used_mounts[$MNT]=1
-                break
-            fi
-        done
-
-        # FS type
-        while true; do
-            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
-            case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "Unsupported FS." ;; esac
-        done
-
-        read -rp "Label (optional): " LABEL
-
-        # create partition safely (use current part_index)
-        if ! safe_mkpart "$DEV" "$START" "$END" "raw$i"; then
-            echo "⚠️ Failed to create partition. Retry this partition."
-            ((i--))
-            continue
-        fi
-
-        PART="${DEV}${ps}${part_index}"
-        PARTITIONS+=("$PART:$MNT:$FS:${LABEL:-}")
-
-        echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
-
-        # update
-        if [[ "$END" -ne "$disk_mib" ]]; then
-            START=$END
-            ((part_index++))
-        else
-            START=$END
-            ((part_index++))
-            break
-        fi
-    done
-
-    # If no space left, finish
-    if (( START >= disk_mib )); then
-        echo "→ No remaining space for LVM."
-        preview_partition_tree
-        return 0
-    fi
-
-    # ----------------------------
-    # Ask: create LVM on remaining?
-    # ----------------------------
-    read -rp "Create LVM on remaining space? (y/N): " CREATE_LVM
-    CREATE_LVM="${CREATE_LVM:-N}"
-    if [[ ! "$CREATE_LVM" =~ ^[Yy]$ ]]; then
-        echo "Skipping LVM. Partition layout ready."
-        preview_partition_tree
-        return 0
-    fi
-
-    # Create final LVM partition from START -> disk_mib
-    if ! safe_mkpart "$DEV" "$START" "$disk_mib" "lvm"; then
-        die "Failed to create LVM partition"
-    fi
-    LVM_PART="${DEV}${ps}${part_index}"
-    echo "→ LVM partition created: $LVM_PART"
-
-    # optional PV encryption
-    read -rp "Encrypt the LVM partition with LUKS? (y/N): " ENCRYPT_PV
-    ENCRYPT_PV="${ENCRYPT_PV:-N}"
-    if [[ "$ENCRYPT_PV" =~ ^[Yy]$ ]]; then
-        cryptsetup luksFormat "$LVM_PART"
-        cryptsetup open "$LVM_PART" cryptlvm
-        PV_DEV="/dev/mapper/cryptlvm"
-    else
-        PV_DEV="$LVM_PART"
-    fi
-
-    # pv + vg creation
-    pvcreate "$PV_DEV"
-    read -rp "VG name [default vg0]: " VG
-    VG="${VG:-vg0}"
-    vgcreate "$VG" "$PV_DEV" || die "vgcreate failed for $VG"
-
-    # LV creation optional
-    read -rp "Create Logical Volumes now? (y/N): " CREATE_LVS
-    CREATE_LVS="${CREATE_LVS:-N}"
-    if [[ ! "$CREATE_LVS" =~ ^[Yy]$ ]]; then
-        preview_partition_tree
-        return 0
-    fi
-
-    # compute VG free in MiB (prefer vgs --units m)
-    VG_FREE_MIB=$(vgs --noheadings --units m -o vg_free --nosuffix "$VG" 2>/dev/null | awk '{print int($1)}')
-    if [[ -z "$VG_FREE_MIB" || "$VG_FREE_MIB" -le 0 ]]; then
-        # fallback to vgdisplay
-        VG_FREE_PES=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}' || echo 0)
-        PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}' | sed 's/[^0-9.]//g' || echo 4)
-        VG_FREE_MIB=$(awk -v p="$VG_FREE_PES" -v s="$PE_SIZE" 'BEGIN{printf "%d", p * s}')
-    fi
-
-    echo "VG $VG free ≈ ${VG_FREE_MIB} MiB"
-
-    # ensure used mounts associative exists and contains earlier raw mounts
-    declare -A USED_MT
-    for m in "${!used_mounts[@]}"; do USED_MT[$m]=1; done
-
-    # LV loop
-    read -rp "How many LVs do you want to create? " LV_COUNT
-    [[ "$LV_COUNT" =~ ^[0-9]+$ ]] || die "Invalid LV count."
-
-    local used_mib=0
-    for ((lv=1; lv<=LV_COUNT; lv++)); do
-        echo "---- LV $lv ----"
-        FREE_NOW=$(( VG_FREE_MIB - used_mib ))
-        echo "Free in VG now: ${FREE_NOW} MiB"
-
-        read -rp "LV name: " LVNAME
-        [[ -n "$LVNAME" ]] || { echo "Name required"; ((lv--)); continue; }
-
-        # mountpoint (no duplicates)
-        while true; do
-            read -rp "Mountpoint (/ /home /data1 /data2 swap none): " LV_MNT
-            case "$LV_MNT" in /|/home|/data1|/data2|swap|none) ;;
-            *) echo "Invalid mountpoint"; continue ;;
-            esac
-            if [[ "$LV_MNT" != "none" && "$LV_MNT" != "swap" && -n "${USED_MT[$LV_MNT]:-}" ]]; then
-                echo "Mountpoint $LV_MNT already used; choose another."
-            else
-                [[ "$LV_MNT" != "none" && "$LV_MNT" != "swap" ]] && USED_MT[$LV_MNT]=1
-                break
-            fi
-        done
-
-        # filesystem
-        while true; do
-            read -rp "Filesystem (ext4,btrfs,xfs,f2fs,swap): " LV_FS
-            case "$LV_FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Invalid FS" ;; esac
-        done
-
-        read -rp "Encrypt this LV? (y/N): " ENC_LV
-        ENC_LV="${ENC_LV:-N}"
-
-        # size: allow human formats and 100%FREE
-        while true; do
-            read -rp "LV size (e.g. 20G, 512M or 100%FREE): " LV_SIZE_IN
-            LV_SIZE_IN="${LV_SIZE_IN:-}"
-            if [[ -z "$LV_SIZE_IN" ]]; then echo "Size required"; continue; fi
-            if [[ "${LV_SIZE_IN^^}" == "100%FREE" ]]; then
-                LV_CREATE_ARG="-l 100%FREE"
-                SIZE_MIB="$FREE_NOW"
-                break
-            fi
-            SIZE_MI=$(convert_to_mib "$LV_SIZE_IN") || { echo "Invalid size"; continue; }
-            if (( SIZE_MI > FREE_NOW )); then
-                echo "Requested size ${SIZE_MI} MiB exceeds free ${FREE_NOW} MiB"
-                continue
-            fi
-            LV_CREATE_ARG="-L ${SIZE_MI}M"
-            SIZE_MIB="$SIZE_MI"
-            break
-        done
-
-        # create LV
-        lvcreate $LV_CREATE_ARG -n "$LVNAME" "$VG" || { echo "lvcreate failed"; ((lv--)); continue; }
-
-        LV_DEV="/dev/${VG}/${LVNAME}"
-        if [[ "$ENC_LV" =~ ^[Yy]$ ]]; then
-            cryptsetup luksFormat "$LV_DEV"
-            cryptsetup open "$LV_DEV" "lvol_${LVNAME}"
-            FINAL_DEV="/dev/mapper/lvol_${LVNAME}"
-        else
-            FINAL_DEV="$LV_DEV"
-        fi
-
-        PARTITIONS+=("${FINAL_DEV}:${LV_MNT}:${LV_FS}:${LVNAME}")
-        echo "→ LV created: ${FINAL_DEV} -> mount=${LV_MNT} fs=${LV_FS} label=${LVNAME}"
-
-        used_mib=$(( used_mib + SIZE_MIB ))
-    done
-
-    echo ""
-    preview_partition_tree
-    echo "✅ LVM + optional LUKS setup finished. PARTITIONS array updated."
 }
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
@@ -1897,9 +1457,11 @@ custom_partition_wizard() {
     [[ "$CONFIRM" == "YES" ]] || die "Aborted."
 
     safe_disk_cleanup
+    echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
-    # Disk size
+    # Disk size in MiB
+    local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
@@ -1909,7 +1471,7 @@ custom_partition_wizard() {
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
     PARTITIONS=()
-    local START=1
+    local START=1  # start in MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
@@ -1918,111 +1480,164 @@ custom_partition_wizard() {
         echo "--- Partition $i ---"
         parted -s "$DEV" unit MiB print
 
-        REMAINING=$(( disk_mib - START ))
-        REMAINING_GB=$(awk -v m="$REMAINING" 'BEGIN{printf "%.2f", m/1024}')
-        echo "→ Remaining disk: ${REMAINING}MiB (${REMAINING_GB} GiB)"
-
+        # Read size
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
-
-            if [[ "$SIZE_MI" == "100%" ]]; then
-                END=$disk_mib
-            else
-                END=$(( START + SIZE_MI ))
-            fi
-
-            if (( END > disk_mib )); then
-                echo "⚠️  Partition too large! Max allowed: ${REMAINING} MiB (${REMAINING_GB} GiB)"
-                continue
-            fi
-
-            PART_SIZE="${START}MiB ${END}MiB"
             break
         done
 
+        # Calculate partition end
+        if [[ "$SIZE_MI" != "100%" ]]; then
+            END=$(( START + SIZE_MI ))
+            PART_SIZE="${START}MiB ${END}MiB"
+        else
+            PART_SIZE="${START}MiB 100%"
+            END="100%"
+        fi
+
         # Mountpoint
         while true; do
-            read -rp "Mountpoint (/, /boot, /boot/efi, /home, /data1, /data2, swap, none): " MNT
+            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
             case "$MNT" in
-                /|/boot|/boot/efi|/home|/data1|/data2|swap|none) break ;;
+                /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
                 *) echo "Invalid mountpoint." ;;
             esac
         done
 
-        # FS type
+        # Filesystem
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
-            case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "Unsupported FS." ;; esac
+            case "$FS" in
+                ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
+                *) echo "Unsupported FS." ;;
+            esac
         done
 
         read -rp "Label (optional): " LABEL
 
+        # Create partition
         parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
+
+        # Construct partition node
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
+
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
 
-        [[ "$END" != "$disk_mib" ]] && START=$END
+        # Update start for next partition (skip if last uses 100%)
+        [[ "$END" != "100%" ]] && START=$END
+
+        # Show remaining disk
+        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
+        REMAINING=$(( disk_mib - LAST_END ))
+        echo "→ Remaining disk: ${REMAINING}MiB"
     done
 
+    echo ""
     echo "=== Partition layout created ==="
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
 }
 
-#===========================
-# Format & mount partitions
-#===========================
-format_and_mount_all() {
-    echo "→ Formatting and mounting partitions..."
+#=========================================================================================================================================#
+#  Formato AND MOUNTO CUSTOMMO
+#=========================================================================================================================================#
+format_and_mount_custom() {
+    echo "→ Formatting and mounting custom partitions..."
+
     mkdir -p /mnt
-    declare -A used_mounts
 
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-        MOUNT="${MOUNT:-}"; LABEL="${LABEL:-}"
+    
+        # wait for kernel to expose new partition
+        partprobe "$PART" 2>/dev/null || true
+        udevadm settle --timeout=5 || true
+        [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        [[ -n "${used_mounts[$MOUNT]:-}" && "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && continue
-        [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && used_mounts[$MOUNT]=1
+        echo ">>> $PART ($FS) mount as $MOUNT"
 
-        partprobe "$PART"
-        [[ -b "$PART" ]] || die "$PART missing"
-
+        # Format partition
         case "$FS" in
-            ext4) mkfs.ext4 -F "$PART" ;;
+            ext4)  mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
-            xfs) mkfs.xfs -f "$PART" ;;
-            f2fs) mkfs.f2fs -f "$PART" ;;
-            swap) mkswap "$PART"; swapon "$PART"; continue ;;
-            none) continue ;;
+            xfs)   mkfs.xfs -f "$PART" ;;
+            f2fs)  mkfs.f2fs -f "$PART" ;;
+            fat32|vfat) mkfs.fat -F32 "$PART" ;;
+            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
+            none)  continue ;;
+            *) die "Unsupported filesystem: $FS" ;;
         esac
 
-        [[ -n "$LABEL" ]] && case "$FS" in
-            ext4) e2label "$PART" "$LABEL" ;;
-            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-            xfs) xfs_admin -L "$LABEL" "$PART" ;;
-            f2fs) f2fslabel "$PART" "$LABEL" ;;
-        esac
+        # Apply label if provided
+        [[ -n "$LABEL" ]] && {
+            case "$FS" in
+                ext4) e2label "$PART" "$LABEL" ;;
+                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                f2fs) f2fslabel "$PART" "$LABEL" ;;
+                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$PART" ;;
+            esac
+        }
 
+        # Mount according to mountpoint
         case "$MOUNT" in
-            /) mount "$PART" /mnt ;;
-            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
-            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
-            /boot/efi|/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
-            /data1) mkdir -p /mnt/data1; mount "$PART" /mnt/data1 ;;
-            /data2) mkdir -p /mnt/data2; mount "$PART" /mnt/data2 ;;
-            *) mkdir -p "/mnt$MOUNT"; mount "$PART" "/mnt$MOUNT" ;;
+            "/")
+                if [[ "$FS" == "btrfs" ]]; then
+                    mount "$PART" /mnt
+                    btrfs subvolume create /mnt/@
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                else
+                    mount "$PART" /mnt
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$PART" /mnt/home
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$PART" /mnt/boot
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi
+                ;;
+            /data1)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data1
+                ;;
+            /data2)
+                mkdir -p /mnt/data2
+                mount "$PART" /mnt/data2
+                ;;
+            *)
+                mkdir -p "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
+                ;;
         esac
     done
 
-    mkdir -p /mnt/etc
-    genfstab -U /mnt > /mnt/etc/fstab
-}
+    echo "✅ All custom partitions formatted and mounted correctly."
 
+    echo "Generating /etc/fstab..."
+    
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
+    cat /mnt/etc/fstab
+}
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
+#=====================================================================
+# Ensure filesystem tools & mkinitcpio config for custom partition mode
+# Install FS tools inside target and patch mkinitcpio.conf so that
+# mkinitcpio (run later inside chroot) includes required modules/hooks.
+#=====================================================================
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
@@ -2135,67 +1750,16 @@ CHROOT_EOF
     echo "→ ensure_fs_support_for_custom() finished."
 }
 #=========================================================================================================================================#
-# Quick Partition Main
+# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
 #=========================================================================================================================================#
-quick_partition() {
-    detect_boot_mode
-    echo "Available disks:"
-    lsblk -d -o NAME,SIZE,MODEL,TYPE
-    while true; do
-        read -rp "Enter target disk (e.g. /dev/sda): " DEV
-        DEV="/dev/${DEV##*/}"
-        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
-    done
-
-    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
-    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
-
-    safe_disk_cleanup
-    ask_partition_sizes
-    select_filesystem
-    select_swap
-    partition_disk
-    format_and_mount
+custom_partition(){
+    custom_partition_wizard
+    format_and_mount_custom
     install_base_system
-    configure_system
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-}
-#==============================================================
-# Custom Partition Route
-#==============================================================
-custom_partition() {
-    detect_boot_mode
-    custom_partition_wizard      # user-defined partitions
-    format_and_mount_all      # auto mount based on $BOOT_MODE
-    install_base_system
+
+    # If we ran custom partitioning, ensure the target has needed fs tools
     ensure_fs_support_for_custom
-    configure_system
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-}
 
-#==============================================================
-# LVM + LUKS Partition Route
-#==============================================================
-custom_lvm_luks() {
-    detect_boot_mode
-    lvm_luks_setup           # sets global PARTITIONS
-    format_and_mount_all
-    install_base_system
-    ensure_fs_support_for_custom
     configure_system
     install_grub
     network_mirror_selection
@@ -2213,22 +1777,19 @@ menu() {
 clear
 logo
             echo "#==================================================#"
-            echo "#          Select partitioning method              #"
+            echo "#     Select partitioning method for $DEV:         #"
             echo "#==================================================#"
             echo "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
             echo "|--------------------------------------------------|"
             echo "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
             echo "|--------------------------------------------------|"
-            echo "|-3) Logical Volume - Custom Partition Route       |"
-            echo "|--------------------------------------------------|"
-            echo "|-4) Return back to start                          |"
+            echo "|-3) Return back to start                          |"
             echo "#==================================================#"
             read -rp "Enter choice [1-2]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) custom_lvm_luks ;;
-                4) echo "Exiting..."; exit 0 ;;
+                3) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
 }
@@ -2241,7 +1802,7 @@ sleep 1
 clear
 echo
 echo "#===================================================================================================#"
-echo "# Cleanup postinstall script & Final Messages & Instructions                                        #"
+echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
 echo "#===================================================================================================#"
 echo
 echo 
