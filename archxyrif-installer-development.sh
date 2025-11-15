@@ -1410,8 +1410,8 @@ convert_to_mib() {
 # Robust Interactive Multi-LV + Optional Encryption Phase
 # Excludes /boot, /boot/efi, /efi, swap, none
 #============================================================================================================================#
-interactive_lvm_encryption_phase() {
-    echo -e "\n=== Logical Volume & LUKS Creation Phase ==="
+custom_lvm_luks_partition() {
+    echo -e "\n=== LVM + Optional LUKS Partitioning ==="
 
     # --- Select target disk ---
     while true; do
@@ -1425,33 +1425,28 @@ interactive_lvm_encryption_phase() {
     read -rp "WARNING: This will ERASE all data on $DEV. Continue? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
-    # --- Detect boot mode ---
     detect_boot_mode || true
     BOOT_MODE="${BOOT_MODE:-BIOS}"
     echo "→ Using boot mode: $BOOT_MODE"
 
-    # --- Clear disk safely ---
     safe_disk_cleanup
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
 
-    # --- Create GPT label ---
-    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label on $DEV"
-
-    # --- Helper for NVMe / partition suffix ---
+    # --- Partition suffix helper ---
     part_suffix() { [[ "$DEV" =~ nvme ]] && echo "p" || echo ""; }
 
     # --- Create boot partition ---
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        EFI_SIZE_MIB=${EFI_SIZE_MIB:-1024}
+        EFI_SIZE_MIB=1024
         echo "→ Creating EFI partition (1MiB - ${EFI_SIZE_MIB}MiB)"
         parted -a optimal -s "$DEV" mkpart primary fat32 1MiB ${EFI_SIZE_MIB}MiB || die "Failed EFI partition"
         parted -s "$DEV" set 1 boot on
         PART_BOOT="${DEV}$(part_suffix)1"
         LVM_START=$((EFI_SIZE_MIB + 1))
     else
-        BIOS_GRUB_SIZE_MIB=${BIOS_GRUB_SIZE_MIB:-2}
-        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
-
-        echo "→ Creating BIOS grub partition (1MiB - $((1 + BIOS_GRUB_SIZE_MIB))MiB)"
+        BIOS_GRUB_SIZE_MIB=2
+        BOOT_SIZE_MIB=512
+        echo "→ Creating BIOS grub partition (1MiB - $((1+BIOS_GRUB_SIZE_MIB))MiB)"
         parted -a optimal -s "$DEV" mkpart primary 1MiB $((1 + BIOS_GRUB_SIZE_MIB))
         parted -s "$DEV" set 1 bios_grub on
 
@@ -1463,33 +1458,88 @@ interactive_lvm_encryption_phase() {
         LVM_START=$((boot_end + 1))
     fi
 
-    # --- Create LVM partition on remaining space ---
-    echo "→ Creating LVM partition on remaining disk space"
-    parted -a optimal -s "$DEV" mkpart primary ${LVM_START}MiB 100% || die "Failed to create LVM partition"
+    # --- Create LVM partition ---
+    echo "→ Creating LVM partition on remaining space"
+    parted -a optimal -s "$DEV" mkpart primary ${LVM_START}MiB 100% || die "Failed LVM partition"
     PV_PART="${DEV}$(part_suffix)$(($(parted -s "$DEV" print | grep -c 'primary')))"
-
-    # Set partition type to LVM
     parted -s "$DEV" set $(($(parted -s "$DEV" print | grep -c 'primary'))) lvm on || true
 
-    # --- Wait for kernel to recognize partitions ---
     partprobe "$DEV" 2>/dev/null || true
-    udevadm settle --timeout=5 2>/dev/null || true
+    udevadm settle --timeout=5 || true
     sleep 1
 
-    # --- Ask to create PV and VG ---
+    # --- Create PV and VG ---
     read -rp "Create LVM Physical Volume on ${PV_PART} and a new Volume Group? (yes/no): " do_pv
-    case "$do_pv" in [Yy]* )
-        pvcreate "$PV_PART" || die "pvcreate failed on $PV_PART"
-        read -rp "Enter name for new Volume Group (VG): " VG
+    if [[ "$do_pv" =~ ^[Yy] ]]; then
+        pvcreate "$PV_PART" || die "pvcreate failed"
+        read -rp "Enter name for new VG: " VG
         [[ -n "$VG" ]] || die "VG name required"
         vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
-        ;;
-    *) echo "Skipping LVM PV/VG creation. You may create a VG manually later." ;;
-    esac
+    else
+        echo "Skipping VG creation. Use existing VG manually."
+        read -rp "Enter existing VG name to use: " VG
+        [[ -n "$VG" ]] || die "VG name required"
+        vgs "$VG" &>/dev/null || die "VG $VG not found"
+    fi
 
-    echo "✅ Boot partition and LVM partition successfully created."
-    echo "EFI/Boot: $PART_BOOT"
-    echo "LVM PV:   $PV_PART"
+    # --- LV creation loop ---
+    PARTITIONS=("$PART_BOOT:$([[ $BOOT_MODE == "UEFI" ]] && echo /boot/efi || echo /boot):$( [[ $BOOT_MODE == "UEFI" ]] && echo fat32 || echo ext4 ):BOOT")
+
+    read -rp "Do you want to create Logical Volumes in VG '$VG'? (yes/no): " create_lv
+    [[ "$create_lv" =~ ^[Yy] ]] || { echo "Skipping LV creation."; return; }
+
+    read -rp "How many LVs to create? " LV_COUNT
+    [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
+
+    VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
+    PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
+    VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
+
+    for ((i=1; i<=LV_COUNT; i++)); do
+        echo "--- LV $i ---"
+        read -rp "LV name: " LV_NAME
+        [[ -n "$LV_NAME" ]] || die "LV name required"
+        read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
+        read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
+
+        ENC=0
+        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
+            read -rp "Encrypt this LV? (yes/no): " enc_ans
+            [[ "$enc_ans" =~ ^[Yy] ]] && ENC=1
+        fi
+
+        while true; do
+            read -rp "Size (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
+            LV_SIZE=${LV_SIZE^^}
+            if [[ "$LV_SIZE" == "100%FREE" ]]; then
+                LV_CREATE_ARG="-l 100%FREE"
+            elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
+                VAL=${BASH_REMATCH[1]}
+                UNIT=${BASH_REMATCH[2]}
+                SIZE_GB=$((UNIT=="M"?VAL/1024:VAL))
+                LV_CREATE_ARG="-L ${SIZE_GB}G"
+            else
+                echo "Invalid size format." ; continue
+            fi
+            [[ $(echo "$SIZE_GB > $VG_FREE_GB" | bc -l) -eq 0 ]] && break || echo "Size too big"
+        done
+
+        if (( ENC )); then
+            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
+            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
+            cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
+            LV_PATH="/dev/mapper/$LV_NAME"
+        else
+            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
+            LV_PATH="/dev/$VG/$LV_NAME"
+        fi
+
+        PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
+        VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
+        VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
+    done
+
+    echo "✅ LVM + LUKS setup complete. PARTITIONS array ready for formatting."
 }
 #============================================================================================================================#
 # Show colored tree-style partition/LV layout with size and pre-flight validation
