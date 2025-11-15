@@ -2036,21 +2036,6 @@ CHROOT_EOF
 
     echo "→ ensure_fs_support_for_custom() finished."
 }
-#==============================================================
-# Post-Partition Steps (all routes)
-#==============================================================
-post_partition_steps() {
-    configure_system
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-    echo -e "${GREEN}✅ Arch Linux installation complete!${NC}"
-}
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
@@ -2074,7 +2059,15 @@ quick_partition() {
     partition_disk
     format_and_mount
     install_base_system
-    post_partition_steps
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
 }
 #==============================================================
 # Custom Partition Route
@@ -2085,7 +2078,15 @@ custom_partition() {
     format_and_mount_custom      # auto mount based on $BOOT_MODE
     install_base_system
     ensure_fs_support_for_custom
-    post_partition_steps
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
 }
 
 #==============================================================
@@ -2098,7 +2099,15 @@ custom_lvm_luks_partition() {
     install_base_system
     ensure_fs_support_for_custom
     install_base_system
-    post_partition_steps
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
 }
 #=========================================================================================================================================#
 # Main menu
