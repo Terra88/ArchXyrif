@@ -878,8 +878,8 @@ if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
-export LANG="${LANG_LOCALE}"
-export LC_ALL="${LANG_LOCALE}"
+export LANG="${LANG_LOCALE}"   # OK
+# do NOT export LC_ALL
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
