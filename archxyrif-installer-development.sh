@@ -1427,10 +1427,10 @@ full_custom_lvm_luks_setup() {
 
     safe_disk_cleanup
 
-    # --- Initialize disk variables ---
+    # --- Initialize disk ---
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
     START_MB=1
-    declare -A used_mounts  # track all mountpoints to prevent duplicates
+    declare -A used_mounts
     PARTITIONS=()
 
     # --- Ask for raw partitions ---
@@ -1439,12 +1439,7 @@ full_custom_lvm_luks_setup() {
 
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
-
-        # Initialize variables safely
-        MNT=""
-        SIZE_MI=0
-
-        # Get partition size
+        MNT=""  # init
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
@@ -1460,15 +1455,9 @@ full_custom_lvm_luks_setup() {
         # Mount point with duplication check
         while true; do
             read -rp "Mount point (/, /boot, /home, /data1, /data2, swap, none): " MNT
-            MNT="${MNT,,}"       # lowercase
-            MNT="${MNT:-}"       # ensure defined
-            [[ "$MNT" == "none" ]] && MNT=""
-
-            if [[ -n "$MNT" && -n "${used_mounts[$MNT]}" ]]; then
-                echo "⚠️  Mount point $MNT already used! Choose another."
-                continue
-            fi
-            [[ -n "$MNT" ]] && used_mounts[$MNT]=1
+            MNT="${MNT:-}"  # init
+            [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
+            [[ "$MNT" != "none" && "$MNT" != "" ]] && used_mounts[$MNT]=1
             break
         done
 
@@ -1483,6 +1472,7 @@ full_custom_lvm_luks_setup() {
 
         parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB" || die "parted failed"
         PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p" )$i"
+
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
         echo "Created raw partition $PART -> mount=$MNT fs=$FS label=$LABEL"
 
@@ -1523,45 +1513,31 @@ full_custom_lvm_luks_setup() {
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
-
-        # Initialize variables
+        MNT=""  # init
         LV_NAME=""
-        MNT=""
-
-        # Get LV name
         while [[ -z "$LV_NAME" ]]; do
             read -rp "LV name: " LV_NAME
         done
 
-        # Get mount point safely (shared logic with raw partitions)
         while true; do
             read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
-            MNT="${MNT,,}"       # lowercase
-            MNT="${MNT:-}"       # ensure defined
-            [[ "$MNT" == "none" ]] && MNT=""
-
-            if [[ -n "$MNT" && -n "${used_mounts[$MNT]}" ]]; then
-                echo "⚠️  Mount point $MNT already used! Choose another."
-                continue
-            fi
-            [[ -n "$MNT" ]] && used_mounts[$MNT]=1
+            MNT="${MNT:-}"
+            [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
+            [[ "$MNT" != "none" && "$MNT" != "" ]] && used_mounts[$MNT]=1
             break
         done
 
-        # Filesystem
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
             case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Unsupported FS." ;; esac
         done
 
-        # Encryption
         ENC=0
-        if [[ "$MNT" != "swap" && "$MNT" != "" ]]; then
+        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
             read -rp "Encrypt this LV? (yes/no): " enc_ans
             [[ "$enc_ans" =~ ^[Yy] ]] && ENC=1
         fi
 
-        # Determine size
         VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
 
@@ -1582,7 +1558,6 @@ full_custom_lvm_luks_setup() {
             fi
         done
 
-        # Create LV (with optional encryption)
         if (( ENC )); then
             lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
             cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
@@ -1594,12 +1569,13 @@ full_custom_lvm_luks_setup() {
         fi
 
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
-        echo "Created LV $LV_PATH -> mount=$MNT fs=$FS label=$LV_NAME"
     done
 
     echo "✅ Raw + LVM + LUKS setup complete."
     printf '%s\n' "${PARTITIONS[@]}"
 }
+
+# --- Use the safe format_and_mount_all function here ---
 #============================================================================================================================#
 # Show colored tree-style partition/LV layout with size and pre-flight validation
 #============================================================================================================================#
