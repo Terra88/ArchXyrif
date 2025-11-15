@@ -1425,174 +1425,134 @@ interactive_lvm_encryption_phase() {
     read -rp "WARNING: This will ERASE all data on $DEV. Continue? [Y/n]: " yn
     [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
-    # --- Detect boot mode safely ---
+    # --- Detect boot mode ---
     detect_boot_mode || true
-    BOOT_MODE="${BOOT_MODE:-}"
-    echo "→ Using boot mode: $BOOT_MODE"
+    BOOT_MODE="${BOOT_MODE:-BIOS}"
+    echo "→ Detected boot mode: $BOOT_MODE"
 
-    # --- Clear disk state (requires $DEV) ---
+    # --- Initialize default sizes ---
+    EFI_SIZE_MIB=${EFI_SIZE_MIB:-1024}
+    BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
+
+    # --- Clear disk ---
     safe_disk_cleanup
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
 
-    # --- Create GPT label if not present ---
-    parted -s "$DEV" mklabel gpt || die "Failed to make GPT label on $DEV"
+    part_suffix=$(part_suffix "$DEV")
 
-    # --- Create boot partition (1) ---
-    if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        EFI_SIZE_MIB=${EFI_SIZE_MIB:-1024}
-        echo "→ Creating EFI partition (1MiB - ${EFI_SIZE_MIB}MiB) for /boot/efi"
-        parted -s "$DEV" mkpart primary fat32 1MiB ${EFI_SIZE_MIB}MiB || die "Failed to create EFI partition"
-        part_suffix=$(part_suffix "$DEV")
-        PART_BOOT="${DEV}${part_suffix}1"
-        mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed for $PART_BOOT"
-        echo "→ EFI partition: $PART_BOOT"
-    else
-        BOOT_SIZE_MIB=${BOOT_SIZE_MIB:-512}
-        echo "→ Creating BIOS /boot partition (1MiB - ${BOOT_SIZE_MIB}MiB)"
-        parted -s "$DEV" mkpart primary ext4 1MiB ${BOOT_SIZE_MIB}MiB || die "Failed to create /boot partition"
-        part_suffix=$(part_suffix "$DEV")
+    # --- Create boot partition depending on boot mode ---
+    if [[ "$BOOT_MODE" == "BIOS" ]]; then
+        echo "→ Creating BIOS /boot partition"
+        # BIOS: /boot partition only, no EFI
+        parted -s "$DEV" mkpart primary ext4 1MiB $((1 + BOOT_SIZE_MIB))MiB || die "Failed to create /boot"
         PART_BOOT="${DEV}${part_suffix}1"
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed for $PART_BOOT"
-        echo "→ BIOS /boot partition: $PART_BOOT"
+    else
+        echo "→ Creating EFI partition"
+        parted -s "$DEV" mkpart primary fat32 1MiB $((1 + EFI_SIZE_MIB))MiB || die "Failed to create EFI partition"
+        parted -s "$DEV" set 1 boot on
+        PART_BOOT="${DEV}${part_suffix}1"
+        mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed for $PART_BOOT"
     fi
 
-    # --- Create an LVM partition occupying the remaining space (partition 2) ---
-    echo "→ Creating LVM partition on remaining disk space (for PV)."
-    # Start at next MiB after boot partition
-    local start_mib end_spec
+    echo "→ Boot partition created: $PART_BOOT"
+
+    # --- Create LVM PV on remaining disk space ---
+    local start_mib
     start_mib=$(( (BOOT_MODE == "UEFI") ? EFI_SIZE_MIB + 1 : BOOT_SIZE_MIB + 1 ))
-    # Use 100% for end
-    parted -s "$DEV" mkpart primary  ${start_mib}MiB 100% || die "Failed to create LVM partition"
-    PART_SUFFIX=$(part_suffix "$DEV")
-    PV_PART="${DEV}${PART_SUFFIX}2"
-    # Set partition type to LVM (optional / informative)
+    echo "→ Creating LVM partition on remaining disk space (from ${start_mib}MiB to 100%)"
+    parted -s "$DEV" mkpart primary ${start_mib}MiB 100% || die "Failed to create LVM partition"
+    PV_PART="${DEV}${part_suffix}2"
     parted -s "$DEV" set 2 lvm on || true
 
-    # Wait for kernel to recognize partitions
-    partprobe "$DEV" 2>/dev/null || true
-    udevadm settle --timeout=5 2>/dev/null || true
+    # Wait for kernel to see new partitions
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
     sleep 1
 
-    # --- Offer to create PV & VG on that partition ---
+    # --- Ask user to create VG ---
     read -rp "Create LVM Physical Volume on ${PV_PART} and a new Volume Group? (yes/no): " do_pv
-    case "$do_pv" in [Yy]* )
-        pvcreate "$PV_PART" || die "pvcreate failed on $PV_PART"
-        read -rp "Enter name for new Volume Group (VG): " VG
-        [[ -n "$VG" ]] || die "VG name required"
-        vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
-        ;;
-    *)
-        echo "Skipping LVM PV/VG creation. You may create a VG manually and re-run LV creation later."
-        # But still present existing VGs for selection
-        ;;
+    case "$do_pv" in
+        [Yy]* )
+            pvcreate "$PV_PART" || die "pvcreate failed on $PV_PART"
+            read -rp "Enter name for new Volume Group (VG): " VG
+            [[ -n "$VG" ]] || die "VG name required"
+            vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
+            ;;
+        *) echo "Skipping VG creation. You can create it manually later." ;;
     esac
 
-    # Show existing volume groups
-    echo "Available Volume Groups (after creation attempt):"
+    # Show existing VGs
+    echo "Available Volume Groups:"
     vgs --noheadings -o vg_name,vg_size --units g --nosuffix || true
 
-    # If no VG created earlier, ask whether to use an existing VG
+    # --- Use existing VG if needed ---
     if ! vgs "$VG" &>/dev/null; then
-        read -rp "Enter name of existing VG to use, or type NEW to create a VG now: " VG_CHOICE
+        read -rp "Enter existing VG name to use, or type NEW to create: " VG_CHOICE
         if [[ "$VG_CHOICE" == "NEW" ]]; then
             read -rp "Enter name for new VG: " VG
             [[ -n "$VG" ]] || die "VG name required"
             vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
         else
-            # Use existing
             VG="$VG_CHOICE"
             [[ -n "$VG" ]] || die "No VG specified"
             vgs "$VG" &>/dev/null || die "Volume group $VG not found"
         fi
     fi
 
-    # --- Gather VG info for sizing checks ---
+    # --- Gather VG free info ---
     VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
     VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
 
-    # --- Ask whether create LVs now ---
+    # --- Create LVs ---
     read -rp "Do you want to create Logical Volumes in VG '$VG' now? (yes/no): " create_lvs
-    case "$create_lvs" in [Yy]* ) ;; *) echo "Skipping LV creation."; return ;; esac
+    [[ "$create_lvs" =~ ^[Yy]$ ]] || return
 
     read -rp "How many LVs to create in $VG? " LV_COUNT
     [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
 
+    PARTITIONS=()  # reset array
+
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
-        while true; do
-            read -rp "LV name: " LV_NAME
-            [[ -n "$LV_NAME" ]] && break || echo "LV name required."
-        done
+        read -rp "LV name: " LV_NAME
+        [[ -n "$LV_NAME" ]] || die "LV name required"
 
-        # Mountpoint
-        while true; do
-            read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
-            case "$MNT" in
-                /|/home|/data1|/data2|swap|none)
-                    if printf '%s\n' "${PARTITIONS[@]:-}" | grep -q ":$MNT:"; then
-                        echo "⚠️  Mountpoint $MNT already assigned. Choose another."
-                        continue
-                    fi
-                    break
-                    ;;
-                *) echo "Invalid mountpoint." ;;
-            esac
-        done
+        read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
+        [[ "$MNT" =~ ^(/|/home|/data1|/data2|swap|none)$ ]] || die "Invalid mountpoint"
 
-        # FS choice
-        while true; do
-            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
-            case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Unsupported FS." ;; esac
-        done
+        read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
+        [[ "$FS" =~ ^(ext4|btrfs|xfs|f2fs|swap)$ ]] || die "Unsupported FS"
 
-        # Encryption (skip for swap/none)
         ENC=0
         if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
             read -rp "Encrypt this LV? (yes/no): " encrypt_ans
-            case "$encrypt_ans" in [Yy]*) ENC=1 ;; *) ENC=0 ;; esac
+            [[ "$encrypt_ans" =~ ^[Yy]$ ]] && ENC=1
         fi
 
-        # Size input (allow 100%FREE)
-        while true; do
-            read -rp "Size for LV $LV_NAME (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
-            LV_SIZE=${LV_SIZE^^}
-            if [[ "$LV_SIZE" == "100%FREE" ]]; then
-                LV_CREATE_ARG="-l 100%FREE"
-                SAFE_EXT=$((VG_FREE_EXT - 1))
-                SIZE_GB=$(awk -v ext="$SAFE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
-            elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
-                VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
-                if [[ "$UNIT" == "M" ]]; then
-                    SIZE_GB=$(awk -v v="$VAL" 'BEGIN{printf "%.2f", v/1024}')
-                else
-                    SIZE_GB="$VAL"
-                fi
-                LV_CREATE_ARG="-L ${SIZE_GB}G"
-            else
-                echo "Invalid size format."
-                continue
-            fi
+        read -rp "Size for LV $LV_NAME (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
+        LV_SIZE=${LV_SIZE^^}
+        if [[ "$LV_SIZE" == "100%FREE" ]]; then
+            LV_CREATE_ARG="-l 100%FREE"
+        elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
+            VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
+            SIZE_GB=$(( UNIT=="M" ? VAL/1024 : VAL ))
+            LV_CREATE_ARG="-L ${SIZE_GB}G"
+        else
+            die "Invalid LV size format"
+        fi
 
-            # Compare numerically using bc
-            if (( $(echo "$SIZE_GB > $VG_FREE_GB" | bc -l) )); then
-                echo "⚠️  LV size exceeds remaining VG space ($VG_FREE_GB G). Choose smaller."
-                continue
-            fi
-            break
-        done
-
-        # Create the LV
         if (( ENC )); then
             lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
-            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
-            cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
+            cryptsetup luksFormat "/dev/$VG/$LV_NAME" || die "luksFormat failed"
+            cryptsetup open "/dev/$VG/$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
             LV_PATH="/dev/mapper/$LV_NAME"
         else
             lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
             LV_PATH="/dev/$VG/$LV_NAME"
         fi
 
-        # Add to PARTITIONS[] for format_and_mount_custom
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
 
         # Refresh VG free info
@@ -1600,15 +1560,14 @@ interactive_lvm_encryption_phase() {
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
     done
 
-    # Finally, add boot partition to PARTITIONS[] if not already present
-    # Determine mountpoint for boot partition from BOOT_MODE
+    # Add boot partition to PARTITIONS array
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        PARTITIONS=("${PARTITIONS[@]}" "$PART_BOOT:/boot/efi:fat32:EFI")
+        PARTITIONS+=("$PART_BOOT:/boot/efi:fat32:EFI")
     else
-        PARTITIONS=("${PARTITIONS[@]}" "$PART_BOOT:/boot:ext4:BOOT")
+        PARTITIONS+=("$PART_BOOT:/boot:ext4:BOOT")
     fi
 
-    echo -e "✅ Boot partition and LVs created. PARTITIONS array updated."
+    echo "✅ Boot partition and LVs created. PARTITIONS array updated."
 }
 
 
