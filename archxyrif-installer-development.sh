@@ -1411,6 +1411,10 @@ convert_to_mib() {
 # Excludes /boot, /boot/efi, /efi, swap, none
 #============================================================================================================================#
 custom_lvm_luks_partition() {
+   custom_lvm_luks_partition() {
+    #====================================================#
+    # Step 1: LVM + Optional LUKS Partitioning
+    #====================================================#
     echo -e "\n=== LVM + Optional LUKS Partitioning ==="
 
     # --- Select target disk ---
@@ -1429,13 +1433,16 @@ custom_lvm_luks_partition() {
     BOOT_MODE="${BOOT_MODE:-BIOS}"
     echo "→ Using boot mode: $BOOT_MODE"
 
+    # --- Cleanup old partitions, subvolumes, LUKS, LVM ---
     safe_disk_cleanup
+
+    # --- Create partitions ---
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
 
-    # --- Partition suffix helper ---
+    # Partition suffix helper
     part_suffix() { [[ "$DEV" =~ nvme ]] && echo "p" || echo ""; }
 
-    # --- Create boot partition ---
+    # Boot partition
     if [[ "$BOOT_MODE" == "UEFI" ]]; then
         EFI_SIZE_MIB=1024
         echo "→ Creating EFI partition (1MiB - ${EFI_SIZE_MIB}MiB)"
@@ -1458,7 +1465,7 @@ custom_lvm_luks_partition() {
         LVM_START=$((boot_end + 1))
     fi
 
-    # --- Create LVM partition ---
+    # LVM partition
     echo "→ Creating LVM partition on remaining space"
     parted -a optimal -s "$DEV" mkpart primary ${LVM_START}MiB 100% || die "Failed LVM partition"
     PV_PART="${DEV}$(part_suffix)$(($(parted -s "$DEV" print | grep -c 'primary')))"
@@ -1468,7 +1475,7 @@ custom_lvm_luks_partition() {
     udevadm settle --timeout=5 || true
     sleep 1
 
-    # --- Create PV and VG ---
+    # --- PV / VG ---
     read -rp "Create LVM Physical Volume on ${PV_PART} and a new Volume Group? (yes/no): " do_pv
     if [[ "$do_pv" =~ ^[Yy] ]]; then
         pvcreate "$PV_PART" || die "pvcreate failed"
@@ -1476,13 +1483,12 @@ custom_lvm_luks_partition() {
         [[ -n "$VG" ]] || die "VG name required"
         vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
     else
-        echo "Skipping VG creation. Use existing VG manually."
         read -rp "Enter existing VG name to use: " VG
         [[ -n "$VG" ]] || die "VG name required"
         vgs "$VG" &>/dev/null || die "VG $VG not found"
     fi
 
-    # --- LV creation loop ---
+    # --- LV creation ---
     PARTITIONS=("$PART_BOOT:$([[ $BOOT_MODE == "UEFI" ]] && echo /boot/efi || echo /boot):$( [[ $BOOT_MODE == "UEFI" ]] && echo fat32 || echo ext4 ):BOOT")
 
     read -rp "Do you want to create Logical Volumes in VG '$VG'? (yes/no): " create_lv
@@ -1539,7 +1545,7 @@ custom_lvm_luks_partition() {
         VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
     done
 
-    echo "✅ LVM + LUKS setup complete. PARTITIONS array ready for formatting."
+    echo "✅ LVM + LUKS setup complete."
 }
 #============================================================================================================================#
 # Show colored tree-style partition/LV layout with size and pre-flight validation
@@ -2021,9 +2027,9 @@ custom_partition() {
 #==============================================================
 # LVM + LUKS Partition Route
 #==============================================================
-custom_lvm_luks_partition() {
+custom_lvm_luks() {
     detect_boot_mode
-    interactive_lvm_encryption_phase
+    custom_lvm_luks_partition
     confirm_partition_layout_tree_fancy_validate
     format_and_mount_custom
     install_base_system
@@ -2060,7 +2066,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) custom_lvm_luks_partition ;;
+                3) custom_lvm_luks ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
