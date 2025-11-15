@@ -1477,7 +1477,7 @@ setup_boot_partition() {
 lvm_luks_setup() {
     detect_boot_mode
 
-    # Step 1: Select target disk
+    # Step 1: Select disk
     echo "Available disks:"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
     while true; do
@@ -1486,49 +1486,56 @@ lvm_luks_setup() {
         [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
     done
 
-    echo "WARNING: All data on $DEV will be erased!"
+    echo "WARNING: This will ERASE all data on $DEV"
     read -rp "Type YES to continue: " CONFIRM
     [[ "$CONFIRM" == "YES" ]] || die "Aborted."
-    
+
     safe_disk_cleanup
     parted -s "$DEV" mklabel gpt
 
-    # Step 2: Create boot partition first (mandatory)
-    setup_boot_partition
-    START_MB=$(( $(parted -s "$DEV" print | tail -n1 | awk '{print $2}' | sed 's/MiB//') ))
+    # Step 2: Create boot partition first
+    setup_boot_partition  # from previous function
 
-    # Step 3: Raw partitions before LVM
+    # After boot, calculate START_MB correctly
+    PART_BOOT="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")1"
+    START_MB=$(parted -m "$DEV" unit MiB print | awk -F: '/^1:/ {gsub("MiB","",$3); print int($3)+1}')
+    
+    # Step 3: Ask for raw partitions before LVM
     declare -A used_mounts
     used_mounts["/boot"]=1
-
     read -rp "How many raw partitions before LVM? " RAW_COUNT
     [[ "$RAW_COUNT" =~ ^[0-9]+$ ]] || die "Invalid number"
 
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV")
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
-        disk_bytes=$(lsblk -b -dn -o SIZE "$DEV")
-        disk_mib=$(( disk_bytes / 1024 / 1024 ))
         REMAINING=$(( disk_mib - START_MB ))
         REMAINING_GB=$(awk -v m="$REMAINING" 'BEGIN{printf "%.2f", m/1024}')
 
-        # Size prompt
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last) [max ${REMAINING_GB}G]: " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
+
             if [[ "$SIZE_MI" == "100%" ]]; then
                 END=$disk_mib
             else
                 END=$(( START_MB + SIZE_MI ))
             fi
-            (( END > disk_mib )) && { echo "⚠️ Partition too large! Max ${REMAINING_GB}G"; continue; }
+
+            if (( END > disk_mib )); then
+                echo "⚠️ Partition too large! Max allowed: ${REMAINING} MiB (${REMAINING_GB} GiB)"
+                continue
+            fi
             break
         done
 
         # Mountpoint
         while true; do
             read -rp "Mountpoint (/ /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" || "$MNT" == "swap" || "$MNT" == "none" ]] || { echo "Mountpoint already used"; continue; }
-            [[ "$MNT" != "swap" && "$MNT" != "none" ]] && used_mounts[$MNT]=1
+            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mountpoint already used"; continue; }
+            used_mounts[$MNT]=1
             break
         done
 
@@ -1541,21 +1548,22 @@ lvm_luks_setup() {
         read -rp "Label (optional): " LABEL
 
         # Create partition
+        PART_NUM=$((i+1))
         parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB"
-        PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$((i+1))"
+        PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$PART_NUM"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
         START_MB=$END
     done
 
-    # Step 4: LVM partition on remaining space
+    # Step 4: LVM on remaining space
     echo "→ Creating LVM partition on remaining space"
+    PART_NUM=$((RAW_COUNT + 2))  # +1 for boot, + RAW_COUNT
     parted -a optimal -s "$DEV" mkpart primary ${START_MB}MiB 100%
-    LVM_PART="${DEV}$(parted -s "$DEV" print | grep -c 'primary')"
-    parted -s "$DEV" set $(parted -s "$DEV" print | grep -c 'primary') lvm on
+    LVM_PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$PART_NUM"
+    parted -s "$DEV" set $PART_NUM lvm on
     partprobe "$DEV"
 
-    # Step 5: VG creation
     read -rp "Create new VG on $LVM_PART? (yes/no): " do_pv
     if [[ "$do_pv" =~ ^[Yy] ]]; then
         read -rp "VG name: " VG
@@ -1565,7 +1573,7 @@ lvm_luks_setup() {
         vgs "$VG" &>/dev/null || die "VG not found"
     fi
 
-    # Step 6: Create LVs
+    # Step 5: Create LVs
     read -rp "Create LVs? (yes/no): " CREATE_LV
     [[ "$CREATE_LV" =~ ^[Yy] ]] || return
     read -rp "Number of LVs: " LV_COUNT
@@ -1605,7 +1613,7 @@ lvm_luks_setup() {
                 LV_CREATE_ARG="-l 100%FREE"; break
             elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
                 VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
-                SIZE_GB=$(( UNIT=="M" ? VAL/1024 : VAL ))
+                SIZE_GB=$(( UNIT=="M"?VAL/1024:VAL ))
                 (( $(echo "$SIZE_GB <= $VG_FREE_GB" | bc -l) )) && LV_CREATE_ARG="-L ${SIZE_GB}G" && break
                 echo "Too big, max ${VG_FREE_GB}G"
             else
@@ -1614,7 +1622,6 @@ lvm_luks_setup() {
         done
 
         lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG"
-
         if (( ENC )); then
             cryptsetup luksFormat /dev/"$VG"/"$LV_NAME"
             cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME"
@@ -1622,16 +1629,13 @@ lvm_luks_setup() {
         else
             LV_PATH="/dev/$VG/$LV_NAME"
         fi
-
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
         echo "→ LV created: $LV_PATH mounted at $MNT fs=$FS label=$LV_NAME"
     done
 
-    # Step 7: Preview partition tree
-    preview_partition_tree
     echo "✅ Raw + LVM + LUKS setup complete."
+    preview_partition_tree
 }
-
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
