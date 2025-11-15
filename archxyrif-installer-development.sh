@@ -1407,12 +1407,9 @@ convert_to_mib() {
     fi
 }
 full_custom_lvm_luks_setup() {
-    #====================================================#
-    # Step 0: Select disk and detect boot mode
-    #====================================================#
-    echo -e "\n=== Custom LVM + Optional LUKS Partitioning ==="
+        echo -e "\n=== Custom Disk Setup: Raw Partitions + LVM/LUKS ==="
 
-    # --- Select target disk ---
+    # --- Select disk ---
     while true; do
         echo "Available disks:"
         lsblk -d -o NAME,SIZE,MODEL,TYPE
@@ -1428,129 +1425,159 @@ full_custom_lvm_luks_setup() {
     BOOT_MODE="${BOOT_MODE:-BIOS}"
     echo "→ Using boot mode: $BOOT_MODE"
 
-    # --- Cleanup old partitions, LUKS, LVM ---
     safe_disk_cleanup
-
-    #====================================================#
-    # Step 1: Create base partitions (EFI/BIOS + /boot + LVM)
-    #====================================================#
-    part_suffix() { [[ "$DEV" =~ nvme ]] && echo "p" || echo ""; }
-
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
 
-    START_MB=1  # leave first MiB free
-    if [[ "$BOOT_MODE" == "UEFI" ]]; then
-        EFI_SIZE_MIB=512
-        BOOT_START=$START_MB
-        BOOT_END=$((BOOT_START + EFI_SIZE_MIB))
-        echo "→ Creating EFI partition (${BOOT_START}MiB - ${BOOT_END}MiB)"
-        parted -a optimal -s "$DEV" mkpart primary fat32 ${BOOT_START}MiB ${BOOT_END}MiB || die "EFI partition failed"
-        parted -s "$DEV" set 1 boot on
-        PART_BOOT="${DEV}$(part_suffix)1"
-        LVM_START=$BOOT_END
-    else
-        BIOS_GRUB_SIZE_MIB=2
-        BOOT_START=$START_MB
-        BOOT_END=$((BOOT_START + BIOS_GRUB_SIZE_MIB))
-        echo "→ Creating BIOS grub partition (${BOOT_START}MiB - ${BOOT_END}MiB)"
-        parted -a optimal -s "$DEV" mkpart primary ${BOOT_START}MiB ${BOOT_END}MiB || die "BIOS grub failed"
-        parted -s "$DEV" set 1 bios_grub on
+    part_suffix() { [[ "$DEV" =~ nvme ]] && echo "p" || echo ""; }
 
-        BOOT_SIZE_MIB=512
-        BOOT2_START=$BOOT_END
-        BOOT2_END=$((BOOT2_START + BOOT_SIZE_MIB))
-        echo "→ Creating /boot partition (${BOOT2_START}MiB - ${BOOT2_END}MiB)"
-        parted -a optimal -s "$DEV" mkpart primary ext4 ${BOOT2_START}MiB ${BOOT2_END}MiB || die "/boot failed"
-        PART_BOOT="${DEV}$(part_suffix)2"
-        LVM_START=$BOOT2_END
-    fi
+    # Track used mount points to prevent duplicates
+    declare -A used_mounts
 
-    echo "→ Creating LVM partition on remaining space (${LVM_START}MiB - 100%)"
-    parted -a optimal -s "$DEV" mkpart primary ${LVM_START}MiB 100% || die "LVM partition failed"
-    PV_PART="${DEV}$(part_suffix)$(($(parted -s "$DEV" print | grep -c 'primary')))"
-    parted -s "$DEV" set $(($(parted -s "$DEV" print | grep -c 'primary'))) lvm on || true
+    # =========================
+    # Step 1: Create raw partitions
+    # =========================
+    read -rp "How many raw partitions before LVM? " RAW_COUNT
+    [[ "$RAW_COUNT" =~ ^[0-9]+$ && "$RAW_COUNT" -ge 0 ]] || die "Invalid number."
 
-    partprobe "$DEV" 2>/dev/null || true
-    udevadm settle --timeout=5 || true
-    sleep 1
+    START_MB=1
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV")
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
 
-    #====================================================#
-    # Step 2: LVM PV / VG setup
-    #====================================================#
-    read -rp "Create LVM Physical Volume on ${PV_PART} and new VG? (yes/no): " do_pv
-    if [[ "$do_pv" =~ ^[Yy] ]]; then
-        pvcreate "$PV_PART" || die "pvcreate failed"
-        read -rp "Enter VG name: " VG
-        [[ -n "$VG" ]] || die "VG name required"
-        vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
-    else
-        read -rp "Enter existing VG name: " VG
-        [[ -n "$VG" ]] || die "VG name required"
-        vgs "$VG" &>/dev/null || die "VG $VG not found"
-    fi
-
-    #====================================================#
-    # Step 3: LV creation with optional LUKS
-    #====================================================#
-    echo "Base partitions setup complete."
-    PARTITIONS=("$PART_BOOT:$([[ $BOOT_MODE == "UEFI" ]] && echo /boot/efi || echo /boot):$( [[ $BOOT_MODE == "UEFI" ]] && echo fat32 || echo ext4 ):BOOT")
-
-    read -rp "Create Logical Volumes in VG '$VG'? (yes/no): " create_lv
-    [[ "$create_lv" =~ ^[Yy] ]] || { echo "Skipping LV creation."; return; }
-
-    read -rp "How many LVs to create? " LV_COUNT
-    [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
-
-    PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
-    for ((i=1;i<=LV_COUNT;i++)); do
-        echo "--- LV $i ---"
-        read -rp "LV name: " LV_NAME
-        [[ -n "$LV_NAME" ]] || die "LV name required"
-        read -rp "Mountpoint (/, /home, /data1, swap, none): " MNT
-        read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
-
-        ENC=0
-        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
-            read -rp "Encrypt this LV? (yes/no): " enc_ans
-            [[ "$enc_ans" =~ ^[Yy] ]] && ENC=1
-        fi
-
-        VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
-        VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
+    for ((i=1;i<=RAW_COUNT;i++)); do
+        echo "--- Raw Partition $i ---"
+        REMAIN=$(( disk_mib - START_MB ))
+        REMAIN_GB=$(awk -v m="$REMAIN" 'BEGIN{printf "%.2f", m/1024}')
+        echo "Remaining space: $REMAIN MiB (${REMAIN_GB} GiB)"
 
         while true; do
-            read -rp "Size (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
-            LV_SIZE=${LV_SIZE^^}
-            if [[ "$LV_SIZE" == "100%FREE" ]]; then
-                LV_CREATE_ARG="-l 100%FREE"
-                break
-            elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
-                VAL=${BASH_REMATCH[1]}
-                UNIT=${BASH_REMATCH[2]}
-                SIZE_GB=$((UNIT=="M"?VAL/1024:VAL))
-                [[ $(echo "$SIZE_GB > $VG_FREE_GB" | bc -l) -eq 0 ]] && break || echo "Size too big"
-                LV_CREATE_ARG="-L ${SIZE_GB}G"
+            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            SIZE_MI=$(convert_to_mib "$SIZE") || continue
+            if [[ "$SIZE_MI" == "100%" ]]; then
+                END=$disk_mib
             else
-                echo "Invalid size format."
+                END=$((START_MB + SIZE_MI))
             fi
+            (( END <= disk_mib )) || { echo "Partition too large"; continue; }
+            break
         done
 
-        if (( ENC )); then
-            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
-            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
-            cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
-            LV_PATH="/dev/mapper/$LV_NAME"
-        else
-            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
-            LV_PATH="/dev/$VG/$LV_NAME"
-        fi
+        # Mount point
+        while true; do
+            read -rp "Mount point (/, /boot, /home, /data1, /data2, swap, none): " MNT
+            [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
+            used_mounts[$MNT]=1
+            break
+        done
 
-        PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
+        # Filesystem
+        while true; do
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "Invalid FS";; esac
+        done
+
+        read -rp "Optional label: " LABEL
+
+        parted -a optimal -s "$DEV" mkpart primary ${START_MB}MiB ${END}MiB || die "Parted failed"
+        PART="${DEV}$(part_suffix)${i}"
+        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
+        echo "Created raw partition: $PART mounted on $MNT with $FS"
+
+        START_MB=$END
     done
 
-    echo "✅ Full LVM + LUKS setup complete."
-    echo "Partitions / LVs created:"
-    printf '%s\n' "${PARTITIONS[@]}"
+    # =========================
+    # Step 2: Create LVM partition on remaining space
+    # =========================
+    if (( START_MB < disk_mib )); then
+        echo "--- Creating LVM partition on remaining disk (${START_MB}MiB - 100%) ---"
+        parted -a optimal -s "$DEV" mkpart primary ${START_MB}MiB 100% || die "LVM partition failed"
+        PV_PART="${DEV}$(part_suffix)$(($(parted -s "$DEV" print | grep -c 'primary')))"
+        parted -s "$DEV" set $(($(parted -s "$DEV" print | grep -c 'primary'))) lvm on || true
+
+        partprobe "$DEV" 2>/dev/null || true
+        udevadm settle --timeout=5 || true
+        sleep 1
+
+        read -rp "Create LVM PV on $PV_PART and new VG? (yes/no): " do_pv
+        if [[ "$do_pv" =~ ^[Yy] ]]; then
+            pvcreate "$PV_PART" || die "pvcreate failed"
+            read -rp "VG name: " VG
+            [[ -n "$VG" ]] || die "VG name required"
+            vgcreate "$VG" "$PV_PART" || die "vgcreate failed"
+        else
+            read -rp "Existing VG name: " VG
+            [[ -n "$VG" ]] || die "VG name required"
+            vgs "$VG" &>/dev/null || die "VG $VG not found"
+        fi
+
+        # =========================
+        # Step 3: Create logical volumes
+        # =========================
+        read -rp "How many LVs to create? " LV_COUNT
+        [[ "$LV_COUNT" =~ ^[0-9]+$ && "$LV_COUNT" -ge 1 ]] || die "Invalid LV count."
+
+        PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
+
+        for ((i=1;i<=LV_COUNT;i++)); do
+            echo "--- LV $i ---"
+            read -rp "LV name: " LV_NAME
+            [[ -n "$LV_NAME" ]] || die "LV name required"
+
+            # Mount point (check duplicates)
+            while true; do
+                read -rp "Mountpoint for LV (/, /home, /data1, /data2, swap, none): " MNT
+                [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
+                used_mounts[$MNT]=1
+                break
+            done
+
+            # FS
+            while true; do
+                read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
+                case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Invalid FS";; esac
+            done
+
+            ENC=0
+            [[ "$MNT" != "swap" && "$MNT" != "none" ]] && read -rp "Encrypt this LV? (yes/no): " enc_ans && [[ "$enc_ans" =~ ^[Yy] ]] && ENC=1
+
+            # LV size
+            VG_FREE_EXT=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
+            VG_FREE_GB=$(awk -v ext="$VG_FREE_EXT" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", ext*pe/1024}')
+
+            while true; do
+                read -rp "LV Size (e.g., 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
+                LV_SIZE=${LV_SIZE^^}
+                if [[ "$LV_SIZE" == "100%FREE" ]]; then
+                    LV_CREATE_ARG="-l 100%FREE"
+                    break
+                elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
+                    VAL=${BASH_REMATCH[1]}
+                    UNIT=${BASH_REMATCH[2]}
+                    SIZE_GB=$(( UNIT=="M"?VAL/1024:VAL ))
+                    [[ $(echo "$SIZE_GB > $VG_FREE_GB" | bc -l) -eq 0 ]] && break || echo "Size too big"
+                    LV_CREATE_ARG="-L ${SIZE_GB}G"
+                else
+                    echo "Invalid size format."
+                fi
+            done
+
+            # Create LV and encrypt if requested
+            if (( ENC )); then
+                lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
+                cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "luksFormat failed"
+                cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME" || die "cryptsetup open failed"
+                LV_PATH="/dev/mapper/$LV_NAME"
+            else
+                lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG" || die "lvcreate failed"
+                LV_PATH="/dev/$VG/$LV_NAME"
+            fi
+
+            PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
+        done
+    fi
+
+    echo "✅ Raw partitions + LVs setup complete."
+    printf "%s\n" "${PARTITIONS[@]}"
 }
 #============================================================================================================================#
 # Show colored tree-style partition/LV layout with size and pre-flight validation
@@ -1770,93 +1797,106 @@ custom_partition_wizard() {
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
-format_and_mount_custom() {
-    echo "→ Formatting and mounting custom partitions..."
+format_and_mount_all() {
+    echo "→ Formatting and mounting all partitions and LVs..."
 
     mkdir -p /mnt
 
+    # Track used mount points to avoid duplicates
+    declare -A used_mounts
+
     for entry in "${PARTITIONS[@]}"; do
-        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-    
-        # wait for kernel to expose new partition
-        partprobe "$PART" 2>/dev/null || true
+        IFS=':' read -r DEV MOUNT FS LABEL <<< "$entry"
+
+        # Skip empty entries
+        [[ -z "$DEV" ]] && continue
+
+        # Ensure device exists
+        partprobe "$DEV" 2>/dev/null || true
         udevadm settle --timeout=5 || true
-        [[ -b "$PART" ]] || die "Partition $PART not available."
+        [[ -b "$DEV" ]] || die "Device $DEV not available."
 
-        echo ">>> $PART ($FS) mount as $MOUNT"
+        # Avoid duplicate mount points
+        if [[ -n "$MOUNT" && "${used_mounts[$MOUNT]}" == "1" ]]; then
+            echo "⚠️  Mount point $MOUNT already assigned, skipping..."
+            continue
+        fi
+        used_mounts[$MOUNT]=1
 
-        # Format partition
+        echo ">>> Preparing $DEV as $FS to mount on $MOUNT"
+
+        # Format device
         case "$FS" in
-            ext4)  mkfs.ext4 -F "$PART" ;;
-            btrfs) mkfs.btrfs -f "$PART" ;;
-            xfs)   mkfs.xfs -f "$PART" ;;
-            f2fs)  mkfs.f2fs -f "$PART" ;;
-            fat32|vfat) mkfs.fat -F32 "$PART" ;;
-            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
-            none)  continue ;;
+            ext4) mkfs.ext4 -F "$DEV" ;;
+            btrfs) mkfs.btrfs -f "$DEV" ;;
+            xfs) mkfs.xfs -f "$DEV" ;;
+            f2fs) mkfs.f2fs -f "$DEV" ;;
+            fat32|vfat) mkfs.fat -F32 "$DEV" ;;
+            swap) mkswap "$DEV"; swapon "$DEV"; continue ;;
+            none) continue ;;
             *) die "Unsupported filesystem: $FS" ;;
         esac
 
         # Apply label if provided
         [[ -n "$LABEL" ]] && {
             case "$FS" in
-                ext4) e2label "$PART" "$LABEL" ;;
-                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
-                f2fs) f2fslabel "$PART" "$LABEL" ;;
-                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-                swap) mkswap -L "$LABEL" "$PART" ;;
+                ext4) e2label "$DEV" "$LABEL" ;;
+                btrfs) btrfs filesystem label "$DEV" "$LABEL" ;;
+                xfs) xfs_admin -L "$LABEL" "$DEV" ;;
+                f2fs) f2fslabel "$DEV" "$LABEL" ;;
+                fat32|vfat) fatlabel "$DEV" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$DEV" ;;
             esac
         }
 
-        # Mount according to mountpoint
+        # Create mount points and mount
         case "$MOUNT" in
             "/")
                 if [[ "$FS" == "btrfs" ]]; then
-                    mount "$PART" /mnt
+                    mount "$DEV" /mnt
                     btrfs subvolume create /mnt/@
                     umount /mnt
-                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                    mount -o subvol=@,compress=zstd "$DEV" /mnt
                 else
-                    mount "$PART" /mnt
+                    mount "$DEV" /mnt
                 fi
                 ;;
             /home)
                 mkdir -p /mnt/home
-                mount "$PART" /mnt/home
+                mount "$DEV" /mnt/home
                 ;;
             /boot)
                 mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot
+                mount "$DEV" /mnt/boot
                 ;;
             /efi|/boot/efi)
                 mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi
+                mount "$DEV" /mnt/boot/efi
                 ;;
             /data1)
                 mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1
+                mount "$DEV" /mnt/data1
                 ;;
             /data2)
                 mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2
+                mount "$DEV" /mnt/data2
                 ;;
             *)
                 mkdir -p "/mnt$MOUNT"
-                mount "$PART" "/mnt$MOUNT"
+                mount "$DEV" "/mnt$MOUNT"
                 ;;
         esac
     done
 
-    echo "✅ All custom partitions formatted and mounted correctly."
+    echo "✅ All partitions and LVs formatted and mounted."
 
-    echo "Generating /etc/fstab..."
-    
+    echo "→ Generating /etc/fstab..."
     mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
+    genfstab -U /mnt > /mnt/etc/fstab
     echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
+
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
