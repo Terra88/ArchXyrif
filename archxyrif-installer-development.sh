@@ -43,16 +43,16 @@ echo "#=========================================================================
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
-echo "|-4)Setting Basic variables         |- Manual Resize for Root/Home & Swap on or off options         |"
+echo "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
 echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
 echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
-echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------|"
-echo "|-Optional:                         |  ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ    |"
+echo "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
+echo "|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |"
 echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
 echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
+echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo "#===================================================================================================#"
 }
@@ -1633,11 +1633,6 @@ format_and_mount_custom() {
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
-#=====================================================================
-# Ensure filesystem tools & mkinitcpio config for custom partition mode
-# Install FS tools inside target and patch mkinitcpio.conf so that
-# mkinitcpio (run later inside chroot) includes required modules/hooks.
-#=====================================================================
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
