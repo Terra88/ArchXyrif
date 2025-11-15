@@ -149,3 +149,13 @@ known bugs: well it's not really a bug, but the unmount process at the start of 
 -Every option has been tested and should be working correctly.
 <br><br>
 -Adding custom partition/format section later, to support more file systems and to suppor more options.
+<br><br>
+### **Version 1.4.1 - Release!!!**
+<br><br>
+- Custom partition & format route created.<br>
+- Custom format partition route, allows the user to create multiple raw partitions.<br>
+- User can set custom partition sizes freely, and use different file systems on different partitions. Swap is totally optional<br>
+- Filesystem options are: ext4, btrfs, xfs, f2fs, fat32, swap <br>
+- Mount points currently are: /boot / (root) /home swap /data1 /data2 (can be added manually more and will be added manually more in the future)<br>
+- all the other features are pretty much the same.<br>
+<br><br>
