@@ -1781,13 +1781,6 @@ format_and_mount_all() {
     genfstab -U /mnt > /mnt/etc/fstab
 }
 
-#===========================
-# Program Start
-#===========================
-lvm_luks_setup
-format_and_mount_all
-echo "✅ All done. System ready to install base packages."
-
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
@@ -2002,7 +1995,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) custom_lvm_luks ;;
+                3) lvm_luks_setup ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
