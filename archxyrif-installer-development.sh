@@ -1427,7 +1427,7 @@ interactive_lvm_encryption_phase() {
 
     # --- Detect boot mode safely ---
     detect_boot_mode || true
-    BOOT_MODE="${BOOT_MODE:-BIOS}"
+    BOOT_MODE="${BOOT_MODE:-}"
     echo "→ Using boot mode: $BOOT_MODE"
 
     # --- Clear disk state (requires $DEV) ---
@@ -2093,6 +2093,7 @@ custom_partition() {
 # LVM + LUKS Partition Route
 #==============================================================
 custom_lvm_luks_partition() {
+    detect_boot_mode
     interactive_lvm_encryption_phase
     confirm_partition_layout_tree_fancy_validate
     format_and_mount_custom
