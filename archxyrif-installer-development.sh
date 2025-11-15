@@ -1407,7 +1407,7 @@ convert_to_mib() {
     fi
 }
 full_custom_lvm_luks_setup() {
-           echo -e "\n=== Custom Raw + LVM + Optional LUKS Partitioning ==="
+    echo -e "\n=== Custom Raw + LVM + Optional LUKS Partitioning ==="
 
     # --- Select target disk ---
     while true; do
@@ -1427,7 +1427,6 @@ full_custom_lvm_luks_setup() {
 
     safe_disk_cleanup
 
-    # --- Initialize disk variables ---
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
     START_MB=1
     declare -A used_mounts
@@ -1438,7 +1437,7 @@ full_custom_lvm_luks_setup() {
 
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
-        MNT=""  # prevent unbound variable
+        MNT="none"  # initialize
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
@@ -1454,9 +1453,10 @@ full_custom_lvm_luks_setup() {
         # Mount point with duplication check
         while true; do
             read -rp "Mount point (/, /boot, /home, /data1, /data2, swap, none): " MNT
-            MNT="${MNT:-}"  # ensure defined
-            [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
-            used_mounts[$MNT]=1
+            MNT="${MNT:-none}"
+            [[ "$MNT" == "none" ]] && MNT=""
+            [[ -n "$MNT" && -n "${used_mounts[$MNT]}" ]] && { echo "Mount point already used!"; continue; }
+            [[ -n "$MNT" ]] && used_mounts[$MNT]=1
             break
         done
 
@@ -1473,7 +1473,7 @@ full_custom_lvm_luks_setup() {
         PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p" )$i"
 
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
-        echo "Created raw partition $PART -> mount=$MNT fs=$FS label=$LABEL"
+        echo "Created raw partition $PART -> mount=${MNT:-<none>} fs=$FS label=${LABEL:-<none>}"
 
         START_MB=$END
     done
@@ -1512,7 +1512,7 @@ full_custom_lvm_luks_setup() {
     PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
     for ((i=1;i<=LV_COUNT;i++)); do
         echo "--- LV $i ---"
-        MNT=""  # initialize to prevent unbound variable
+        MNT="none"
         LV_NAME=""
         while [[ -z "$LV_NAME" ]]; do
             read -rp "LV name: " LV_NAME
@@ -1520,9 +1520,10 @@ full_custom_lvm_luks_setup() {
 
         while true; do
             read -rp "Mountpoint (/, /home, /data1, /data2, swap, none): " MNT
-            MNT="${MNT:-}" 
-            [[ -z "${used_mounts[$MNT]}" ]] || { echo "Mount point already used!"; continue; }
-            used_mounts[$MNT]=1
+            MNT="${MNT:-none}"
+            [[ "$MNT" == "none" ]] && MNT=""
+            [[ -n "$MNT" && -n "${used_mounts[$MNT]}" ]] && { echo "Mount point already used!"; continue; }
+            [[ -n "$MNT" ]] && used_mounts[$MNT]=1
             break
         done
 
@@ -1532,7 +1533,7 @@ full_custom_lvm_luks_setup() {
         done
 
         ENC=0
-        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
+        if [[ "$MNT" != "swap" && "$MNT" != "" ]]; then
             read -rp "Encrypt this LV? (yes/no): " enc_ans
             [[ "$enc_ans" =~ ^[Yy] ]] && ENC=1
         fi
@@ -1802,18 +1803,17 @@ format_and_mount_all() {
         MOUNT="${MOUNT:-}"  # prevent unbound variable
         LABEL="${LABEL:-}"
 
-        # Skip already mounted or duplicate mountpoints
-        [[ -n "${used_mounts[$MOUNT]}" ]] && { echo "⚠️  Mount point $MOUNT already used, skipping"; continue; }
-        used_mounts[$MOUNT]=1
+        [[ "$MOUNT" == "none" ]] && MOUNT=""
+        [[ -n "$MOUNT" && -n "${used_mounts[$MOUNT]}" ]] && { echo "⚠️  Mount point $MOUNT already used, skipping"; continue; }
+        [[ -n "$MOUNT" ]] && used_mounts[$MOUNT]=1
 
-        # Wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        echo ">>> $PART ($FS) -> mount: $MOUNT"
+        echo ">>> $PART ($FS) -> mount: ${MOUNT:-<none>}"
 
-        # Format partition
+        # Format
         case "$FS" in
             ext4) mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
@@ -1825,7 +1825,7 @@ format_and_mount_all() {
             *) die "Unsupported filesystem: $FS" ;;
         esac
 
-        # Apply label if provided
+        # Apply label
         if [[ -n "$LABEL" ]]; then
             case "$FS" in
                 ext4) e2label "$PART" "$LABEL" ;;
@@ -1839,49 +1839,21 @@ format_and_mount_all() {
 
         # Mount
         case "$MOUNT" in
-            "/")
-                if [[ "$FS" == "btrfs" ]]; then
-                    mount "$PART" /mnt
-                    btrfs subvolume create /mnt/@
-                    umount /mnt
-                    mount -o subvol=@,compress=zstd "$PART" /mnt
-                else
-                    mount "$PART" /mnt
-                fi
-                ;;
-            /home)
-                mkdir -p /mnt/home
-                mount "$PART" /mnt/home
-                ;;
-            /boot)
-                mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot
-                ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi
-                ;;
-            /data1)
-                mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1
-                ;;
-            /data2)
-                mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2
-                ;;
-            *)
-                mkdir -p "/mnt$MOUNT"
-                mount "$PART" "/mnt$MOUNT"
-                ;;
+            "/") mkdir -p /mnt && mount "$PART" /mnt ;;
+            /home) mkdir -p /mnt/home && mount "$PART" /mnt/home ;;
+            /boot) mkdir -p /mnt/boot && mount "$PART" /mnt/boot ;;
+            /efi|/boot/efi) mkdir -p /mnt/boot/efi && mount "$PART" /mnt/boot/efi ;;
+            /data1) mkdir -p /mnt/data1 && mount "$PART" /mnt/data1 ;;
+            /data2) mkdir -p /mnt/data2 && mount "$PART" /mnt/data2 ;;
+            "") continue ;;  # none
+            *) mkdir -p "/mnt$MOUNT" && mount "$PART" "/mnt$MOUNT" ;;
         esac
     done
 
     echo "✅ All partitions and LVs formatted and mounted correctly."
-
     echo "→ Generating /etc/fstab..."
     mkdir -p /mnt/etc
     genfstab -U /mnt > /mnt/etc/fstab
-    echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
 #============================================================================================================================#
