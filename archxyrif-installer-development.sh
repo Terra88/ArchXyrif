@@ -1725,9 +1725,6 @@ custom_partition_wizard() {
     parted -s "$DEV" unit MiB print
 }
 
-#=========================================================================================================================================#
-#  Formato AND MOUNTO CUSTOMMO
-#=========================================================================================================================================#
 #===========================
 # Format & Mount Partitions
 #===========================
@@ -1740,55 +1737,65 @@ format_and_mount_all() {
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
         MOUNT="${MOUNT:-}" 
         LABEL="${LABEL:-}"
+        FS="${FS:-}"
+        PART="${PART:-}"
 
-        [[ -n "${used_mounts[$MOUNT]:-}" && "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && continue
-        [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && used_mounts[$MOUNT]=1
+        # Skip swap or none for used_mounts tracking
+        if [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]]; then
+            if [[ -n "${used_mounts[$MOUNT]:-}" ]]; then
+                echo "→ Mount point $MOUNT already used, skipping..."
+                continue
+            fi
+            used_mounts[$MOUNT]=1
+        fi
 
-        partprobe "$PART"
-        [[ -b "$PART" ]] || die "$PART missing"
+        # Skip formatting if LV is already mapped (encrypted)
+        if [[ "$PART" == /dev/mapper/* ]]; then
+            echo "→ LV $PART already mapped, skipping format"
+        else
+            partprobe "$PART"
+            [[ -b "$PART" ]] || die "$PART missing"
 
-        # Format
-        case "$FS" in
-            ext4) mkfs.ext4 -F "$PART" ;;
-            btrfs) mkfs.btrfs -f "$PART" ;;
-            xfs) mkfs.xfs -f "$PART" ;;
-            f2fs) mkfs.f2fs -f "$PART" ;;
-            swap) mkswap "$PART"; swapon "$PART"; continue ;;
-            none) continue ;;
-        esac
+            # Format
+            case "$FS" in
+                ext4) mkfs.ext4 -F "$PART" ;;
+                btrfs) mkfs.btrfs -f "$PART" ;;
+                xfs) mkfs.xfs -f "$PART" ;;
+                f2fs) mkfs.f2fs -f "$PART" ;;
+                swap) mkswap "$PART"; swapon "$PART"; continue ;;
+                none) continue ;;
+                *) echo "⚠️ Unknown FS: $FS, skipping formatting"; continue ;;
+            esac
 
-        [[ -n "$LABEL" ]] && case "$FS" in
-            ext4) e2label "$PART" "$LABEL" ;;
-            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-            xfs) xfs_admin -L "$LABEL" "$PART" ;;
-            f2fs) f2fslabel "$PART" "$LABEL" ;;
-        esac
+            # Set label
+            if [[ -n "$LABEL" ]]; then
+                case "$FS" in
+                    ext4) e2label "$PART" "$LABEL" ;;
+                    btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                    xfs) xfs_admin -L "$LABEL" "$PART" ;;
+                    f2fs) f2fslabel "$PART" "$LABEL" ;;
+                esac
+            fi
+        fi
 
         # Mount
-        case "$MOUNT" in
-            /) mount "$PART" /mnt ;;
-            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
-            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
-            /boot/efi|/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
-            /data1) mkdir -p /mnt/data1; mount "$PART" /mnt/data1 ;;
-            /data2) mkdir -p /mnt/data2; mount "$PART" /mnt/data2 ;;
-            *) mkdir -p "/mnt$MOUNT"; mount "$PART" "/mnt$MOUNT" ;;
-        esac
+        if [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]]; then
+            DEST="/mnt$MOUNT"
+            mkdir -p "$DEST"
+            echo "→ Mounting $PART at $DEST"
+            mount "$PART" "$DEST" || die "Mount failed: $PART -> $DEST"
+        fi
     done
 
     # Generate fstab
     mkdir -p /mnt/etc
     genfstab -U /mnt > /mnt/etc/fstab
+    echo "→ fstab generated"
 }
 
 #============================================================================================================================#
 #ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
 #============================================================================================================================#
-#=====================================================================
-# Ensure filesystem tools & mkinitcpio config for custom partition mode
-# Install FS tools inside target and patch mkinitcpio.conf so that
-# mkinitcpio (run later inside chroot) includes required modules/hooks.
-#=====================================================================
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
