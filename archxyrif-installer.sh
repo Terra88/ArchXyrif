@@ -43,16 +43,16 @@ echo "#=========================================================================
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
-echo "|-4)Setting Basic variables         |- Manual Resize for Root/Home & Swap on or off options         |"
+echo "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
 echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
 echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
-echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------|"
-echo "|-Optional:                         |  ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ    |"
+echo "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
+echo "|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |"
 echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
 echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
+echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo "#===================================================================================================#"
 }
@@ -72,6 +72,9 @@ MODE=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
 SWAP_ON=""
+EFI_FS=""
+BOOT_FS=""
+SWAP_FS="linux-swap"
 ROOT_FS=""
 HOME_FS=""
 ROOT_SIZE_MIB=0
@@ -119,31 +122,6 @@ prepare_chroot() {
         mount --make-rslave "/mnt/$fs" 2>/dev/null || true
     done
     echo "✅ Pseudo-filesystems mounted into /mnt."
-}
-
-#=========================================================================================================================================#
-# Retry Helper (with configurable attempts)
-#=========================================================================================================================================#
-retry_cmd() {
-    local max_attempts="${1:-3}"
-    shift
-    local cmd=("$@")
-
-    local attempt=1
-    local exit_code=0
-
-    while (( attempt <= max_attempts )); do
-        echo "Attempt $attempt/$max_attempts: ${cmd[*]}"
-        "${cmd[@]}" && return 0
-        exit_code=$?
-        echo "⚠️ Command failed (exit=$exit_code)"
-        if (( attempt < max_attempts )); then
-            read -rp "Retry? [Y/n]: " ans
-            [[ "$ans" =~ ^[Nn]$ ]] && break
-        fi
-        ((attempt++))
-    done
-    return "$exit_code"
 }
 #=========================================================================================================================================#
 # Cleanup
@@ -218,6 +196,153 @@ safe_disk_cleanup() {
     echo "✅ Disk cleanup complete for $DEV."
 }
 #=========================================================================================================================================#
+# Encryption Helpers
+#=========================================================================================================================================#
+encrypt_root_custom() {
+    read -rp "Encrypt which partition (e.g. /dev/sda2)? " ENC_PART
+    cryptsetup luksFormat "$ENC_PART"
+    cryptsetup open "$ENC_PART" cryptroot
+    echo "→ Root device mapped as /dev/mapper/cryptroot"
+    P_ROOT="/dev/mapper/cryptroot"
+}
+
+encrypt_with_lvm_custom() {
+    read -rp "Encrypt base partition for LVM (e.g. /dev/sda2)? " ENC_PART
+    cryptsetup luksFormat "$ENC_PART"
+    cryptsetup open "$ENC_PART" cryptlvm
+
+    pvcreate /dev/mapper/cryptlvm
+    vgcreate vg0 /dev/mapper/cryptlvm
+
+    echo "Creating LVM volumes..."
+    read -rp "Root size (e.g. 40G): " LV_ROOT_SIZE
+    read -rp "Swap size (e.g. 8G, or leave blank to skip): " LV_SWAP_SIZE
+
+    lvcreate -L "$LV_ROOT_SIZE" vg0 -n root
+    [[ -n "$LV_SWAP_SIZE" ]] && lvcreate -L "$LV_SWAP_SIZE" vg0 -n swap
+    lvcreate -l 100%FREE vg0 -n home
+
+    P_ROOT="/dev/vg0/root"
+    P_HOME="/dev/vg0/home"
+    [[ -n "$LV_SWAP_SIZE" ]] && P_SWAP="/dev/vg0/swap"
+}
+
+#=========================================================================================================================================#
+# Helper Functions - For Pacman                                                                  
+#=========================================================================================================================================#
+# Resilient installation with retries, key refresh, and mirror recovery
+install_with_retry() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local CMD=("$@")
+    local MAX_RETRIES=3
+    local RETRY_DELAY=5
+    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
+
+    # sanity check
+    if [[ ! -d "/mnt" ]]; then
+        echo "❌ /mnt not found or not a directory — cannot chroot."
+        return 1
+    fi
+
+    for ((i=1; i<=MAX_RETRIES; i++)); do
+        echo
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
+        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
+            echo "✅ Installation succeeded on attempt $i"
+            return 0
+        else
+            echo "⚠️ Installation failed on attempt $i"
+            if (( i < MAX_RETRIES )); then
+                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
+                "${CHROOT_CMD[@]}" bash -c '
+                    pacman-key --init
+                    pacman-key --populate archlinux
+                    pacman -Sy --noconfirm archlinux-keyring
+                ' || echo "⚠️ Keyring refresh failed."
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
+                sleep "$RETRY_DELAY"
+            fi
+        fi
+    done
+
+    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
+    return 1
+  }
+
+safe_pacman_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local PKGS=("$@")
+
+    for PKG in "${PKGS[@]}"; do
+        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
+            echo "⚠️ Skipping $PKG"
+    done
+   }
+#=========================================================================================================================================#
+# Helper Functions - For AUR (Paru)                                                              
+#=========================================================================================================================================#
+safe_aur_install() {
+    local CHROOT_CMD=("${!1}")
+    shift
+    local AUR_PKGS=("$@")
+    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
+
+    local TMP_SCRIPT="/root/_aur_install.sh"
+    cat > /mnt${TMP_SCRIPT} <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Arguments: NEWUSER + AUR packages
+NEWUSER="$1"
+shift
+AUR_PKGS=("$@")
+HOME_DIR="/home/${NEWUSER}"
+
+mkdir -p "$HOME_DIR"
+chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
+chmod 755 "$HOME_DIR"
+
+pacman -Sy --noconfirm --needed git base-devel sudo
+
+# Ensure sudo rights
+if ! sudo -lU "$NEWUSER" &>/dev/null; then
+    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
+    chmod 440 /etc/sudoers.d/"$NEWUSER"
+fi
+
+# Install paru if missing
+if ! command -v paru &>/dev/null; then
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        cd \"$HOME_DIR\" || exit
+        rm -rf paru
+        git clone https://aur.archlinux.org/paru.git
+        cd paru
+        makepkg -si --noconfirm
+        cd ..
+        rm -rf paru
+    "
+fi
+
+# Install AUR packages
+for pkg in "${AUR_PKGS[@]}"; do
+    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
+        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
+        echo \"⚠️ Failed to install $pkg\"
+    "
+done
+EOF
+
+    # Pass NEWUSER as first argument + package list
+    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
+    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
+}
+# define once to keep consistent call structure
+CHROOT_CMD=(arch-chroot /mnt)
+#=========================================================================================================================================#
 # Detect boot mode
 #=========================================================================================================================================#
 detect_boot_mode() {
@@ -236,7 +361,7 @@ detect_boot_mode() {
 #=========================================================================================================================================#
 # Swap calculation
 #=========================================================================================================================================#
-calculate_swap() {
+calculate_swap_quick() {
     local ram_kb ram_mib
     ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
     ram_mib=$(( (ram_kb + 1023) / 1024 ))
@@ -298,7 +423,7 @@ select_swap()
 #=========================================================================================================================================#
 ask_partition_sizes() {
     detect_boot_mode
-    calculate_swap
+    calculate_swap_quick
 
     local disk_bytes disk_mib disk_gib_val disk_gib_int
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
@@ -572,78 +697,125 @@ install_grub() {
     local ps
     ps=$(part_suffix "$DEV")
 
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "Installing GRUB for BIOS..."
-        prepare_chroot
-        arch-chroot /mnt grub-install --target=i386-pc --recheck "$DEV" || die "grub-install (BIOS) failed"
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-    else
-        echo "Installing GRUB (UEFI)..."
-        prepare_chroot
+    # Start with minimal essential modules
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid"
 
-        # Ensure EFI is mounted inside chroot at /boot/efi
+    #--------------------------------------#
+    # Add FS module (idempotent)
+    #--------------------------------------#
+    add_fs_module() {
+        local fs="$1"
+        case "$fs" in
+            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
+            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
+            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
+            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
+            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
+            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
+        esac
+    }
+
+    #--------------------------------------#
+    # Detect RAID (mdadm)
+    #--------------------------------------#
+    echo "→ Detecting RAID arrays..."
+    if lsblk -o TYPE -nr /mnt | grep -q "raid"; then
+        echo "→ Found md RAID."
+        GRUB_MODULES+=" mdraid1x"
+    fi
+
+    #--------------------------------------#
+    # Detect LUKS (outermost layer)
+    #--------------------------------------#
+    echo "→ Detecting LUKS containers..."
+    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
+    for line in "${luks_lines[@]}"; do
+        echo "→ LUKS container: $line"
+        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
+    done
+
+    #--------------------------------------#
+    # Detect LVM (next layer)
+    #--------------------------------------#
+    echo "→ Detecting LVM volumes..."
+    if lsblk -o TYPE -nr | grep -q "lvm"; then
+        echo "→ Found LVM."
+        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
+    fi
+
+    #--------------------------------------#
+    # Detect filesystems under /mnt (final layer)
+    #--------------------------------------#
+    echo "→ Detecting filesystems..."
+    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    for line in "${fs_lines[@]}"; do
+        fs=$(awk '{print $2}' <<< "$line")
+        [[ -n "$fs" ]] && add_fs_module "$fs"
+    done
+
+    echo "→ Final GRUB modules: $GRUB_MODULES"
+
+    #--------------------------------------#
+    # BIOS MODE
+    #--------------------------------------#
+    prepare_chroot
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Installing GRUB for BIOS..."
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --modules="$GRUB_MODULES" \
+            --recheck "$DEV" || die "grub-install BIOS failed"
+
+    #--------------------------------------#
+    # UEFI MODE
+    #--------------------------------------#
+    else
+        echo "→ Installing GRUB for UEFI..."
+
+        # Ensure EFI is mounted
         if ! mountpoint -q /mnt/boot/efi; then
             mkdir -p /mnt/boot/efi
-            if [[ -n "${P_EFI:-}" ]]; then
-                mount "$P_EFI" /mnt/boot/efi
-            else
-                # fallback: attempt to mount the first partition
-                local psfx
-                psfx=$(part_suffix "$DEV")
-                mount "${DEV}${psfx}1" /mnt/boot/efi || die "Failed to mount EFI partition"
-            fi
+            mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI"
         fi
 
-        # Basic, minimal GRUB modules needed for UEFI boot
-        GRUB_MODULES="part_gpt part_msdos fat ext2 normal boot efi_gop efi_uga gfxterm linux search search_fs_uuid"
-
-        # Run grub-install safely inside chroot
         arch-chroot /mnt grub-install \
-          --target=x86_64-efi \
-          --efi-directory=/boot/efi \
-          --bootloader-id=GRUB \
-          --modules="$GRUB_MODULES" \
-          --recheck \
-          --no-nvram || die "grub-install (UEFI) failed"
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=GRUB \
+            --modules="$GRUB_MODULES" \
+            --recheck \
+            --no-nvram || die "grub-install UEFI failed"
 
-        # Manually create /EFI/Boot fallback copy (BOOTX64.EFI)
-        echo "→ Copying fallback EFI binary..."
+        # Fallback BOOTX64.EFI
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-        # Ensure a clean efibootmgr entry (use the parent disk of $P1)
-        DISK="${DEV}"
-        PARTNUM=1
+        # Reset stale entries
         LABEL="Arch Linux"
-        LOADER='\EFI\GRUB\grubx64.efi'
-
-        # Delete stale entries with same label to avoid duplicates
-        # Note: run efibootmgr on host (not inside chroot) so it manipulates the real NVRAM
-        for bootnum in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-          efibootmgr -b "$bootnum" -B || true
+        for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+            efibootmgr -b "$num" -B || true
         done
 
-        # Create new entry (host efibootmgr)
-        efibootmgr -c -d "$DISK" -p "$PARTNUM" -L "$LABEL" -l "$LOADER" || echo "⚠️ efibootmgr create entry failed (but continuing)"
-
-        # Generate GRUB config inside chroot
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-        # Secure Boot Integration (optional)
-        if arch-chroot /mnt command -v sbctl >/dev/null 2>&1; then
-          echo "→ Signing EFI binaries for Secure Boot..."
-          arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-          # Note: enroll-keys may require interactive confirmation / manual step depending on sbctl configuration
-          arch-chroot /mnt sbctl enroll-keys --microsoft || echo "⚠️ sbctl enroll-keys failed or requires manual action"
-          arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || echo "⚠️ sbctl sign grubx64 failed"
-          arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || echo "⚠️ sbctl sign kernel failed"
-        fi
-
-        echo "GRUB installation complete."
-        echo
-        echo "Verifying EFI boot entries..."
-        efibootmgr -v || true
+        # Create entry
+        efibootmgr -c -d "$DEV" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
     fi
-    echo "✅ GRUB installed."
+
+    #--------------------------------------#
+    # Generate GRUB config
+    #--------------------------------------#
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+
+    #--------------------------------------#
+    # Optional Secure Boot
+    #--------------------------------------#
+    if arch-chroot /mnt command -v sbctl &>/dev/null; then
+        echo "→ Secure Boot: signing binaries"
+        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+        arch-chroot /mnt sbctl enroll-keys --microsoft || true
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+    fi
+
+    echo "✅ GRUB fully installed and configured."
 }
 #=========================================================================================================================================#
 # Configure system
@@ -730,7 +902,6 @@ mkinitcpio -P
 # 6) Root + user passwords (interactive with retries)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-
 # Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
@@ -845,121 +1016,7 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
-#=========================================================================================================================================#
-# Helper Functions - For Pacman                                                                  
-#=========================================================================================================================================#
-# Resilient installation with retries, key refresh, and mirror recovery
-install_with_retry() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local CMD=("$@")
-    local MAX_RETRIES=3
-    local RETRY_DELAY=5
-    local MIRROR_COUNTRY="${SELECTED_COUNTRY:-United States}"
 
-    # sanity check
-    if [[ ! -d "/mnt" ]]; then
-        echo "❌ /mnt not found or not a directory — cannot chroot."
-        return 1
-    fi
-
-    for ((i=1; i<=MAX_RETRIES; i++)); do
-        echo
-        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
-        if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
-            echo "✅ Installation succeeded on attempt $i"
-            return 0
-        else
-            echo "⚠️ Installation failed on attempt $i"
-            if (( i < MAX_RETRIES )); then
-                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
-                "${CHROOT_CMD[@]}" bash -c '
-                    pacman-key --init
-                    pacman-key --populate archlinux
-                    pacman -Sy --noconfirm archlinux-keyring
-                ' || echo "⚠️ Keyring refresh failed."
-                [[ -n "$MIRROR_COUNTRY" ]] && \
-                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
-                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
-                sleep "$RETRY_DELAY"
-            fi
-        fi
-    done
-
-    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
-    return 1
-  }
-
-safe_pacman_install() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local PKGS=("$@")
-
-    for PKG in "${PKGS[@]}"; do
-        install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
-            echo "⚠️ Skipping $PKG"
-    done
-   }
-#=========================================================================================================================================#
-# Helper Functions - For AUR (Paru)                                                              
-#=========================================================================================================================================#
-safe_aur_install() {
-    local CHROOT_CMD=("${!1}")
-    shift
-    local AUR_PKGS=("$@")
-    [[ ${#AUR_PKGS[@]} -eq 0 ]] && return 0
-
-    local TMP_SCRIPT="/root/_aur_install.sh"
-    cat > /mnt${TMP_SCRIPT} <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-# Arguments: NEWUSER + AUR packages
-NEWUSER="$1"
-shift
-AUR_PKGS=("$@")
-HOME_DIR="/home/${NEWUSER}"
-
-mkdir -p "$HOME_DIR"
-chown "$NEWUSER:$NEWUSER" "$HOME_DIR"
-chmod 755 "$HOME_DIR"
-
-pacman -Sy --noconfirm --needed git base-devel sudo
-
-# Ensure sudo rights
-if ! sudo -lU "$NEWUSER" &>/dev/null; then
-    echo "$NEWUSER ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/"$NEWUSER"
-    chmod 440 /etc/sudoers.d/"$NEWUSER"
-fi
-
-# Install paru if missing
-if ! command -v paru &>/dev/null; then
-    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
-        cd \"$HOME_DIR\" || exit
-        rm -rf paru
-        git clone https://aur.archlinux.org/paru.git
-        cd paru
-        makepkg -si --noconfirm
-        cd ..
-        rm -rf paru
-    "
-fi
-
-# Install AUR packages
-for pkg in "${AUR_PKGS[@]}"; do
-    sudo -u "$NEWUSER" HOME="$HOME_DIR" bash -c "
-        paru -S --noconfirm --skipreview --removemake --needed --overwrite=\"*\" \"$pkg\" || \
-        echo \"⚠️ Failed to install $pkg\"
-    "
-done
-EOF
-
-    # Pass NEWUSER as first argument + package list
-    "${CHROOT_CMD[@]}" bash "${TMP_SCRIPT}" "$NEWUSER" "${AUR_PKGS[@]}"
-    "${CHROOT_CMD[@]}" rm -f "${TMP_SCRIPT}"
-}
-# define once to keep consistent call structure
-CHROOT_CMD=(arch-chroot /mnt)
 #=========================================================================================================================================#
 # Graphics Driver Selection Menu
 #=========================================================================================================================================#
@@ -1167,7 +1224,7 @@ extra_pacman_pkg()
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
                     # Clean list: neofetch removed (deprecated)
-                    EXTRA_PKGS=( install_extra_packages firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
+                    EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
                     # Filter out non-existent packages before installing
                     VALID_PKGS=()
@@ -1230,6 +1287,9 @@ optional_aur()
                      else
                          echo "Skipping AUR installation."
                      fi
+
+                    #EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
+                
 }
 #=========================================================================================================================================#
 # Hyprland optional Configuration Installer - from http://github.com/terra88/hyprland-setup
@@ -1354,36 +1414,374 @@ quick_partition() {
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
 }
 #=========================================================================================================================================#
-# Custom partition (placeholder)
 #=========================================================================================================================================#
-custom_partition() {
+#====================================== Custom Partition // Choose Filesystem Custom #====================================================#
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+convert_to_mib() {
+    local SIZE="$1"
+    SIZE="${SIZE,,}"   # lowercase
+    SIZE="${SIZE// /}" # remove spaces
 
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 1.3) Custom Partition Mode: Selected Drive $DEV                                                   #"
-echo "#===================================================================================================#"
-echo
-    echo "Custom Partition Mode under construction. Restarting..."
-    sleep 2
-    exec "$0"
+    if [[ "$SIZE" == "100%" ]]; then
+        echo "100%"
+        return
+    fi
+
+    if [[ "$SIZE" =~ ^([0-9]+)(g|gi|gib)$ ]]; then
+        echo $(( ${BASH_REMATCH[1]} * 1024 ))
+    elif [[ "$SIZE" =~ ^([0-9]+)(m|mi|mib)$ ]]; then
+        echo "${BASH_REMATCH[1]}"
+    else
+        echo "Invalid size format: $1. Use M, MiB, G, GiB, or 100%" >&2
+        return 1
+    fi
+}
+#=========================================================================================================================================#
+# Custom Partition Wizard (Unlimited partitions, any FS)
+#=========================================================================================================================================#
+custom_partition_wizard() {
+    clear
+    detect_boot_mode
+
+    echo "=== Custom Partitioning ==="
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+
+    read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
+    DEV="/dev/${DEV##*/}"
+    [[ -b "$DEV" ]] || die "Device $DEV not found."
+
+    echo "WARNING: This will erase everything on $DEV"
+    read -rp "Type YES to continue: " CONFIRM
+    [[ "$CONFIRM" == "YES" ]] || die "Aborted."
+
+    safe_disk_cleanup
+    echo "→ Creating GPT partition table..."
+    parted -s "$DEV" mklabel gpt
+
+    # Disk size in MiB
+    local disk_bytes disk_mib disk_gib_float
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+    echo "Disk size: ${disk_gib_float} GiB"
+
+    read -rp "How many partitions would you like to create? " COUNT
+    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
+
+    PARTITIONS=()
+    local START=1  # start in MiB
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
+
+    for ((i=1; i<=COUNT; i++)); do
+        echo ""
+        echo "--- Partition $i ---"
+        parted -s "$DEV" unit MiB print
+
+        # Read size
+        while true; do
+            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            SIZE_MI=$(convert_to_mib "$SIZE") || continue
+            break
+        done
+
+        # Calculate partition end
+        if [[ "$SIZE_MI" != "100%" ]]; then
+            END=$(( START + SIZE_MI ))
+            PART_SIZE="${START}MiB ${END}MiB"
+        else
+            PART_SIZE="${START}MiB 100%"
+            END="100%"
+        fi
+
+        # Mountpoint
+        while true; do
+            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
+            case "$MNT" in
+                /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
+                *) echo "Invalid mountpoint." ;;
+            esac
+        done
+
+        # Filesystem
+        while true; do
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            case "$FS" in
+                ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
+                *) echo "Unsupported FS." ;;
+            esac
+        done
+
+        read -rp "Label (optional): " LABEL
+
+        # Create partition
+        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
+
+        # Construct partition node
+        PART="${DEV}${ps}${i}"
+        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
+
+        echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
+
+        # Update start for next partition (skip if last uses 100%)
+        [[ "$END" != "100%" ]] && START=$END
+
+        # Show remaining disk
+        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
+        REMAINING=$(( disk_mib - LAST_END ))
+        echo "→ Remaining disk: ${REMAINING}MiB"
+    done
+
+    echo ""
+    echo "=== Partition layout created ==="
+    printf "%s\n" "${PARTITIONS[@]}"
+    parted -s "$DEV" unit MiB print
+}
+
+#=========================================================================================================================================#
+#  Formato AND MOUNTO CUSTOMMO
+#=========================================================================================================================================#
+format_and_mount_custom() {
+    echo "→ Formatting and mounting custom partitions..."
+
+    mkdir -p /mnt
+
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+    
+        # wait for kernel to expose new partition
+        partprobe "$PART" 2>/dev/null || true
+        udevadm settle --timeout=5 || true
+        [[ -b "$PART" ]] || die "Partition $PART not available."
+
+        echo ">>> $PART ($FS) mount as $MOUNT"
+
+        # Format partition
+        case "$FS" in
+            ext4)  mkfs.ext4 -F "$PART" ;;
+            btrfs) mkfs.btrfs -f "$PART" ;;
+            xfs)   mkfs.xfs -f "$PART" ;;
+            f2fs)  mkfs.f2fs -f "$PART" ;;
+            fat32|vfat) mkfs.fat -F32 "$PART" ;;
+            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
+            none)  continue ;;
+            *) die "Unsupported filesystem: $FS" ;;
+        esac
+
+        # Apply label if provided
+        [[ -n "$LABEL" ]] && {
+            case "$FS" in
+                ext4) e2label "$PART" "$LABEL" ;;
+                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                f2fs) f2fslabel "$PART" "$LABEL" ;;
+                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+                swap) mkswap -L "$LABEL" "$PART" ;;
+            esac
+        }
+
+        # Mount according to mountpoint
+        case "$MOUNT" in
+            "/")
+                if [[ "$FS" == "btrfs" ]]; then
+                    mount "$PART" /mnt
+                    btrfs subvolume create /mnt/@
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                else
+                    mount "$PART" /mnt
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$PART" /mnt/home
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$PART" /mnt/boot
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi
+                ;;
+            /data1)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data1
+                ;;
+            /data2)
+                mkdir -p /mnt/data2
+                mount "$PART" /mnt/data2
+                ;;
+            *)
+                mkdir -p "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
+                ;;
+        esac
+    done
+
+    echo "✅ All custom partitions formatted and mounted correctly."
+
+    echo "Generating /etc/fstab..."
+    
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "Partition Table and Mountpoints:"
+    cat /mnt/etc/fstab
+}
+#============================================================================================================================#
+#ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
+#============================================================================================================================#
+ensure_fs_support_for_custom() {
+    echo "→ Running ensure_fs_support_for_custom()"
+
+    # Detect requested FS types (prefer PARTITIONS array)
+    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+    if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
+        for e in "${PARTITIONS[@]}"; do
+            IFS=':' read -r p m f l <<< "$e"
+            case "$f" in
+                xfs)   want_xfs=1 ;;
+                f2fs)  want_f2fs=1 ;;
+                btrfs) want_btrfs=1 ;;
+                ext4)  want_ext4=1 ;;
+            esac
+        done
+    else
+        # Fallback: inspect /mnt/etc/fstab if present
+        if [[ -f /mnt/etc/fstab ]]; then
+            while read -r _ _ fs _ _ _; do
+                case "$fs" in
+                    xfs)  want_xfs=1 ;;
+                    f2fs) want_f2fs=1 ;;
+                    btrfs)want_btrfs=1 ;;
+                    ext4) want_ext4=1 ;;
+                    *) ;; # ignore other lines
+                esac
+            done < /mnt/etc/fstab
+        fi
+    fi
+
+    # Build package list to install inside the target
+    local pkgs=()
+    (( want_xfs ))  && pkgs+=(xfsprogs)
+    (( want_f2fs )) && pkgs+=(f2fs-tools)
+    (( want_btrfs ))&& pkgs+=(btrfs-progs)
+    (( want_ext4 )) && pkgs+=(e2fsprogs)
+
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        echo "→ No special filesystem tools required for custom install."
+        return 0
+    fi
+
+    echo "→ Installing filesystem tools into target: ${pkgs[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+        echo "⚠️ pacman install inside chroot failed once; retrying..."
+        sleep 1
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
+    }
+
+    # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
+    arch-chroot /mnt /bin/bash <<'CHROOT_EOF'
+set -e
+MKCONF="/etc/mkinitcpio.conf"
+
+echo "→ (chroot) Patching ${MKCONF}..."
+
+# Ensure HOOKS contains 'block' before 'filesystems'. If HOOKS exists, try to ensure order.
+if grep -q '^HOOKS=' "$MKCONF"; then
+    # Extract current hooks (naive)
+    current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
+    # Build a desired base sequence and then append any existing hooks not duplicate
+    base="base udev autodetect modconf block filesystems"
+    # Append any tokens from current_hooks that aren't already in base
+    for tok in $current_hooks; do
+        if ! echo " $base " | grep -q " $tok "; then
+            base="$base $tok"
+        fi
+    done
+    # Replace HOOKS line
+    sed -i "s|^HOOKS=(.*)|HOOKS=($base)|" "$MKCONF" 2>/dev/null || sed -i "s|^HOOKS=.*|HOOKS=($base)|" "$MKCONF" || true
+else
+    echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
+fi
+
+# Build desired module list depending on available mkfs utilities
+desired_modules=()
+command -v mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
+command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
+command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
+command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
+
+# If MODULES exists, append missing modules; otherwise create it.
+if grep -q '^MODULES=' "$MKCONF"; then
+    existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF" || echo "")
+    for m in "${desired_modules[@]}"; do
+        if ! echo " $existing " | grep -q " $m "; then
+            # append module
+            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
+        fi
+    done
+else
+    if (( ${#desired_modules[@]} > 0 )); then
+        echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
+    fi
+fi
+
+# If no fsck helpers found for the installed filesystems, remove fsck hook to avoid mkinitcpio warning
+has_fsck=0
+command -v fsck.ext4 >/dev/null 2>&1 && has_fsck=1
+command -v fsck.f2fs >/dev/null 2>&1 && has_fsck=1
+command -v xfs_repair >/dev/null 2>&1 && has_fsck=1
+
+if [[ $has_fsck -eq 0 ]]; then
+    sed -i '/fsck/d' "$MKCONF" || true
+fi
+
+echo "→ (chroot) mkinitcpio.conf patch complete."
+CHROOT_EOF
+
+    echo "→ ensure_fs_support_for_custom() finished."
+}
+#=========================================================================================================================================#
+# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+#=========================================================================================================================================#
+custom_partition(){
+    custom_partition_wizard
+    format_and_mount_custom
+    install_base_system
+
+    # If we ran custom partitioning, ensure the target has needed fs tools
+    ensure_fs_support_for_custom
+
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
 }
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
 menu() {
+clear
 logo
             echo "#==================================================#"
             echo "#     Select partitioning method for $DEV:         #"
             echo "#==================================================#"
-            echo "|-1) Quick Partitioning  (automated, recommended)  |"
+            echo "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
             echo "|--------------------------------------------------|"
-            echo "|-2) Custom Partitioning (manual, using cfdisk)    |"
+            echo "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
             echo "|--------------------------------------------------|"
             echo "|-3) Return back to start                          |"
             echo "#==================================================#"
-            read -rp "Enter choice [1-2]: " PART_CHOICE
-            case "$PART_CHOICE" in
+            read -rp "Enter choice [1-2]: " INSTALL_MODE
+            case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
                 3) echo "Exiting..."; exit 0 ;;
