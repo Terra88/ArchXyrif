@@ -22,7 +22,6 @@ logo(){
 echo "#===================================================================================================#"
 echo "| The Great Monolith of Installing Arch Linux!                                                      |"
 echo "#===================================================================================================#"
-echo "|                                                                                                   |"
 echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
 echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
 echo "|      d88P888                 888        Y88o88P                        888                        |"
@@ -35,7 +34,6 @@ echo "|                                                        888              
 echo "|                                                   Y8b d88P                                        |"
 echo "|                                                     Y88P                                          |"
 echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
-echo "|                                                                                                   |"
 echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
 echo "#===================================================================================================#"
 echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
@@ -43,16 +41,16 @@ echo "#=========================================================================
 echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
 echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
 echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
-echo "|-4)Setting Basic variables         |- Manual Resize for Root/Home & Swap on or off options         |"
+echo "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
 echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
 echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
-echo "|-7)Setting Pacman Mirror           |---------------------------------------------------------------|"
-echo "|-Optional:                         |  ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ    |"
+echo "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
+echo "|-Optional:                         |- 3) LV & LUKS Custom partition format route                   |"
 echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
 echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo "|-If Hyprland Selected As WM        | ฅ^•ﻌ•^ฅ 【≽ܫ≼】 ( ͡° ᴥ ͡°) ^ↀᴥↀ^ ~(^._.) ∪ ̿–⋏ ̿–∪☆         |"
+echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
 echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo "#===================================================================================================#"
 }
@@ -1389,161 +1387,68 @@ hyprland_optional()
 # Convert user-entered size to MiB
 # Convert human-readable size (10G, 512M) to MiB
 convert_to_mib() {
-    local SIZE="${1^^}"  # uppercase
-    SIZE="${SIZE// /}"
-    if [[ "$SIZE" == "100%" || "$SIZE" == "100%FREE" ]]; then
-        echo "100%"
-        return
-    fi
-    if [[ "$SIZE" =~ ^([0-9]+)(G|GB|GI|GIB)$ ]]; then
-        echo $(( ${BASH_REMATCH[1]} * 1024 ))
-    elif [[ "$SIZE" =~ ^([0-9]+)(M|MB|MI|MIB)$ ]]; then
-        echo "${BASH_REMATCH[1]}"
-    else
-        die "Invalid size format: $1 (use M/MiB, G/GiB, or 100%)"
-    fi
+    local SIZE="${1^^}" SIZE="${SIZE// /}"
+    [[ "$SIZE" == "100%" || "$SIZE" == "100%FREE" ]] && echo "100%" && return
+    if [[ "$SIZE" =~ ^([0-9]+)(G|GB|GI|GIB)$ ]]; then echo $(( ${BASH_REMATCH[1]} * 1024 ))
+    elif [[ "$SIZE" =~ ^([0-9]+)(M|MB|MI|MIB)$ ]]; then echo "${BASH_REMATCH[1]}"
+    else die "Invalid size format: $1 (use M/MiB, G/GiB, or 100%)"; fi
 }
-#========================================
-# Preview full partition + LVM + LUKS tree
-#========================================
-preview_partition_tree() {
-    echo -e "\n=== Partition Layout Preview ==="
 
-    # Build arrays for quick lookup
-    declare -A raw_parts  # raw partition -> info
-    declare -A lvs        # LV -> info (VG, mount, fs, label, encrypted)
-    declare -A vg_map     # VG -> list of LVs
-
-    # Populate arrays
-    for entry in "${PARTITIONS[@]}"; do
-        IFS=':' read -r DEV MNT FS LABEL <<< "$entry"
-        LABEL="${LABEL:-<none>}"
-
-        if [[ "$DEV" =~ ^/dev/mapper/ ]]; then
-            # LV path, find VG
-            VG=$(lvs --noheadings -o vg_name "$DEV" 2>/dev/null | awk '{print $1}')
-            VG="${VG:-unknown_vg}"
-            lvs["$DEV"]="VG=$VG MNT=$MNT FS=$FS LABEL=$LABEL ENC=$([[ "$DEV" == /dev/mapper/* ]] && echo "yes" || echo "no")"
-            vg_map["$VG"]+="$DEV "
-        else
-            # raw partition
-            raw_parts["$DEV"]="MNT=$MNT FS=$FS LABEL=$LABEL"
-        fi
-    done
-
-    # Print tree
-    for PART in "${!raw_parts[@]}"; do
-        info=${raw_parts[$PART]}
-        MNT=$(echo "$info" | awk -F' ' '{print $1}' | cut -d= -f2)
-        FS=$(echo "$info" | awk -F' ' '{print $2}' | cut -d= -f2)
-        LABEL=$(echo "$info" | awk -F' ' '{print $3}' | cut -d= -f2)
-        echo "─ Partition: $PART | mount=$MNT fs=$FS label=$LABEL"
-
-        # Check for VG on this partition
-        VG_NAME=$(vgs --noheadings -o vg_name --select pv_name="$PART" 2>/dev/null | awk '{print $1}')
-        if [[ -n "$VG_NAME" ]]; then
-            echo "  └─ VG: $VG_NAME"
-            for LV in ${vg_map[$VG_NAME]}; do
-                LV_INFO=${lvs[$LV]}
-                LV_MNT=$(echo "$LV_INFO" | awk -F' ' '{print $2}' | cut -d= -f2)
-                LV_FS=$(echo "$LV_INFO" | awk -F' ' '{print $3}' | cut -d= -f2)
-                LV_LABEL=$(echo "$LV_INFO" | awk -F' ' '{print $4}' | cut -d= -f2)
-                LV_ENC=$(echo "$LV_INFO" | awk -F' ' '{print $5}' | cut -d= -f2)
-                ENC_TEXT=""
-                [[ "$LV_ENC" == "yes" ]] && ENC_TEXT="(encrypted)"
-                echo "      └─ LV: $LV | mount=$LV_MNT fs=$LV_FS label=$LV_LABEL $ENC_TEXT"
-            done
-        fi
-    done
-
-    echo "==============================="
-    read -rp "Confirm layout and proceed with formatting? (yes/no): " CONFIRM
-    [[ "$CONFIRM" =~ ^[Yy] ]] || die "Aborted by user."
-}
 #===========================
-# Main LVM + LUKS Setup
+# LVM + LUKS Setup
 #===========================
 lvm_luks_setup() {
+    detect_boot_mode
     echo "=== Logical Volume + Optional LUKS Setup ==="
 
-    # --- Select Disk ---
     lsblk -d -o NAME,SIZE,MODEL,TYPE
     read -rp "Target disk (e.g. /dev/sda): " DEV
     DEV="/dev/${DEV##*/}"
     [[ -b "$DEV" ]] || die "$DEV not found"
 
-    # --- Detect boot mode ---
-    if [[ -d /sys/firmware/efi ]]; then
-        BOOT_MODE="UEFI"
-        BOOT_SIZE=1024  # MiB
-    else
-        BOOT_MODE="BIOS"
-        BOOT_SIZE=512
-    fi
+    BOOT_SIZE=$([[ "$BOOT_MODE" == "UEFI" ]] && echo 1024 || echo 512)
     echo "→ Boot mode: $BOOT_MODE, Boot partition size: ${BOOT_SIZE}MiB"
 
-    # --- Wipe disk safely ---
-    echo "→ Wiping disk..."
     wipefs -af "$DEV"
     parted -s "$DEV" mklabel gpt
-
     PARTITIONS=()
     declare -A used_mounts
+    START_MB=$BOOT_SIZE
 
-    START_MB=$BOOT_SIZE  # Boot partition reserved
-    echo "→ Boot partition reserved: ${BOOT_SIZE}MiB"
-
-    #=======================
-    # Create Raw Partitions
-    #=======================
+    # Raw Partitions
     read -rp "How many raw partitions before LVM? " RAW_COUNT
     [[ "$RAW_COUNT" =~ ^[0-9]+$ ]] || die "Invalid number"
 
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
-        
-        # Size
         while true; do
             read -rp "Size (e.g. 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
-            if [[ "$SIZE_MI" == "100%" ]]; then
-                END=$(( $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 ))
-            else
-                END=$(( START_MB + SIZE_MI ))
-            fi
-            (( END <= $(lsblk -b -dn -o SIZE "$DEV") / 1024 / 1024 )) || { echo "Partition too large"; continue; }
+            END=$(( SIZE_MI == "100%" ? $(lsblk -b -dn -o SIZE "$DEV")/1024/1024 : START_MB+SIZE_MI ))
+            (( END <= $(lsblk -b -dn -o SIZE "$DEV")/1024/1024 )) || { echo "Too large"; continue; }
             break
         done
 
-        # Mountpoint
         while true; do
-            read -rp "Mount point (/ /boot /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount point used"; continue; }
-            used_mounts[$MNT]=1
-            break
+            read -rp "Mountpoint (/ /boot /home /data1 /data2 swap none): " MNT
+            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount used"; continue; }
+            used_mounts[$MNT]=1; break
         done
 
-        # Filesystem
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
             case "$FS" in ext4|btrfs|xfs|f2fs|fat32|swap) break ;; *) echo "Invalid FS" ;; esac
         done
 
-        # Optional Label
         read -rp "Label (optional): " LABEL
-
-        # Create partition
         parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB"
         PART="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")$i"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
-
         START_MB=$END
     done
 
-    #=======================
-    # Create LVM PV + VG
-    #=======================
+    # LVM PV + VG
     echo "→ Creating LVM partition on remaining space"
     parted -a optimal -s "$DEV" mkpart primary ${START_MB}MiB 100%
     LVM_PART="${DEV}$(($(parted -s "$DEV" print | grep -c 'primary')))"
@@ -1553,19 +1458,15 @@ lvm_luks_setup() {
     read -rp "Create new VG on $LVM_PART? (yes/no): " do_pv
     if [[ "$do_pv" =~ ^[Yy] ]]; then
         read -rp "VG name: " VG
-        pvcreate "$LVM_PART"
-        vgcreate "$VG" "$LVM_PART"
+        pvcreate "$LVM_PART"; vgcreate "$VG" "$LVM_PART"
     else
         read -rp "Existing VG name: " VG
         vgs "$VG" &>/dev/null || die "VG not found"
     fi
 
-    #=======================
-    # Create LVs
-    #=======================
+    # LVs
     read -rp "Create LVs? (yes/no): " CREATE_LV
     [[ "$CREATE_LV" =~ ^[Yy] ]] || return
-
     read -rp "Number of LVs: " LV_COUNT
     [[ "$LV_COUNT" =~ ^[0-9]+$ ]] || die "Invalid number"
 
@@ -1573,64 +1474,52 @@ lvm_luks_setup() {
         echo "--- LV $i ---"
         read -rp "LV name: " LV_NAME
 
-        # Mountpoint
         while true; do
             read -rp "Mountpoint (/ /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount point used"; continue; }
-            used_mounts[$MNT]=1
-            break
+            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount used"; continue; }
+            used_mounts[$MNT]=1; break
         done
 
-        # Filesystem
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, swap): " FS
             case "$FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Invalid FS" ;; esac
         done
 
-        # Encryption option
         ENC=0
-        if [[ "$MNT" != "swap" && "$MNT" != "none" ]]; then
-            read -rp "Encrypt this LV? (yes/no): " enc
-            [[ "$enc" =~ ^[Yy] ]] && ENC=1
-        fi
+        [[ "$MNT" != "swap" && "$MNT" != "none" ]] && read -rp "Encrypt this LV? (yes/no): " enc && [[ "$enc" =~ ^[Yy] ]] && ENC=1
 
-        # Size
         VG_FREE=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}')
         PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}')
         VG_FREE_GB=$(awk -v f="$VG_FREE" -v pe="$PE_SIZE" 'BEGIN{printf "%.2f", f*pe/1024}')
 
         while true; do
-            read -rp "LV size (e.g. 10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
+            read -rp "LV size (10G, 100%FREE) [max ${VG_FREE_GB}G]: " LV_SIZE
             LV_SIZE=${LV_SIZE^^}
-            if [[ "$LV_SIZE" == "100%FREE" ]]; then
-                LV_CREATE_ARG="-l 100%FREE"; break
+            if [[ "$LV_SIZE" == "100%FREE" ]]; then LV_CREATE_ARG="-l 100%FREE"; break
             elif [[ "$LV_SIZE" =~ ^([0-9]+)(G|M)$ ]]; then
                 VAL=${BASH_REMATCH[1]}; UNIT=${BASH_REMATCH[2]}
                 SIZE_GB=$(( UNIT=="M"?VAL/1024:VAL ))
                 (( $(echo "$SIZE_GB <= $VG_FREE_GB" | bc -l) )) && LV_CREATE_ARG="-L ${SIZE_GB}G" && break
-                echo "Size too big!"
-            else
-                echo "Invalid size"
-            fi
+                echo "Too big"
+            else echo "Invalid"; fi
         done
 
-        # Create LV
+        lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG"
         if (( ENC )); then
-            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG"
-            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME" || die "LUKS failed"
+            cryptsetup luksFormat /dev/"$VG"/"$LV_NAME"
             cryptsetup open /dev/"$VG"/"$LV_NAME" "$LV_NAME"
             LV_PATH="/dev/mapper/$LV_NAME"
         else
-            lvcreate $LV_CREATE_ARG -n "$LV_NAME" "$VG"
             LV_PATH="/dev/$VG/$LV_NAME"
         fi
-
         PARTITIONS+=("$LV_PATH:$MNT:$FS:$LV_NAME")
+        echo "→ LV created: $LV_PATH mounted at $MNT fs=$FS label=$LV_NAME"
     done
 
     echo "✅ Raw + LVM + LUKS setup complete."
     printf '%s\n' "${PARTITIONS[@]}"
 }
+
 
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
@@ -1726,7 +1615,7 @@ custom_partition_wizard() {
 }
 
 #===========================
-# Format & Mount Partitions
+# Format & mount partitions
 #===========================
 format_and_mount_all() {
     echo "→ Formatting and mounting partitions..."
@@ -1735,62 +1624,43 @@ format_and_mount_all() {
 
     for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-        MOUNT="${MOUNT:-}" 
-        LABEL="${LABEL:-}"
-        FS="${FS:-}"
-        PART="${PART:-}"
+        MOUNT="${MOUNT:-}"; LABEL="${LABEL:-}"
 
-        # Skip swap or none for used_mounts tracking
-        if [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]]; then
-            if [[ -n "${used_mounts[$MOUNT]:-}" ]]; then
-                echo "→ Mount point $MOUNT already used, skipping..."
-                continue
-            fi
-            used_mounts[$MOUNT]=1
-        fi
+        [[ -n "${used_mounts[$MOUNT]:-}" && "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && continue
+        [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]] && used_mounts[$MOUNT]=1
 
-        # Skip formatting if LV is already mapped (encrypted)
-        if [[ "$PART" == /dev/mapper/* ]]; then
-            echo "→ LV $PART already mapped, skipping format"
-        else
-            partprobe "$PART"
-            [[ -b "$PART" ]] || die "$PART missing"
+        partprobe "$PART"
+        [[ -b "$PART" ]] || die "$PART missing"
 
-            # Format
-            case "$FS" in
-                ext4) mkfs.ext4 -F "$PART" ;;
-                btrfs) mkfs.btrfs -f "$PART" ;;
-                xfs) mkfs.xfs -f "$PART" ;;
-                f2fs) mkfs.f2fs -f "$PART" ;;
-                swap) mkswap "$PART"; swapon "$PART"; continue ;;
-                none) continue ;;
-                *) echo "⚠️ Unknown FS: $FS, skipping formatting"; continue ;;
-            esac
+        case "$FS" in
+            ext4) mkfs.ext4 -F "$PART" ;;
+            btrfs) mkfs.btrfs -f "$PART" ;;
+            xfs) mkfs.xfs -f "$PART" ;;
+            f2fs) mkfs.f2fs -f "$PART" ;;
+            swap) mkswap "$PART"; swapon "$PART"; continue ;;
+            none) continue ;;
+        esac
 
-            # Set label
-            if [[ -n "$LABEL" ]]; then
-                case "$FS" in
-                    ext4) e2label "$PART" "$LABEL" ;;
-                    btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                    xfs) xfs_admin -L "$LABEL" "$PART" ;;
-                    f2fs) f2fslabel "$PART" "$LABEL" ;;
-                esac
-            fi
-        fi
+        [[ -n "$LABEL" ]] && case "$FS" in
+            ext4) e2label "$PART" "$LABEL" ;;
+            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+            xfs) xfs_admin -L "$LABEL" "$PART" ;;
+            f2fs) f2fslabel "$PART" "$LABEL" ;;
+        esac
 
-        # Mount
-        if [[ "$MOUNT" != "swap" && "$MOUNT" != "none" ]]; then
-            DEST="/mnt$MOUNT"
-            mkdir -p "$DEST"
-            echo "→ Mounting $PART at $DEST"
-            mount "$PART" "$DEST" || die "Mount failed: $PART -> $DEST"
-        fi
+        case "$MOUNT" in
+            /) mount "$PART" /mnt ;;
+            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
+            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
+            /boot/efi|/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
+            /data1) mkdir -p /mnt/data1; mount "$PART" /mnt/data1 ;;
+            /data2) mkdir -p /mnt/data2; mount "$PART" /mnt/data2 ;;
+            *) mkdir -p "/mnt$MOUNT"; mount "$PART" "/mnt$MOUNT" ;;
+        esac
     done
 
-    # Generate fstab
     mkdir -p /mnt/etc
     genfstab -U /mnt > /mnt/etc/fstab
-    echo "→ fstab generated"
 }
 
 #============================================================================================================================#
