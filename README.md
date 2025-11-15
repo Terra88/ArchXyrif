@@ -1,6 +1,6 @@
 # ArchXyrif - Semi-Automated & Interactive Install Script, With guided steps, to install Archlinux with. 
 <img width="723" height="360" alt="2025-11-08-145308_hyprshot" src="https://github.com/user-attachments/assets/a2f2e2a3-0c51-442c-80fa-5af7de453cd1" />
-Warning! this is an install tool, that will format and repartition your system. Handle with care.
+Warning! this is an install tool, that will format and repartition your system. Handle with care.<br>
 
 
 Currently UEFI Support only. <br>
