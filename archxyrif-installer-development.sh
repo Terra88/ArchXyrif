@@ -1430,32 +1430,33 @@ lvm_luks_setup() {
     DEV="/dev/${DEV##*/}"
     [[ -b "$DEV" ]] || die "$DEV not found"
 
-    # Boot partition size based on BIOS/UEFI
-    BOOT_SIZE=$([[ "$BOOT_MODE" == "UEFI" ]] && echo 512 || echo 1024)
-    echo "→ Boot mode: $BOOT_MODE, suggested boot partition: ${BOOT_SIZE}MiB"
-
     wipefs -af "$DEV"
     parted -s "$DEV" mklabel gpt
     PARTITIONS=()
     declare -A used_mounts
     START_MB=1
 
-    # --- Boot Partition ---
-    echo "--- Boot Partition ---"
-    MNT_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "/boot/efi" || echo "/boot")
-    while true; do
+    # --- Force Boot Partition ---
+    BOOT_PART_CREATED=0
+    while (( BOOT_PART_CREATED == 0 )); do
+        echo "--- Boot Partition ---"
+        # Suggested boot partition size
+        BOOT_SIZE=$([[ "$BOOT_MODE" == "UEFI" ]] && echo 512 || echo 1024)
+        MNT_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "/boot/efi" || echo "/boot")
         read -rp "Boot partition size (MiB) [default ${BOOT_SIZE}]: " BOOT_INPUT
         BOOT_INPUT="${BOOT_INPUT:-$BOOT_SIZE}"
-        (( BOOT_INPUT > 0 )) && break || echo "Invalid size"
+        (( BOOT_INPUT > 0 )) || { echo "Invalid size"; continue; }
+
+        END=$((START_MB + BOOT_INPUT))
+        FS_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "fat32" || echo "ext4")
+        parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB" || { echo "Failed to create boot partition"; continue; }
+        PART_BOOT="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")1"
+        PARTITIONS+=("$PART_BOOT:$MNT_BOOT:$FS_BOOT:boot")
+        used_mounts[$MNT_BOOT]=1
+        echo "Created boot partition $PART_BOOT -> mount=$MNT_BOOT fs=$FS_BOOT"
+        START_MB=$END
+        BOOT_PART_CREATED=1
     done
-    END=$((START_MB + BOOT_INPUT))
-    FS_BOOT=$([[ "$BOOT_MODE" == "UEFI" ]] && echo "fat32" || echo "ext4")
-    parted -a optimal -s "$DEV" mkpart primary "${START_MB}MiB" "${END}MiB"
-    PART_BOOT="${DEV}$( [[ "$DEV" =~ nvme ]] && echo "p")1"
-    PARTITIONS+=("$PART_BOOT:$MNT_BOOT:$FS_BOOT:boot")
-    used_mounts[$MNT_BOOT]=1
-    echo "Created boot partition $PART_BOOT -> mount=$MNT_BOOT fs=$FS_BOOT"
-    START_MB=$END
 
     # --- Raw Partitions ---
     read -rp "How many raw partitions before LVM? " RAW_COUNT
@@ -1463,8 +1464,6 @@ lvm_luks_setup() {
 
     for ((i=1;i<=RAW_COUNT;i++)); do
         echo "--- Raw Partition $i ---"
-
-        # Size prompt with remaining disk space
         DISK_SIZE_MB=$(lsblk -b -dn -o SIZE "$DEV")
         DISK_SIZE_MB=$(( DISK_SIZE_MB / 1024 / 1024 ))
         REMAINING=$((DISK_SIZE_MB - START_MB))
@@ -1484,8 +1483,9 @@ lvm_luks_setup() {
 
         while true; do
             read -rp "Mountpoint (/ /home /data1 /data2 swap none): " MNT
-            [[ -z "${used_mounts[$MNT]:-}" ]] || { echo "Mount used"; continue; }
-            used_mounts[$MNT]=1; break
+            [[ -z "${used_mounts[$MNT]:-}" || "$MNT" == "swap" || "$MNT" == "none" ]] || { echo "Mount used"; continue; }
+            [[ "$MNT" != "swap" && "$MNT" != "none" ]] && used_mounts[$MNT]=1
+            break
         done
 
         while true; do
