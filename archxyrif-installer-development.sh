@@ -1539,7 +1539,7 @@ lvm_luks_setup() {
     echo " LVM / (optional) LUKS Partitioning (ROUTE 3)"
     echo "============================================="
 
-    # --- 1) device selection (fall back logic)
+    # device selection (fall back logic)
     if [[ -n "${1:-}" ]]; then
         DEV="$1"
     elif [[ -n "${SELECTED_DISK:-}" ]]; then
@@ -1559,20 +1559,105 @@ lvm_luks_setup() {
     safe_disk_cleanup
     parted -s "$DEV" mklabel gpt
 
-    # --- 2) compute disk size and helpers
+    # disk size in MiB (and GiB float for user messages)
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+
     echo "Disk size: ${disk_gib_float} GiB (${disk_mib} MiB)"
 
-    PARTITIONS=()   # reset/ensure global array
+    PARTITIONS=()   # reset global array for this flow
     declare -A used_mounts
     local ps=""
     [[ "$DEV" =~ nvme|mmcblk ]] && ps="p"
 
-    local START_MB=1
+    # START index in MiB — first usable MiB
+    local START=1
+    local part_index=1   # partition numbering starts at 1
 
-    # --- 3) Ask how many raw partitions (keep same behavior as custom route)
+    # ----------------------------
+    # Boot partition (prompted first)
+    # ----------------------------
+    read -rp "Create a boot partition now? (recommended) [Y/n]: " DO_BOOT
+    DO_BOOT="${DO_BOOT:-Y}"
+    if [[ "$DO_BOOT" =~ ^[Yy]$ ]]; then
+        # sensible defaults based on boot mode
+        detect_boot_mode || true
+        local DEFAULT_BOOT_SIZE_MIB=512
+        local DEFAULT_BOOT_FS="fat32"
+        if [[ "${BOOT_MODE:-}" == "BIOS" ]]; then
+            DEFAULT_BOOT_FS="ext4"
+            DEFAULT_BOOT_SIZE_MIB=512
+        else
+            DEFAULT_BOOT_FS="fat32"
+            DEFAULT_BOOT_SIZE_MIB=1024
+        fi
+
+        # Ask boot size (accepts human input via convert_to_mib)
+        while true; do
+            read -rp "Boot partition size (e.g. 512M, 1G) [default ${DEFAULT_BOOT_SIZE_MIB}M]: " BOOT_IN
+            BOOT_IN="${BOOT_IN:-${DEFAULT_BOOT_SIZE_MIB}M}"
+            BOOT_MI=$(convert_to_mib "$BOOT_IN") || { echo "Invalid size format"; continue; }
+            # convert_to_mib returns numeric MiB, so OK
+            if [[ "$BOOT_MI" == "100%" ]]; then
+                BOOT_END=$disk_mib
+            else
+                BOOT_END=$(( START + BOOT_MI ))
+            fi
+            if (( BOOT_END > disk_mib )); then
+                echo "⚠️ Boot partition too large for disk."
+                continue
+            fi
+            break
+        done
+
+        # filesystem selection
+        while true; do
+            read -rp "Boot filesystem (fat32/ext4) [default ${DEFAULT_BOOT_FS}]: " BOOT_FS
+            BOOT_FS="${BOOT_FS:-$DEFAULT_BOOT_FS}"
+            case "$BOOT_FS" in fat32|ext4) break ;; *) echo "Choose fat32 or ext4." ;; esac
+        done
+
+        # mountpoint default
+        read -rp "Boot mountpoint [default /boot]: " BOOT_MNT
+        BOOT_MNT="${BOOT_MNT:-/boot}"
+
+        # sanity: ensure mountpoint not used
+        if [[ -n "${used_mounts[$BOOT_MNT]:-}" ]]; then
+            die "Mountpoint $BOOT_MNT already in use."
+        fi
+        used_mounts[$BOOT_MNT]=1
+
+        # Create partition: START -> BOOT_END (MiB)
+        if ! safe_mkpart "$DEV" "$START" "$BOOT_END" "boot"; then
+            die "Failed to create boot partition on $DEV"
+        fi
+
+        # Resolve partition name (handle nvme p suffix)
+        PART_BOOT="${DEV}${ps}${part_index}"
+        # Format boot
+        case "$BOOT_FS" in
+            fat32) mkfs.fat -F32 "$PART_BOOT" ;;
+            ext4)  mkfs.ext4 -F "$PART_BOOT" ;;
+        esac
+
+        PARTITIONS+=("$PART_BOOT:$BOOT_MNT:$BOOT_FS:boot")
+        echo "Created boot partition: $PART_BOOT -> $BOOT_MNT ($BOOT_FS) size ${BOOT_MI}MiB"
+
+        # update START & partition index
+        if [[ "$BOOT_END" -ne "$disk_mib" ]]; then
+            START=$BOOT_END
+            ((part_index++))
+        else
+            # full-disk assigned to boot partition — nothing left
+            preview_partition_tree
+            return 0
+        fi
+    fi
+
+    # ----------------------------
+    # Raw partitions (same behavior as custom_partition_wizard)
+    # ----------------------------
     read -rp "How many RAW partitions would you like to create before LVM? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 0 ]] || die "Invalid partition count."
 
@@ -1581,23 +1666,24 @@ lvm_luks_setup() {
         echo "--- Raw Partition $i ---"
         parted -s "$DEV" unit MiB print
 
-        REMAINING=$(( disk_mib - START_MB ))
+        REMAINING=$(( disk_mib - START ))
         REMAINING_GB=$(awk -v m="$REMAINING" 'BEGIN{printf "%.2f", m/1024}')
         echo "→ Remaining disk: ${REMAINING}MiB (${REMAINING_GB} GiB)"
 
-        # Size prompt (allow human formats via convert_to_mib)
+        # Size prompt (allow 100% when last)
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE_IN
-            SIZE_MI=$(convert_to_mib "${SIZE_IN:-}" ) || { echo "Invalid size format"; continue; }
+            SIZE_IN="${SIZE_IN:-}"
+            SIZE_MI=$(convert_to_mib "${SIZE_IN}") || { echo "Invalid size format"; continue; }
 
             if [[ "$SIZE_MI" == "100%" ]]; then
                 END=$disk_mib
             else
-                END=$(( START_MB + SIZE_MI ))
+                END=$(( START + SIZE_MI ))
             fi
 
             if (( END > disk_mib )); then
-                echo "⚠️ Partition too large! Max allowed: ${REMAINING} MiB (${REMAINING_GB} GiB)"
+                echo "⚠️  Partition too large! Max allowed: ${REMAINING} MiB (${REMAINING_GB} GiB)"
                 continue
             fi
             break
@@ -1626,37 +1712,39 @@ lvm_luks_setup() {
 
         read -rp "Label (optional): " LABEL
 
-        # create partition safely
-        if ! safe_mkpart "$DEV" "$START_MB" "$END" "raw$i"; then
+        # create partition safely (use current part_index)
+        if ! safe_mkpart "$DEV" "$START" "$END" "raw$i"; then
             echo "⚠️ Failed to create partition. Retry this partition."
             ((i--))
             continue
         fi
 
-        # resolve partition name (handles nvme p suffix)
-        PART="${DEV}${ps}${i}"
+        PART="${DEV}${ps}${part_index}"
         PARTITIONS+=("$PART:$MNT:$FS:${LABEL:-}")
 
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
 
-        # update START for next partition
+        # update
         if [[ "$END" -ne "$disk_mib" ]]; then
-            START_MB=$END
+            START=$END
+            ((part_index++))
         else
-            # reached end of disk
-            START_MB=$END
+            START=$END
+            ((part_index++))
             break
         fi
     done
 
-    # if user filled whole disk with raw partitions, no space left for LVM
-    if (( START_MB >= disk_mib )); then
-        echo "→ No remaining space for LVM (raw partitions used whole disk)."
+    # If no space left, finish
+    if (( START >= disk_mib )); then
+        echo "→ No remaining space for LVM."
         preview_partition_tree
         return 0
     fi
 
-    # --- 4) Ask whether to create LVM on remaining
+    # ----------------------------
+    # Ask: create LVM on remaining?
+    # ----------------------------
     read -rp "Create LVM on remaining space? (y/N): " CREATE_LVM
     CREATE_LVM="${CREATE_LVM:-N}"
     if [[ ! "$CREATE_LVM" =~ ^[Yy]$ ]]; then
@@ -1665,20 +1753,17 @@ lvm_luks_setup() {
         return 0
     fi
 
-    # --- 5) Create final LVM partition (start = START_MB, end = disk_mib)
-    echo "→ Creating LVM partition from ${START_MB}MiB to ${disk_mib}MiB..."
-    if ! safe_mkpart "$DEV" "$START_MB" "$disk_mib" "lvm"; then
-        die "Failed to create LVM partition on $DEV"
+    # Create final LVM partition from START -> disk_mib
+    if ! safe_mkpart "$DEV" "$START" "$disk_mib" "lvm"; then
+        die "Failed to create LVM partition"
     fi
-    PART_NUM=$(( COUNT + 1 ))
-    LVM_PART="${DEV}${ps}${PART_NUM}"
-    echo "→ LVM partition: $LVM_PART"
+    LVM_PART="${DEV}${ps}${part_index}"
+    echo "→ LVM partition created: $LVM_PART"
 
-    # --- 6) optional PV encryption
+    # optional PV encryption
     read -rp "Encrypt the LVM partition with LUKS? (y/N): " ENCRYPT_PV
     ENCRYPT_PV="${ENCRYPT_PV:-N}"
     if [[ "$ENCRYPT_PV" =~ ^[Yy]$ ]]; then
-        echo "→ Formatting $LVM_PART with LUKS2..."
         cryptsetup luksFormat "$LVM_PART"
         cryptsetup open "$LVM_PART" cryptlvm
         PV_DEV="/dev/mapper/cryptlvm"
@@ -1686,45 +1771,34 @@ lvm_luks_setup() {
         PV_DEV="$LVM_PART"
     fi
 
-    # create pv and ask vg name
+    # pv + vg creation
     pvcreate "$PV_DEV"
-    read -rp "VG name [default: vg0]: " VG
+    read -rp "VG name [default vg0]: " VG
     VG="${VG:-vg0}"
     vgcreate "$VG" "$PV_DEV" || die "vgcreate failed for $VG"
 
-    # --- 7) LV creation (optional)
+    # LV creation optional
     read -rp "Create Logical Volumes now? (y/N): " CREATE_LVS
     CREATE_LVS="${CREATE_LVS:-N}"
     if [[ ! "$CREATE_LVS" =~ ^[Yy]$ ]]; then
-        # Append the LVM PV itself? not necessary — we only append final LV devices (or mapped devices) for formatting.
         preview_partition_tree
         return 0
     fi
 
-    # compute VG free space in MiB using vgs (units in MiB)
+    # compute VG free in MiB (prefer vgs --units m)
     VG_FREE_MIB=$(vgs --noheadings --units m -o vg_free --nosuffix "$VG" 2>/dev/null | awk '{print int($1)}')
-    # if vgs returns empty, try parsing vgdisplay fallback
     if [[ -z "$VG_FREE_MIB" || "$VG_FREE_MIB" -le 0 ]]; then
-        # fallback: try vgdisplay (PE * PE Size)
+        # fallback to vgdisplay
         VG_FREE_PES=$(vgdisplay "$VG" | awk '/Free  PE/ {print $5}' || echo 0)
         PE_SIZE=$(vgdisplay "$VG" | awk '/PE Size/ {print $3}' | sed 's/[^0-9.]//g' || echo 4)
-        # convert to MiB (PE_SIZE might be in MiB)
         VG_FREE_MIB=$(awk -v p="$VG_FREE_PES" -v s="$PE_SIZE" 'BEGIN{printf "%d", p * s}')
     fi
 
     echo "VG $VG free ≈ ${VG_FREE_MIB} MiB"
 
-    # track used mounts to prevent duplicates: start with those used by raw partitions
-    # (used_mounts already contains raw mounts)
-    used_mounts=( )  # re-create associative array from prior values
-    declare -A tmp_used
-    for kv in "${!used_mounts[@]}"; do tmp_used[$kv]=1; done
-    # but we already used used_mounts earlier; keep it (shell scoping detail) - ensure it's associative
-    declare -A used_mounts_assoc
-    # populate from previous associative if present
-    for key in "${!used_mounts[@]}"; do used_mounts_assoc[$key]=1; done
-    # Use used_mounts_assoc to check duplicates below
-    declare -n USED_MT=used_mounts_assoc
+    # ensure used mounts associative exists and contains earlier raw mounts
+    declare -A USED_MT
+    for m in "${!used_mounts[@]}"; do USED_MT[$m]=1; done
 
     # LV loop
     read -rp "How many LVs do you want to create? " LV_COUNT
@@ -1733,18 +1807,17 @@ lvm_luks_setup() {
     local used_mib=0
     for ((lv=1; lv<=LV_COUNT; lv++)); do
         echo "---- LV $lv ----"
-        local FREE_NOW=$(( VG_FREE_MIB - used_mib ))
+        FREE_NOW=$(( VG_FREE_MIB - used_mib ))
         echo "Free in VG now: ${FREE_NOW} MiB"
 
-        read -rp "LV name (example: root): " LVNAME
-        if [[ -z "$LVNAME" ]]; then echo "Name required"; ((lv--)); continue; fi
+        read -rp "LV name: " LVNAME
+        [[ -n "$LVNAME" ]] || { echo "Name required"; ((lv--)); continue; }
 
         # mountpoint (no duplicates)
         while true; do
             read -rp "Mountpoint (/ /home /data1 /data2 swap none): " LV_MNT
-            case "$LV_MNT" in
-                /|/home|/data1|/data2|swap|none) ;;
-                *) echo "Invalid mountpoint"; continue ;;
+            case "$LV_MNT" in /|/home|/data1|/data2|swap|none) ;;
+            *) echo "Invalid mountpoint"; continue ;;
             esac
             if [[ "$LV_MNT" != "none" && "$LV_MNT" != "swap" && -n "${USED_MT[$LV_MNT]:-}" ]]; then
                 echo "Mountpoint $LV_MNT already used; choose another."
@@ -1760,7 +1833,6 @@ lvm_luks_setup() {
             case "$LV_FS" in ext4|btrfs|xfs|f2fs|swap) break ;; *) echo "Invalid FS" ;; esac
         done
 
-        # per-LV encryption optional
         read -rp "Encrypt this LV? (y/N): " ENC_LV
         ENC_LV="${ENC_LV:-N}"
 
@@ -1769,13 +1841,11 @@ lvm_luks_setup() {
             read -rp "LV size (e.g. 20G, 512M or 100%FREE): " LV_SIZE_IN
             LV_SIZE_IN="${LV_SIZE_IN:-}"
             if [[ -z "$LV_SIZE_IN" ]]; then echo "Size required"; continue; fi
-            # 100%FREE handling
             if [[ "${LV_SIZE_IN^^}" == "100%FREE" ]]; then
                 LV_CREATE_ARG="-l 100%FREE"
                 SIZE_MIB="$FREE_NOW"
                 break
             fi
-            # convert to MiB using convert_to_mib (supports G/M)
             SIZE_MI=$(convert_to_mib "$LV_SIZE_IN") || { echo "Invalid size"; continue; }
             if (( SIZE_MI > FREE_NOW )); then
                 echo "Requested size ${SIZE_MI} MiB exceeds free ${FREE_NOW} MiB"
@@ -1787,38 +1857,26 @@ lvm_luks_setup() {
         done
 
         # create LV
-        echo "→ Creating LV '$LVNAME' in VG $VG ..."
         lvcreate $LV_CREATE_ARG -n "$LVNAME" "$VG" || { echo "lvcreate failed"; ((lv--)); continue; }
 
-        # path to LV logical volume
         LV_DEV="/dev/${VG}/${LVNAME}"
-
-        # optional per-LV encryption: format underlying LV then open mapping (mapping name lvm_<name>)
         if [[ "$ENC_LV" =~ ^[Yy]$ ]]; then
-            echo "→ Encrypting LV $LV_DEV..."
             cryptsetup luksFormat "$LV_DEV"
             cryptsetup open "$LV_DEV" "lvol_${LVNAME}"
-            MAPPED="/dev/mapper/lvol_${LVNAME}"
-            FINAL_DEV="$MAPPED"
-            # record that mapping exists so format_and_mount_all can operate on it
+            FINAL_DEV="/dev/mapper/lvol_${LVNAME}"
         else
             FINAL_DEV="$LV_DEV"
         fi
 
-        # Append LV device into PARTITIONS array in the same ":" format for format_and_mount_all:
-        # We store device path instead of /dev/mapper resolution at creation stage.
-        # format_and_mount_all expects "PART:MOUNT:FS:LABEL"
         PARTITIONS+=("${FINAL_DEV}:${LV_MNT}:${LV_FS}:${LVNAME}")
-
         echo "→ LV created: ${FINAL_DEV} -> mount=${LV_MNT} fs=${LV_FS} label=${LVNAME}"
 
         used_mib=$(( used_mib + SIZE_MIB ))
     done
 
-    # final preview
     echo ""
     preview_partition_tree
-    echo "✅ LVM + optional LUKS setup finished. PARTITIONS array updated for formatting."
+    echo "✅ LVM + optional LUKS setup finished. PARTITIONS array updated."
 }
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
