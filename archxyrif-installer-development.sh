@@ -69,7 +69,6 @@ set -euo pipefail
 #----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
-MNT=""
 BOOT_MODE=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
