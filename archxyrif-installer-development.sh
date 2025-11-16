@@ -1552,7 +1552,7 @@ custom_partition_wizard() {
     # CRITICAL: Handle BIOS Boot Partition for GPT disks in BIOS mode
     # This prepares Partition 1 (BIOS Boot) and potentially Partition 2 (/boot)
     # ----------------------------------------------------------------------
-    local START=1 MiB # Default start sector is 1 MiB <-------------------------------------------------------------------------------
+    local START="1MiB" # Default start sector is 1 MiB <-------------------------------------------------------------------------------
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
     
@@ -2341,7 +2341,7 @@ fi
             lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
         fi
     done
-    }
+    
 
 
     # Compose LV device paths and format/mount them
