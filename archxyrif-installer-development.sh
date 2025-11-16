@@ -2081,11 +2081,11 @@ luks_lvm_route() {
     echo "Created partition: $PART"
 
     # Ask about encryption
-    read -rp "Do you want boot partition to ${DEV}? bios/uefi detected automatically [Y/n]: " BOOTMODE
+    read -rp "Create and format the required boot partition (${MODE} on ${DEV})? [Y/n]: " BOOTMODE
     BOOTMODE="${BOOTMODE:-Y}"
     
     # Example (pseudo):
-    if [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
       parted -s "$DEV" mklabel gpt
       parted -s "$DEV" mkpart ESP fat32 1MiB 1024MiB
       parted -s "$DEV" set 1 boot on
@@ -2093,7 +2093,7 @@ luks_lvm_route() {
       PART_BOOT="${DEV}${ps}1"
       PART="${DEV}${ps}2"
       mkfs.fat -F32 "$PART_BOOT"
-    else
+else
       # BIOS: create /boot unencrypted small partition, rest LUKS
       parted -s "$DEV" mklabel gpt
       parted -s "$DEV" mkpart primary 1MiB 512MiB
@@ -2101,7 +2101,7 @@ luks_lvm_route() {
       PART_BOOT="${DEV}${ps}1"
       PART="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"
-    fi
+fi
 
     # Ask about encryption
     read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
