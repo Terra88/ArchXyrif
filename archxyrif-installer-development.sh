@@ -2116,6 +2116,10 @@ sed -i "s|^HOOKS=.*|HOOKS=($new_hooks)|" "$MKCONF" || true
 echo "→ (chroot) mkinitcpio.conf updated for LUKS + LVM."
 CHROOT_LVM_EOF
 
+# ⚠️ CRITICAL: Regenerate Initramfs (This MUST happen after sed)
+    echo "→ Regenerating initramfs with LVM/LUKS hooks..."
+    arch-chroot /mnt mkinitcpio -P || die "mkinitcpio build failed"
+
     echo "→ ensure_fs_support_for_luks_lvm() finished."
     }
 # ---------------------------------------------
@@ -2427,20 +2431,32 @@ fi
         esac
     done
 
-    # --- ADD THIS SECTION ---
+    # -------------------------------------------------------------
+    # Mount the previously created Boot/EFI partition
+    # -------------------------------------------------------------
     echo "→ Mounting boot partition..."
-    if [[ "$BOOTMODE" = "uefi" ]]; then # This logic is also flawed, see section 3
+
+    # Check the actual outcome of the partitioning (determined by the earlier 'if')
+    if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
+        # This is the case where we created an ESP (EFI System Partition)
         mkdir -p /mnt/boot/efi
         mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
-    else
+        P_EFI="$PART_BOOT" # Store EFI partition path
+    elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+        # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
         mkdir -p /mnt/boot
         mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
+        P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
     fi
 
     create_more_lvm
-    
+
+    # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
+    mkdir -p /mnt/etc/lvm # Ensure directory exists
+    cp /etc/lvm/lvm.conf /mnt/etc/lvm/
+
     install_base_system
-    ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"
+
     # Continue with common installer flow
     
      # Create crypttab so system can map the LUKS container at boot
@@ -2454,21 +2470,7 @@ fi
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
 
-    #---------------------------------------------
-    # If LV/LUKS - Regen Hooks
-    #---------------------------------------------
-    # Assuming ENCRYPTION_ENABLED global variable is available:
-    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-        # Full LUKS/LVM hooks (needed for encryption)
-        arch-chroot /mnt sed -i \
-            's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' \
-            /etc/mkinitcpio.conf
-    else
-        # LVM-only hooks (for your successful test run)
-        arch-chroot /mnt sed -i \
-            's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)/' \
-            /etc/mkinitcpio.conf
-    fi
+    ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
     
     configure_system
 
