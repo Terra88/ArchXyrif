@@ -159,7 +159,7 @@ safe_disk_cleanup() {
     # 2) Deactivate LVMs on this disk
     echo "→ Deactivating LVM volumes related to $DEV ..."
     vgchange -an || true
-    for lv in $(lsblk -rno -tpfs NAME "$DEV" | grep -E '^.*--.*$' || true); do
+    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
         dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
     done
 
@@ -1451,7 +1451,7 @@ custom_partition_wizard() {
     detect_boot_mode
 
     echo "=== Custom Partitioning ==="
-    lsblk -d -o -tpfs NAME,SIZE,MODEL,TYPE
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
 
     read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
     DEV="/dev/${DEV##*/}"
