@@ -1796,6 +1796,78 @@ CHROOT_EOF
 
     echo "→ ensure_fs_support_for_custom() finished."
 }
+
+#=========================================================================================================================================#
+# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+#=========================================================================================================================================#
+custom_partition(){
+    custom_partition_wizard
+    format_and_mount_custom
+    install_base_system
+
+    # If we ran custom partitioning, ensure the target has needed fs tools
+    ensure_fs_support_for_custom
+
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+}
+#=====================================================================
+# Ensure system has support for LUKS + LVM (Option 3 only)
+#=====================================================================
+ensure_fs_support_for_luks_lvm() {
+    echo "→ Running ensure_fs_support_for_luks_lvm()"
+
+    # Install required packages
+    arch-chroot /mnt pacman -Sy --noconfirm cryptsetup lvm2 || {
+        echo "⚠️ Package install failed once, retrying..."
+        sleep 1
+        arch-chroot /mnt pacman -Sy --noconfirm cryptsetup lvm2 \
+            || die "Failed to install cryptsetup/lvm2 in target"
+    }
+
+    # Patch mkinitcpio.conf
+    arch-chroot /mnt /bin/bash <<'CHROOT_LVM_EOF'
+set -e
+MKCONF="/etc/mkinitcpio.conf"
+
+echo "→ (chroot) Patching mkinitcpio.conf for LUKS + LVM..."
+
+# Extract HOOKS
+current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
+
+# Required hooks, in order
+required="base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck"
+
+# Start building new HOOKS
+new_hooks="$required"
+
+# Add any existing hooks not already in the required list
+for tok in $current_hooks; do
+    if ! echo " $new_hooks " | grep -q " $tok "; then
+        new_hooks="$new_hooks $tok"
+    fi
+done
+
+# Replace HOOKS=() line safely
+sed -i "s|^HOOKS=.*|HOOKS=($new_hooks)|" "$MKCONF" || true
+
+echo "→ (chroot) mkinitcpio.conf updated for LUKS + LVM."
+CHROOT_LVM_EOF
+
+    echo "→ ensure_fs_support_for_luks_lvm() finished."
+}
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#====================================== LUKS LVM // Choose Filesystem Custom #====================================================#
+#=========================================================================================================================================#
+#=========================================================================================================================================#
 #=====================================================================================================================================#
 # LUKS LV
 #=====================================================================================================================================#
@@ -2001,6 +2073,8 @@ luks_lvm_route() {
         esac
     done
 
+    ensure_fs_support_for_luks_lvm
+
     # Generate fstab
     arch-chroot /mnt pacman -Sy --noconfirm --needed --quiet >/dev/null || true
     genfstab -U /mnt > /mnt/etc/fstab
@@ -2024,27 +2098,6 @@ luks_lvm_route() {
     hyprland_optional
 
     echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
-}
-#=========================================================================================================================================#
-# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
-#=========================================================================================================================================#
-custom_partition(){
-    custom_partition_wizard
-    format_and_mount_custom
-    install_base_system
-
-    # If we ran custom partitioning, ensure the target has needed fs tools
-    ensure_fs_support_for_custom
-
-    configure_system
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
 }
 #=========================================================================================================================================#
 # Main menu
