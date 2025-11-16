@@ -100,11 +100,12 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 -windows+R: open menu(installed programs)<br>
 -windows+E: open file manager.<br>
 -windows+M: logout to login screen(for power button etc)<br>
--Also Hyprland + GDM works best, to install(remember to click username, then press the gear icon low right and select hyprland before you login first time)<br> 
-<br>
 -Block 11 will prompt if you install Hyprland and ask, if you want to add my custom theme to it y/N. If you answer yes, additional packages will be installed that the theme requires and .config files will be copied automatically from my other GitHub project. On a note you should also install the extra AUR packages, which are required for the theme.<br><br>
 -it will automatically give new user the rights to that folder. Also wallpaper engine will be added to /home as wallpaper.sh and a wallpaper folder that the engine rotates. hyprlock will have a lock button and a wallpaper set to it in /home/wallpaper folder called lock.jpg
 <br>
+-Also Hyprland + GDM works best together. When logging in first time: (remember to click username, then press the gear icon low right and select hyprland before you login first time)<br> 
+<br>
+
 
 ### **Features added to ver. 1.3.6**
 
