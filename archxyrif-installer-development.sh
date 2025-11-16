@@ -1128,8 +1128,8 @@ window_manager()
         case "$WM_CHOICE" in
             1)
                 echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock waybar kitty )
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty kvantum dolphin dolphin-plugins rofi discover nwg-displays nwg-look breeze breeze-icons blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark qview)
+                WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
                 echo "→ Selected: Sway (Wayland)"
@@ -1302,7 +1302,7 @@ optional_aur()
                          read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
                      
                          # Predefined extra AUR packages
-                         EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+                         EXTRA_AUR_PKGS=( )
                      
                          # Merge WM + DM AUR packages with user input
                          AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
