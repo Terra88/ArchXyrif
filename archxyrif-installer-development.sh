@@ -2020,11 +2020,11 @@ luks_lvm_route() {
     echo "Created partition: $PART"
 
     # Ask about encryption
-    read -rp "Do you wish to set BIOS:/boot or UEFI:/boot/efi partition to ${DEV}? [Y/n]: " BOOTMODE
+    read -rp "Do you want boot partition to ${DEV}? bios/uefi detected automatically [Y/n]: " BOOTMODE
     BOOTMODE="${BOOTMODE:-Y}"
     
     # Example (pseudo):
-    if [ "$BOOTMODE" = "uefi" ]; then
+    if [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
       parted -s "$DEV" mklabel gpt
       parted -s "$DEV" mkpart ESP fat32 1MiB 1024MiB
       parted -s "$DEV" set 1 boot on
