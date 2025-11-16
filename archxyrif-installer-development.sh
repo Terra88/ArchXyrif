@@ -69,6 +69,7 @@ set -euo pipefail
 #----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
+MNT=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
 SWAP_ON=""
@@ -1537,6 +1538,28 @@ custom_partition_wizard() {
         REMAINING=$(( disk_mib - LAST_END ))
         echo "→ Remaining disk: ${REMAINING}MiB"
     done
+    
+while true; do
+    read -rp "Do you want to edit more disks? (Y/n): " answer
+
+    case "$answer" in
+        [Yy]|"")
+            echo "Edit another disk ? ? ?"
+            custom_partition_wizard
+            ;;
+        [Nn])
+            echo "No more disks. Continuing..."
+            break
+            ;;
+        *)
+            echo "Please enter Y or n."
+            ;;
+    esac
+done
+
+echo "Continuing with the rest of the script..."
+
+
 
     echo ""
     echo "=== Partition layout created ==="
