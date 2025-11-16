@@ -1552,7 +1552,7 @@ custom_partition_wizard() {
     # CRITICAL: Handle BIOS Boot Partition for GPT disks in BIOS mode
     # This prepares Partition 1 (BIOS Boot) and potentially Partition 2 (/boot)
     # ----------------------------------------------------------------------
-    local START=1 MiB # Default start sector is 1 MiB
+    local START=1 MiB # Default start sector is 1 MiB <-------------------------------------------------------------------------------
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
     
@@ -1941,7 +1941,7 @@ new_hooks_line="HOOKS=($(
             printf " %s" "$t"
         fi
     done
-))"
+))" 
 
 # Replace or add the HOOKS= line
 if grep -q '^HOOKS=' "$MKCONF"; then
@@ -2133,7 +2133,8 @@ wait_for_lv() {
 # -------------------------------------------------------------------------
 # Option 3: LUKS + LVM guided route
 # -------------------------------------------------------------------------
-luks_lvm_route() {
+luks_lvm_route() 
+{
     detect_boot_mode
 
     echo "Available disks:"
@@ -2340,6 +2341,8 @@ fi
             lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
         fi
     done
+    }
+
 
     # Compose LV device paths and format/mount them
     echo "→ Formatting and mounting LVs..."
@@ -2413,62 +2416,63 @@ fi
         esac
     done
 
-    # -------------------------------------------------------------
-    # Mount the previously created Boot/EFI partition
-    # -------------------------------------------------------------
-    echo "→ Mounting boot partition..."
-
-    # Check the actual outcome of the partitioning (determined by the earlier 'if')
-    if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
-        # This is the case where we created an ESP (EFI System Partition)
-        mkdir -p /mnt/boot/efi
-        mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
-        P_EFI="$PART_BOOT" # Store EFI partition path
-    elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
-        # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
-        mkdir -p /mnt/boot
-        mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
-        P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
-    fi
-
-    create_more_lvm
-
-    # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
-    mkdir -p /mnt/etc/lvm # Ensure directory exists
-    cp /etc/lvm/lvm.conf /mnt/etc/lvm/
-
-    install_base_system
-
-    # Continue with common installer flow
+        # -------------------------------------------------------------
+        # Mount the previously created Boot/EFI partition
+        # -------------------------------------------------------------
+        echo "→ Mounting boot partition..."
     
-     # Create crypttab so system can map the LUKS container at boot
-    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-      UUID=$(blkid -s UUID -o value "$PART")
-      echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
-    fi
+        # Check the actual outcome of the partitioning (determined by the earlier 'if')
+        if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
+            # This is the case where we created an ESP (EFI System Partition)
+            mkdir -p /mnt/boot/efi
+            mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
+            P_EFI="$PART_BOOT" # Store EFI partition path
+        elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+            # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
+            mkdir -p /mnt/boot
+            mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
+            P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
+        fi
     
-    # Generate fstab after pacstrap
-    genfstab -U /mnt > /mnt/etc/fstab
-    echo "→ Generated /mnt/etc/fstab:"
-    cat /mnt/etc/fstab
-
-    ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
+        create_more_lvm
     
-    configure_system
-
-    # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
-    # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-
-    echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
+        # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
+        mkdir -p /mnt/etc/lvm # Ensure directory exists
+        cp /etc/lvm/lvm.conf /mnt/etc/lvm/
+    
+        install_base_system
+    
+        # Continue with common installer flow
+        
+         # Create crypttab so system can map the LUKS container at boot
+        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+          UUID=$(blkid -s UUID -o value "$PART")
+          echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
+        fi
+        
+        # Generate fstab after pacstrap
+        genfstab -U /mnt > /mnt/etc/fstab
+        echo "→ Generated /mnt/etc/fstab:"
+        cat /mnt/etc/fstab
+    
+        ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
+        
+        configure_system
+    
+        # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
+        # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
+        install_grub
+        network_mirror_selection
+        gpu_driver
+        window_manager
+        lm_dm
+        extra_pacman_pkg
+        optional_aur
+        hyprland_optional
+    
+        echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
+
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
