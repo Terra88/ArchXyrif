@@ -750,11 +750,6 @@ install_grub() {
         [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
     fi
 
-    #Luks - crypttab detector:
-    #-------------------------
-    arch-chroot GRUB_CMDLINE_LINUX="cryptdevice=UUID=<uuid>:cryptlvm root=/dev/<vgname>/<rootlv>"
-    
-
     #--------------------------------------#
     # Detect filesystems under /mnt (final layer)
     #--------------------------------------#
@@ -814,6 +809,23 @@ install_grub() {
     #--------------------------------------#
     # Generate GRUB config
     #--------------------------------------#
+    #---FOR ENCRYPTION SETTINGS LUKS-------#
+    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+        echo "→ Encryption enabled. Configuring /etc/default/grub..."
+        
+        # This is the kernel parameter GRUB needs
+        local GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
+        
+        # Use arch-chroot to run sed *inside* /mnt
+        arch-chroot /mnt sed -i \
+            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
+            /etc/default/grub
+            
+        echo "→ Updated GRUB_CMDLINE_LINUX_DEFAULT in /mnt/etc/default/grub"
+    else
+        echo "→ Encryption not enabled. Skipping GRUB CMDLINE update."
+    fi
+    
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
     #--------------------------------------#
