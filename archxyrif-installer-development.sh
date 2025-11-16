@@ -1970,7 +1970,7 @@ ensure_fs_support_for_luks_lvm() {
             f2fs)  want_f2fs=1 ;;
             btrfs) want_btrfs=1 ;;
             ext4)  want_ext4=1 ;;
-            swap)  ;; # swap does not require fs tools
+            swap)  ;; # swap does not require FS tools
         esac
     done
 
@@ -1988,15 +1988,87 @@ ensure_fs_support_for_luks_lvm() {
 
     if (( ${#pkgs[@]} == 0 )); then
         echo "→ No special filesystem tools required for this install."
-        return
+    else
+        echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+            echo "⚠️ pacman install inside chroot failed; retrying..."
+            sleep 1
+            arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
+        }
     fi
 
-    echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
-    arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
-        echo "⚠️ pacman install inside chroot failed; retrying..."
-        sleep 1
-        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
-    }
+    # Format and mount logical volumes
+    echo "→ Formatting and mounting logical volumes..."
+    mkdir -p /mnt
+    for i in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[i]}"
+        fs="${LV_FSS[i]}"
+        mnt="${LV_MOUNTS[i]}"
+        lv_path="/dev/${VGNAME}/${name}"
+
+        if ! wait_for_lv "$lv_path"; then
+            die "LV device $lv_path did not appear"
+        fi
+
+        # Swap
+        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
+            echo "  → Creating swap LV: $lv_path"
+            mkswap "$lv_path" || die "mkswap failed $lv_path"
+            swapon "$lv_path" || die "swapon failed $lv_path"
+            continue
+        fi
+
+        # Format filesystem
+        echo "  → Formatting $lv_path as $fs"
+        case "$fs" in
+            ext4)  mkfs.ext4 -F "$lv_path" ;;
+            btrfs) mkfs.btrfs -f "$lv_path" ;;
+            xfs)   mkfs.xfs -f "$lv_path" ;;
+            f2fs)  mkfs.f2fs -f "$lv_path" ;;
+            *) die "Unsupported FS: $fs" ;;
+        esac
+
+        # Mount filesystem
+        case "$mnt" in
+            /)
+                mount "$lv_path" /mnt || die "mount $lv_path /mnt failed"
+                # Handle btrfs subvolume
+                if [[ "$fs" == "btrfs" ]]; then
+                    btrfs subvolume create /mnt/@ || true
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$lv_path" /mnt || die "btrfs mount failed"
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$lv_path" /mnt/home || die "mount $lv_path /mnt/home failed"
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$lv_path" /mnt/boot || die "mount $lv_path /mnt/boot failed"
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$lv_path" /mnt/boot/efi || die "mount $lv_path /mnt/boot/efi failed"
+                ;;
+            *)
+                mkdir -p "/mnt${mnt}"
+                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
+                ;;
+        esac
+    done
+
+    # Mount boot partition if defined in luks_lvm_route
+    if [[ -n "$PART_BOOT" && -b "$PART_BOOT" ]]; then
+        if [[ "$BOOTMODE" =~ [Uu][Ee][Ff][Ii] ]]; then
+            mkdir -p /mnt/boot/efi
+            mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
+        else
+            mkdir -p /mnt/boot
+            mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
+        fi
+        echo "→ Boot partition mounted at /mnt/boot or /mnt/boot/efi"
+    fi
 
     # Patch mkinitcpio.conf hooks for LUKS/LVM
     if [[ "$enable_luks" -eq 1 ]]; then
