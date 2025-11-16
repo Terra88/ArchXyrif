@@ -729,21 +729,6 @@ NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # Prepare chroot (mount pseudo-filesystems etc.)
 # -------------------------------
 prepare_chroot
-#---------------------------------------------
-# If LV/LUKS - Regen Hooks
-#---------------------------------------------
-# Assuming ENCRYPTION_ENABLED global variable is available:
-if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-    # Full LUKS/LVM hooks (needed for encryption)
-    arch-chroot /mnt sed -i \
-        's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' \
-        /etc/mkinitcpio.conf
-else
-    # LVM-only hooks (for your successful test run)
-    arch-chroot /mnt sed -i \
-        's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)/' \
-        /etc/mkinitcpio.conf
-fi
 # -------------------------------
 # Create postinstall.sh inside chroot
 # -------------------------------
@@ -2292,6 +2277,23 @@ luks_lvm_route() {
     cat /mnt/etc/fstab
 
     create_more_lvm
+
+    #---------------------------------------------
+    # If LV/LUKS - Regen Hooks
+    #---------------------------------------------
+    # Assuming ENCRYPTION_ENABLED global variable is available:
+    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+        # Full LUKS/LVM hooks (needed for encryption)
+        arch-chroot /mnt sed -i \
+            's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' \
+            /etc/mkinitcpio.conf
+    else
+        # LVM-only hooks (for your successful test run)
+        arch-chroot /mnt sed -i \
+            's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)/' \
+            /etc/mkinitcpio.conf
+    fi
+    
     configure_system
 
     # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
