@@ -1903,8 +1903,23 @@ luks_lvm_route() {
 
     safe_disk_cleanup
 
+    # Create GPT and single primary partition occupying the usable space (leave small buffer)
+    ps=$(part_suffix "$DEV")
+    echo "→ Creating a single primary partition on $DEV (GPT)"
+    parted -s "$DEV" mklabel gpt || die "Failed to mklabel gpt on $DEV"
+
+    # Reserve EFI/boot area if UEFI/BIOS is required by your workflow. By default create one partition spanning rest.
+    # Here we create a partition from 1MiB to 100% for the LUKS container.
+    parted -s "$DEV" mkpart primary 1MiB 100% || die "parted mkpart failed"
+    partprobe "$DEV"; udevadm settle --timeout=5
+
+    PART="${DEV}${ps}1"
+    [[ -b "$PART" ]] || die "Partition $PART not found."
+
+    echo "Created partition: $PART"
+
     # Ask about encryption
-    read -rp "Encrypt this partition with LUKS? [Y/n]: " BOOTMODE
+    read -rp "Do you wish to set BIOS:/boot or UEFI:/boot/efi partition to ${DEV}? [Y/n]: " BOOTMODE
     BOOTMODE="${BOOTMODE:-Y}"
     
     # Example (pseudo):
@@ -1925,21 +1940,6 @@ luks_lvm_route() {
       PART="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"
     fi
-
-    # Create GPT and single primary partition occupying the usable space (leave small buffer)
-    ps=$(part_suffix "$DEV")
-    echo "→ Creating a single primary partition on $DEV (GPT)"
-    parted -s "$DEV" mklabel gpt || die "Failed to mklabel gpt on $DEV"
-
-    # Reserve EFI/boot area if UEFI/BIOS is required by your workflow. By default create one partition spanning rest.
-    # Here we create a partition from 1MiB to 100% for the LUKS container.
-    parted -s "$DEV" mkpart primary 1MiB 100% || die "parted mkpart failed"
-    partprobe "$DEV"; udevadm settle --timeout=5
-
-    PART="${DEV}${ps}1"
-    [[ -b "$PART" ]] || die "Partition $PART not found."
-
-    echo "Created partition: $PART"
 
     # Ask about encryption
     read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
