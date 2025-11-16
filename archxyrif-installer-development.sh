@@ -1957,7 +1957,8 @@ custom_partition(){
 #=====================================================================
 # Ensure system has support for LUKS + LVM (Option 3 only)
 #=====================================================================
-ensure_fs_support_for_luks_lvm() {
+ensure_fs_support_for_luks_lvm() 
+{
     echo "→ Running ensure_fs_support_for_luks_lvm()"
 
     local enable_luks="${1:-0}"
@@ -2084,7 +2085,7 @@ ensure_fs_support_for_luks_lvm() {
     fi
 
     echo "→ ensure_fs_support_for_luks_lvm() finished."
-}
+
 
     # Patch mkinitcpio.conf
     arch-chroot /mnt /bin/bash <<'CHROOT_LVM_EOF'
@@ -2116,7 +2117,7 @@ echo "→ (chroot) mkinitcpio.conf updated for LUKS + LVM."
 CHROOT_LVM_EOF
 
     echo "→ ensure_fs_support_for_luks_lvm() finished."
-}
+    }
 # ---------------------------------------------
 # create_more_Luks&LVM (Luks+LVM-Route)
 # ---------------------------------------------
