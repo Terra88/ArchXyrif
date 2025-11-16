@@ -1538,7 +1538,15 @@ custom_partition_wizard() {
         REMAINING=$(( disk_mib - LAST_END ))
         echo "→ Remaining disk: ${REMAINING}MiB"
     done
-    
+
+    echo ""
+    echo "=== Partition layout created ==="
+    printf "%s\n" "${PARTITIONS[@]}"
+    parted -s "$DEV" unit MiB print
+}
+
+create_more_disks(){
+
 while true; do
     read -rp "Do you want to edit more disks? (Y/n): " answer
 
@@ -1559,12 +1567,6 @@ done
 
 echo "Continuing with the rest of the script..."
 
-
-
-    echo ""
-    echo "=== Partition layout created ==="
-    printf "%s\n" "${PARTITIONS[@]}"
-    parted -s "$DEV" unit MiB print
 }
 
 #=========================================================================================================================================#
@@ -1829,6 +1831,7 @@ CHROOT_EOF
 #=========================================================================================================================================#
 custom_partition(){
     custom_partition_wizard
+    create_more_disks
     format_and_mount_custom
     install_base_system
 
