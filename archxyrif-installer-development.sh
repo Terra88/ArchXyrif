@@ -718,6 +718,10 @@ DEFAULT_LOCALE="fi_FI.UTF-8"
 read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
 LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
+DEFAULT_KEYMAP="fi"
+read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " LANG_KEYMAP
+LANG_KEYMAP="${LANG_KEYMAP}:-${DEFAULT_KEYMAP}"
+
 DEFAULT_HOSTNAME="archbox"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
 HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
@@ -769,10 +773,10 @@ HOSTS
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
-echo "KEYMAP=fi" > /etc/vconsole.conf
+echo "KEYMAP=${DEFAULT_KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
-localectl set-keymap fi
-localectl set-x11-keymap fi
+localectl set-keymap ${DEFAULT_KEYMAP}
+localectl set-x11-keymap ${DEFAULT_KEYMAP}
 #========================================================#
 # 5) Initramfs
 #========================================================#
