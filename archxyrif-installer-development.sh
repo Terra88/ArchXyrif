@@ -159,13 +159,13 @@ safe_disk_cleanup() {
     # 2) Deactivate LVMs on this disk
     echo "→ Deactivating LVM volumes related to $DEV ..."
     vgchange -an || true
-    for lv in $(lsblk -l -tpfs NAME "$DEV" | grep -E '^.*--.*$' || true); do
+    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
         dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
     done
 
     # 3) Close any LUKS mappings that belong to this disk
     echo "→ Closing any LUKS mappings..."
-    for map in $(lsblk -l -tpfs NAME,TYPE | awk '$2=="crypt"{print $1}'); do
+    for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
         local backing
         backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
         [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
@@ -173,7 +173,7 @@ safe_disk_cleanup() {
 
     # 4) Unmount all partitions of $DEV (not anything else!)
     echo "→ Unmounting mounted partitions of $DEV..."
-    for p in $(lsblk -l -tpfs -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
+    for p in $(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
         local part="/dev/$p"
         if mountpoint -q "/dev/$p" 2>/dev/null || grep -q "^$part" /proc/mounts; then
             umount -R "$part" 2>/dev/null && echo "  Unmounted $part"
@@ -189,7 +189,7 @@ safe_disk_cleanup() {
 
     # 6) Optional signature wipe
     echo "→ Wiping old filesystem / partition signatures..."
-    for part in $(lsblk -l -tpfs -o NAME "$DEV" | tail -n +2); do
+    for part in $(lsblk -ln -o NAME "$DEV" | tail -n +2); do
         wipefs -af "/dev/$part" 2>/dev/null || true
     done
     wipefs -af "$DEV" 2>/dev/null || true
@@ -435,7 +435,7 @@ ask_partition_sizes() {
     echo "Disk $DEV ≈ ${disk_gib_int} GiB"
 
     while true; do
-        lsblk -l -tpfs NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
 
         # Maximum root size = total disk - swap - reserved (EFI/BIOS) - minimal home
         local reserved_gib
@@ -729,7 +729,7 @@ install_grub() {
     # Detect LUKS (outermost layer)
     #--------------------------------------#
     echo "→ Detecting LUKS containers..."
-    mapfile -t luks_lines < <(lsblk -l -tpfs NAME,TYPE -nr | grep -E "crypt|luks")
+    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
     for line in "${luks_lines[@]}"; do
         echo "→ LUKS container: $line"
         [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
@@ -739,7 +739,7 @@ install_grub() {
     # Detect LVM (next layer)
     #--------------------------------------#
     echo "→ Detecting LVM volumes..."
-    if lsblk -tpfs TYPE -nr | grep -q "lvm"; then
+    if lsblk -o TYPE -nr | grep -q "lvm"; then
         echo "→ Found LVM."
         [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
     fi
@@ -748,7 +748,7 @@ install_grub() {
     # Detect filesystems under /mnt (final layer)
     #--------------------------------------#
     echo "→ Detecting filesystems..."
-    mapfile -t fs_lines < <(lsblk -l -tpfs MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
     for line in "${fs_lines[@]}"; do
         fs=$(awk '{print $2}' <<< "$line")
         [[ -n "$fs" ]] && add_fs_module "$fs"
@@ -1388,7 +1388,7 @@ hyprland_optional()
 quick_partition() {
     detect_boot_mode
     echo "Available disks:"
-    lsblk -l -tpfs NAME,SIZE,MODEL,TYPE
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
     while true; do
         read -rp "Enter target disk (e.g. /dev/sda): " DEV
         DEV="/dev/${DEV##*/}"
@@ -1451,7 +1451,7 @@ custom_partition_wizard() {
     detect_boot_mode
 
     echo "=== Custom Partitioning ==="
-    lsblk -l -tpfs NAME,SIZE,MODEL,TYPE
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
 
     read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
     DEV="/dev/${DEV##*/}"
@@ -1909,7 +1909,7 @@ luks_lvm_route() {
     detect_boot_mode
 
     echo "Available disks:"
-    lsblk -l -tpfs NAME,SIZE,MODEL,TYPE
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
     while true; do
         read -rp "Enter target disk (e.g. /dev/sda): " DEV
         DEV="/dev/${DEV##*/}"
