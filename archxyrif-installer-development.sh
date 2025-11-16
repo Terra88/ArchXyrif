@@ -2197,7 +2197,7 @@ elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
       parted -s "$DEV" mkpart primary 1MiB 2MiB
       # CRITICAL: BIOS Boot Partition (1MiB, unformatted)
       parted -s "$DEV" set 1 bios_grub on
-      PART_GRUB_BIOS="$[DEV}${ps}1" # Store this for reference if needed
+      PART_GRUB_BIOS="${DEV}${ps}1" # Store this for reference if needed
 
       # Separate /boot partition (512MiB, formatted ext4)
       parted -s "$DEV" mkpart primary 2MiB 514MiB
