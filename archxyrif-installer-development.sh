@@ -1970,12 +1970,6 @@ luks_lvm_route() {
         BASE_DEVICE="$PART"
     fi
 
-    # after creating $PART and mapping name $cryptname
-    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-      UUID=$(blkid -s UUID -o value "$PART")
-      echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
-    fi
-
     # Make LVM physical volume and VG
     echo "→ Setting up LVM on $BASE_DEVICE"
     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
@@ -2110,13 +2104,17 @@ luks_lvm_route() {
     ensure_fs_support_for_luks_lvm
     # Continue with common installer flow
     install_base_system
-
-     # Generate fstab
-    arch-chroot /mnt pacman -Sy --noconfirm --needed --quiet >/dev/null || true
+    
+     # Create crypttab so system can map the LUKS container at boot
+    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+      UUID=$(blkid -s UUID -o value "$PART")
+      echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
+    fi
+    
+    # Generate fstab after pacstrap
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
-    echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
     
     configure_system
 
