@@ -1571,9 +1571,9 @@ custom_partition_wizard() {
     parted -s "$DEV" unit MiB print
 }
 
-# -------------------------
-# create_more_disks (unchanged other than message)
-# -------------------------
+# ---------------------------------------------
+# create_more_disks (Custom_Partitioon_wizard)
+# ---------------------------------------------
 create_more_disks(){
     while true; do
         read -rp "Do you want to edit another disk? (Y/n): " answer
@@ -1988,6 +1988,28 @@ CHROOT_LVM_EOF
 
     echo "→ ensure_fs_support_for_luks_lvm() finished."
 }
+# ---------------------------------------------
+# create_more_Luks&LVM (Luks+LVM-Route)
+# ---------------------------------------------
+create_more_lvm(){
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                luks_lvm_route
+                ;;
+            [Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+    echo "Continuing with the rest of the script..."
+}
 #=====================================================================================================================================#
 # LUKS LV
 #=====================================================================================================================================#
@@ -2252,7 +2274,8 @@ luks_lvm_route() {
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
-    
+
+    create_more_lvm
     configure_system
 
     # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
