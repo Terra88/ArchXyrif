@@ -725,7 +725,6 @@ install_grub() {
         GRUB_MODULES+=" mdraid1x"
     fi
 
-if [[ "$VGNAME" == "${VGNAME[@]}" ]]; then
     #--------------------------------------#
     # Detect LUKS (outermost layer)
     #--------------------------------------#
@@ -748,8 +747,7 @@ if [[ "$VGNAME" == "${VGNAME[@]}" ]]; then
     #Luks - crypttab detector:
     #-------------------------
     arch-chroot GRUB_CMDLINE_LINUX="cryptdevice=UUID=<uuid>:cryptlvm root=/dev/<vgname>/<rootlv>"
-
-else
+    
 
     #--------------------------------------#
     # Detect filesystems under /mnt (final layer)
@@ -805,7 +803,7 @@ else
 
         # Create entry
         efibootmgr -c -d "$DEV" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
-    fi
+    
 
     #--------------------------------------#
     # Generate GRUB config
