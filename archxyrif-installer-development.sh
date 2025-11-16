@@ -755,6 +755,10 @@ install_grub() {
 
     echo "→ Final GRUB modules: $GRUB_MODULES"
 
+    #Luks - crypttab detector:
+    #-------------------------
+    arch-chroot GRUB_CMDLINE_LINUX="cryptdevice=UUID=<uuid>:cryptlvm root=/dev/<vgname>/<rootlv>"
+
     #--------------------------------------#
     # BIOS MODE
     #--------------------------------------#
@@ -1964,6 +1968,12 @@ luks_lvm_route() {
         echo "→ LUKS mapper at $LUKS_MAPPER"
     else
         BASE_DEVICE="$PART"
+    fi
+
+    # after creating $PART and mapping name $cryptname
+    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+      UUID=$(blkid -s UUID -o value "$PART")
+      echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
     fi
 
     # Make LVM physical volume and VG
