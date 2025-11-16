@@ -1960,6 +1960,30 @@ custom_partition(){
 ensure_fs_support_for_luks_lvm() {
     echo "→ Running ensure_fs_support_for_luks_lvm()"
 
+    # Build package list to install inside the target
+    local pkgs=()
+    (( want_xfs ))  && pkgs+=(xfsprogs)
+    (( want_f2fs )) && pkgs+=(f2fs-tools)
+    (( want_btrfs ))&& pkgs+=(btrfs-progs)
+    (( want_ext4 )) && pkgs+=(e2fsprogs)
+
+    # If LUKS/LVM requested, ensure cryptsetup/lvm2 are installed in the target
+    if [[ -n "$cryptname" ]]; then
+        pkgs+=(cryptsetup lvm2)
+    fi
+
+    if [[ ${#pkgs[@]} -eq 0 ]]; then
+        echo "→ No special filesystem tools required for custom install."
+    else
+        echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+            echo "⚠️ pacman install inside chroot failed once; retrying..."
+            sleep 1
+            arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
+        }
+    fi
+
+
     # Install required packages
     arch-chroot /mnt pacman -Sy --noconfirm cryptsetup lvm2 || {
         echo "⚠️ Package install failed once, retrying..."
