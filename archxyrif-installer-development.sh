@@ -861,6 +861,13 @@ echo "✅ System configured."
 install_grub() {
     detect_boot_mode
     local ps
+    # 1. Determine the list of disks involved in the installation
+    # This finds all physical disks that have a partition currently mounted in /mnt.
+    # It ensures that all disks contributing to the root or boot filesystem are targeted.
+    local TARGET_DISKS=()
+    # Get all physical devices that contain partitions currently mounted in /mnt
+    # Using 'mount' to find all mounted partitions, then 'lsblk' to find their parent disk.
+    local MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
     ps=$(part_suffix "$DEV")
 
     # Start with minimal essential modules
@@ -920,6 +927,32 @@ install_grub() {
     done
 
     echo "→ Final GRUB modules: $GRUB_MODULES"
+
+    for PART in $MOUNTED_PARTS; do
+        # Use lsblk to find the parent device (e.g., /dev/sda for /dev/sda3)
+        # Note: If partitions are LUKS/LVM, this will trace back to the physical device.
+        # -dn: no headers, no children
+        # -o PKNAME: prints the physical device name (e.g., sda)
+        local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
+
+        if [[ -n "$PARENT_DISK" ]]; then
+            # Reconstruct the full path (e.g., /dev/sda)
+            local FULL_DISK="/dev/$PARENT_DISK"
+            
+            # Add to list if not already present
+            if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
+                TARGET_DISKS+=("$FULL_DISK")
+            fi
+        fi
+    done
+
+    if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
+        echo "ERROR: Could not find any physical disk devices mounted under /mnt."
+        return 1
+    fi
+
+    echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
+
     
     #--------------------------------------#
     # BIOS MODE
