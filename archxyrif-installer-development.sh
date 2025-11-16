@@ -695,7 +695,11 @@ PKGS=(
   openssh
   intel-ucode
   amd-ucode
-  btrfs-progs     
+  btrfs-progs
+  f2fs-tools
+  xfsprogs
+  lvm2
+  cryptsetup
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
@@ -1959,12 +1963,13 @@ custom_partition(){
 #=====================================================================
 ensure_fs_support_for_luks_lvm() 
 {
-    echo "→ Running ensure_fs_support_for_luks_lvm()"
+    echo "→ Running ensure_fs_support_for_luks_lvm() for post-install configuration."
 
     local enable_luks="${1:-0}"
     local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
 
-    # Detect requested FS types from LV_FSS
+    # 1. Detect required FS tools based on volumes created
+    # This logic assumes LV_FSS is a global array populated earlier.
     for fs in "${LV_FSS[@]}"; do
         case "$fs" in
             xfs)   want_xfs=1 ;;
@@ -1975,153 +1980,52 @@ ensure_fs_support_for_luks_lvm()
         esac
     done
 
-    # Build package list for installation
+    # 2. Build package list for installation
     local pkgs=()
     (( want_xfs ))  && pkgs+=(xfsprogs)
     (( want_f2fs )) && pkgs+=(f2fs-tools)
     (( want_btrfs ))&& pkgs+=(btrfs-progs)
     (( want_ext4 )) && pkgs+=(e2fsprogs)
 
-    # Add cryptsetup/lvm2 if LUKS/LVM requested
+   # CRITICAL: Always include lvm2 and cryptsetup here to guarantee they are available for mkinitcpio.
+    pkgs+=(lvm2)
     if [[ "$enable_luks" -eq 1 ]]; then
-        pkgs+=(cryptsetup lvm2)
+        pkgs+=(cryptsetup)
     fi
 
-    if (( ${#pkgs[@]} == 0 )); then
-        echo "→ No special filesystem tools required for this install."
+   # 3. Install required tools inside chroot
+    if (( ${#pkgs[@]} > 0 )); then
+        echo "→ Installing critical filesystem/tools into target: ${pkgs[*]}"
+        
+        # Use -Syu to ensure repository synchronization (Sy) and upgrade packages (u)
+        # for a more robust installation inside the chroot environment.
+        arch-chroot /mnt pacman -Syu --noconfirm "${pkgs[@]}" || die "Failed to install required tools in target system."
     else
-        echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
-        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
-            echo "⚠️ pacman install inside chroot failed; retrying..."
-            sleep 1
-            arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
-        }
+        echo "→ No special filesystem tools required beyond base/lvm2/cryptsetup."
     fi
 
-    # Format and mount logical volumes
-    echo "→ Formatting and mounting logical volumes..."
-    mkdir -p /mnt
-    for i in "${!LV_NAMES[@]}"; do
-        name="${LV_NAMES[i]}"
-        fs="${LV_FSS[i]}"
-        mnt="${LV_MOUNTS[i]}"
-        lv_path="/dev/${VGNAME}/${name}"
-
-        if ! wait_for_lv "$lv_path"; then
-            die "LV device $lv_path did not appear"
-        fi
-
-        # Swap
-        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
-            echo "  → Creating swap LV: $lv_path"
-            mkswap "$lv_path" || die "mkswap failed $lv_path"
-            swapon "$lv_path" || die "swapon failed $lv_path"
-            continue
-        fi
-
-        # Format filesystem
-        echo "  → Formatting $lv_path as $fs"
-        case "$fs" in
-            ext4)  mkfs.ext4 -F "$lv_path" ;;
-            btrfs) mkfs.btrfs -f "$lv_path" ;;
-            xfs)   mkfs.xfs -f "$lv_path" ;;
-            f2fs)  mkfs.f2fs -f "$lv_path" ;;
-            *) die "Unsupported FS: $fs" ;;
-        esac
-
-        # Mount filesystem
-        case "$mnt" in
-            /)
-                mount "$lv_path" /mnt || die "mount $lv_path /mnt failed"
-                # Handle btrfs subvolume
-                if [[ "$fs" == "btrfs" ]]; then
-                    btrfs subvolume create /mnt/@ || true
-                    umount /mnt
-                    mount -o subvol=@,compress=zstd "$lv_path" /mnt || die "btrfs mount failed"
-                fi
-                ;;
-            /home)
-                mkdir -p /mnt/home
-                mount "$lv_path" /mnt/home || die "mount $lv_path /mnt/home failed"
-                ;;
-            /boot)
-                mkdir -p /mnt/boot
-                mount "$lv_path" /mnt/boot || die "mount $lv_path /mnt/boot failed"
-                ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi
-                mount "$lv_path" /mnt/boot/efi || die "mount $lv_path /mnt/boot/efi failed"
-                ;;
-            *)
-                mkdir -p "/mnt${mnt}"
-                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
-                ;;
-        esac
-    done
-
-    # Mount boot partition if defined in luks_lvm_route
-    if [[ -n "$PART_BOOT" && -b "$PART_BOOT" ]]; then
-        if [[ "$BOOTMODE" =~ [Uu][Ee][Ff][Ii] ]]; then
-            mkdir -p /mnt/boot/efi
-            mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
-        else
-            mkdir -p /mnt/boot
-            mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
-        fi
-        echo "→ Boot partition mounted at /mnt/boot or /mnt/boot/efi"
-    fi
-
-    # Patch mkinitcpio.conf hooks for LUKS/LVM
+    #4. Patch mkinitcpio.conf hooks (Single, clear block)
+    local HOOKS_LINE
     if [[ "$enable_luks" -eq 1 ]]; then
         echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
-        arch-chroot /mnt sed -i \
-            's|^HOOKS=.*|HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)|' \
-            /etc/mkinitcpio.conf
+        # Note the order: encrypt MUST be before lvm2
+        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)'
     else
         echo "→ Patching mkinitcpio.conf for LVM only..."
-        arch-chroot /mnt sed -i \
-            's|^HOOKS=.*|HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)|' \
-            /etc/mkinitcpio.conf
+        HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
     fi
+    
+    arch-chroot /mnt sed -i \
+        "s|^HOOKS=.*|${HOOKS_LINE}|" \
+        /etc/mkinitcpio.conf || die "mkinitcpio hook configuration failed"
 
-    echo "→ ensure_fs_support_for_luks_lvm() finished."
-
-
-    # Patch mkinitcpio.conf
-    arch-chroot /mnt /bin/bash <<'CHROOT_LVM_EOF'
-set -e
-MKCONF="/etc/mkinitcpio.conf"
-
-echo "→ (chroot) Patching mkinitcpio.conf for LUKS + LVM..."
-
-# Extract HOOKS
-current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
-
-# Required hooks, in order
-required="base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck"
-
-# Start building new HOOKS
-new_hooks="$required"
-
-# Add any existing hooks not already in the required list
-for tok in $current_hooks; do
-    if ! echo " $new_hooks " | grep -q " $tok "; then
-        new_hooks="$new_hooks $tok"
-    fi
-done
-
-# Replace HOOKS=() line safely
-sed -i "s|^HOOKS=.*|HOOKS=($new_hooks)|" "$MKCONF" || true
-
-echo "→ (chroot) mkinitcpio.conf updated for LUKS + LVM."
-CHROOT_LVM_EOF
-
-# ⚠️ CRITICAL: Regenerate Initramfs (This MUST happen after sed)
+    # 5. CRITICAL: Regenerate Initramfs (Final step)
     echo "→ Regenerating initramfs with LVM/LUKS hooks..."
-    arch-chroot /mnt mkinitcpio -P || die "mkinitcpio build failed"
+    arch-chroot /mnt mkinitcpio -P || die "mkinitcpio build failed."
 
     echo "→ ensure_fs_support_for_luks_lvm() finished."
-    }
+} # End of function
+
 # ---------------------------------------------
 # create_more_Luks&LVM (Luks+LVM-Route)
 # ---------------------------------------------
