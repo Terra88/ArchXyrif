@@ -2074,13 +2074,13 @@ luks_lvm_route() {
         esac
     done
 
+    ensure_fs_support_for_luks_lvm
     # Generate fstab
     arch-chroot /mnt pacman -Sy --noconfirm --needed --quiet >/dev/null || true
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
 
-    ensure_fs_support_for_luks_lvm
     # Continue with common installer flow
     install_base_system
     configure_system
