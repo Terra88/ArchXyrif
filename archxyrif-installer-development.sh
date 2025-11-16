@@ -1960,37 +1960,59 @@ custom_partition(){
 ensure_fs_support_for_luks_lvm() {
     echo "→ Running ensure_fs_support_for_luks_lvm()"
 
-    # Build package list to install inside the target
+    local enable_luks="${1:-0}"
+    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+
+    # Detect requested FS types from LV_FSS
+    for fs in "${LV_FSS[@]}"; do
+        case "$fs" in
+            xfs)   want_xfs=1 ;;
+            f2fs)  want_f2fs=1 ;;
+            btrfs) want_btrfs=1 ;;
+            ext4)  want_ext4=1 ;;
+            swap)  ;; # swap does not require fs tools
+        esac
+    done
+
+    # Build package list for installation
     local pkgs=()
     (( want_xfs ))  && pkgs+=(xfsprogs)
     (( want_f2fs )) && pkgs+=(f2fs-tools)
     (( want_btrfs ))&& pkgs+=(btrfs-progs)
     (( want_ext4 )) && pkgs+=(e2fsprogs)
 
-    # If LUKS/LVM requested, ensure cryptsetup/lvm2 are installed in the target
-    if [[ -n "$cryptname" ]]; then
+    # Add cryptsetup/lvm2 if LUKS/LVM requested
+    if [[ "$enable_luks" -eq 1 ]]; then
         pkgs+=(cryptsetup lvm2)
     fi
 
-    if [[ ${#pkgs[@]} -eq 0 ]]; then
-        echo "→ No special filesystem tools required for custom install."
-    else
-        echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
-        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
-            echo "⚠️ pacman install inside chroot failed once; retrying..."
-            sleep 1
-            arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
-        }
+    if (( ${#pkgs[@]} == 0 )); then
+        echo "→ No special filesystem tools required for this install."
+        return
     fi
 
-
-    # Install required packages
-    arch-chroot /mnt pacman -Sy --noconfirm cryptsetup lvm2 || {
-        echo "⚠️ Package install failed once, retrying..."
+    echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+        echo "⚠️ pacman install inside chroot failed; retrying..."
         sleep 1
-        arch-chroot /mnt pacman -Sy --noconfirm cryptsetup lvm2 \
-            || die "Failed to install cryptsetup/lvm2 in target"
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
     }
+
+    # Patch mkinitcpio.conf hooks for LUKS/LVM
+    if [[ "$enable_luks" -eq 1 ]]; then
+        echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
+        arch-chroot /mnt sed -i \
+            's|^HOOKS=.*|HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)|' \
+            /etc/mkinitcpio.conf
+    else
+        echo "→ Patching mkinitcpio.conf for LVM only..."
+        arch-chroot /mnt sed -i \
+            's|^HOOKS=.*|HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)|' \
+            /etc/mkinitcpio.conf
+    fi
+
+    echo "→ ensure_fs_support_for_luks_lvm() finished."
+}
 
     # Patch mkinitcpio.conf
     arch-chroot /mnt /bin/bash <<'CHROOT_LVM_EOF'
@@ -2345,7 +2367,7 @@ fi
     create_more_lvm
     
     install_base_system
-    ensure_fs_support_for_luks_lvm
+    ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"
     # Continue with common installer flow
     
      # Create crypttab so system can map the LUKS container at boot
