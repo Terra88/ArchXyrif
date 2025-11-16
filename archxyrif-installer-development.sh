@@ -1744,6 +1744,235 @@ CHROOT_EOF
 
     echo "→ ensure_fs_support_for_custom() finished."
 }
+#=====================================================================================================================================#
+# LUKS LV
+#=====================================================================================================================================#
+# -------------------------------------------------------------------------
+# Option 3: LUKS + LVM guided route
+# -------------------------------------------------------------------------
+luks_lvm_route() {
+    detect_boot_mode
+
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
+
+    read -rp "This will ERASE ALL DATA on $DEV. Continue? [y/N]: " yn
+    yn="${yn:-N}"
+    if [[ ! "$yn" =~ ^[Yy]$ ]]; then
+        echo "Aborted by user."
+        return 1
+    fi
+
+    # Ensure tools available on live environment
+    for cmd in cryptsetup pvcreate vgcreate lvcreate lvs; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "ERROR: '$cmd' is required but not found on live system. Install lvm2/cryptsetup and retry."
+            return 1
+        fi
+    done
+
+    safe_disk_cleanup
+
+    # Create GPT and single primary partition occupying the usable space (leave small buffer)
+    ps=$(part_suffix "$DEV")
+    echo "→ Creating a single primary partition on $DEV (GPT)"
+    parted -s "$DEV" mklabel gpt || die "Failed to mklabel gpt on $DEV"
+
+    # Reserve EFI/boot area if UEFI/BIOS is required by your workflow. By default create one partition spanning rest.
+    # Here we create a partition from 1MiB to 100% for the LUKS container.
+    parted -s "$DEV" mkpart primary 1MiB 100% || die "parted mkpart failed"
+    partprobe "$DEV"; udevadm settle --timeout=5
+
+    PART="${DEV}${ps}1"
+    [[ -b "$PART" ]] || die "Partition $PART not found."
+
+    echo "Created partition: $PART"
+
+    # Ask about encryption
+    read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
+    do_encrypt="${do_encrypt:-Y}"
+
+    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+        echo "→ Creating LUKS container on $PART"
+        # Prompt for LUKS options (default: LUKS2)
+        read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
+        luks2="${luks2:-Y}"
+        if [[ "$luks2" =~ ^[Yy]$ ]]; then
+            cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
+        else
+            cryptsetup luksFormat "$PART" || die "luksFormat failed"
+        fi
+
+        read -rp "Name for mapped device (default: cryptlvm): " cryptname
+        cryptname="${cryptname:-cryptlvm}"
+        cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
+        LUKS_MAPPER="/dev/mapper/${cryptname}"
+        BASE_DEVICE="$LUKS_MAPPER"
+        echo "→ LUKS mapper at $LUKS_MAPPER"
+    else
+        BASE_DEVICE="$PART"
+    fi
+
+    # Make LVM physical volume and VG
+    echo "→ Setting up LVM on $BASE_DEVICE"
+    pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+    read -rp "Volume Group name (default: vg0): " VGNAME
+    VGNAME="${VGNAME:-vg0}"
+    vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+
+    # Interactive creation of LVs
+    declare -a LV_NAMES=()
+    declare -a LV_SIZES=()
+    declare -a LV_FSS=()
+    declare -a LV_MOUNTS=()
+
+    echo
+    echo "Now create logical volumes (examples: root 40G / , swap 8G swap, home 100%FREE /home)"
+    echo "Enter empty name to finish."
+
+    while true; do
+        read -rp "LV name (empty to finish): " lvname
+        [[ -z "$lvname" ]] && break
+
+        read -rp "Size for $lvname (e.g. 40G or 10%VG or 100%FREE): " lvsize
+        lvsize="${lvsize:-100%FREE}"
+
+        # Ask for intended mount
+        read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
+        lvmnt="${lvmnt:-none}"
+
+        # Filesystem choice (skip if swap)
+        if [[ "$lvmnt" == "swap" ]]; then
+            lvfs="swap"
+        else
+            read -rp "Filesystem for $lvname (ext4,btrfs,xfs,f2fs): " lvfs
+            lvfs="${lvfs:-ext4}"
+        fi
+
+        LV_NAMES+=("$lvname")
+        LV_SIZES+=("$lvsize")
+        LV_FSS+=("$lvfs")
+        LV_MOUNTS+=("$lvmnt")
+    done
+
+    if [[ ${#LV_NAMES[@]} -eq 0 ]]; then
+        die "No LVs defined; aborting."
+    fi
+
+    # Create LVs
+    echo "→ Creating logical volumes in VG ${VGNAME}..."
+    for i in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[i]}"
+        size="${LV_SIZES[i]}"
+        if [[ "$size" =~ %FREE ]]; then
+            # allow user to request 100%FREE; we treat '100%FREE' or '100%FREE' as full
+            if [[ "$size" == "100%FREE" || "$size" == "100%FREE" ]]; then
+                lvcreate -l 100%FREE "$VGNAME" -n "$name" || die "lvcreate $name failed"
+            else
+                # Accept other percent forms like 10%VG
+                lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
+            fi
+        else
+            lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
+        fi
+    done
+
+    # Compose LV device paths and format/mount them
+    echo "→ Formatting and mounting LVs..."
+    mkdir -p /mnt
+
+    for i in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[i]}"
+        fs="${LV_FSS[i]}"
+        mnt="${LV_MOUNTS[i]}"
+        lv_path="/dev/${VGNAME}/${name}"
+
+        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
+            echo "  → Creating swap LV: $lv_path"
+            mkswap "$lv_path" || die "mkswap failed $lv_path"
+            swapon "$lv_path" || die "swapon failed $lv_path"
+            P_SWAP="$lv_path"
+            continue
+        fi
+
+        echo "  → Formatting $lv_path as $fs"
+        case "$fs" in
+            ext4)  mkfs.ext4 -F "$lv_path" ;;
+            btrfs) mkfs.btrfs -f "$lv_path" ;;
+            xfs)   mkfs.xfs -f "$lv_path" ;;
+            f2fs)  mkfs.f2fs -f "$lv_path" ;;
+            *) die "Unsupported FS: $fs" ;;
+        esac
+
+        # Decide mountpoint path under /mnt
+        case "$mnt" in
+            /)
+                mount "$lv_path" /mnt || die "mount $lv_path /mnt failed"
+                P_ROOT="$lv_path"
+                # handle btrfs subvol if requested similarly to your logic
+                if [[ "$fs" == "btrfs" ]]; then
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$lv_path" /mnt || die "btrfs mount failed"
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$lv_path" /mnt/home || die "mount $lv_path /mnt/home failed"
+                P_HOME="$lv_path"
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$lv_path" /mnt/boot || die "mount $lv_path /mnt/boot failed"
+                P_BOOT="$lv_path"
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$lv_path" /mnt/boot/efi || die "mount $lv_path /mnt/boot/efi failed"
+                P_EFI="$lv_path"
+                ;;
+            /data*|/srv|/opt)
+                mkdir -p "/mnt${mnt}"
+                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
+                ;;
+            none)
+                # skip mounting
+                ;;
+            *)
+                mkdir -p "/mnt${mnt}"
+                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
+                ;;
+        esac
+    done
+
+    # Generate fstab
+    arch-chroot /mnt pacman -Sy --noconfirm --needed --quiet >/dev/null || true
+    genfstab -U /mnt > /mnt/etc/fstab
+    echo "→ Generated /mnt/etc/fstab:"
+    cat /mnt/etc/fstab
+
+    # Continue with common installer flow
+    install_base_system
+    ensure_fs_support_for_custom
+    configure_system
+
+    # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
+    # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+
+    echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
+}
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
 #=========================================================================================================================================#
