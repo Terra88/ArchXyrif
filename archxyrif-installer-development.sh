@@ -720,8 +720,8 @@ read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
 LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
-read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " LANG_KEYMAP
-LANG_KEYMAP="${LANG_KEYMAP}:-${DEFAULT_KEYMAP}"
+read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
+KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
