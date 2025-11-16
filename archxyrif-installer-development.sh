@@ -85,6 +85,12 @@ BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
 EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
+#-------------------LV-LUKS-----------------------------------#
+ENCRYPTION_ENABLED=0 # 0=false, 1=true
+LUKS_PART_UUID=""
+LUKS_MAPPER_NAME=""
+LVM_VG_NAME=""
+LVM_ROOT_LV_NAME=""
 # Global partition variables (will be set in format_and_mount)
 P_EFI=""
 P_BOOT=""
@@ -2047,6 +2053,7 @@ luks_lvm_route() {
     do_encrypt="${do_encrypt:-Y}"
 
     if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+        ENCRYPTION_ENABLED=1
         echo "→ Creating LUKS container on $PART"
         # Prompt for LUKS options (default: LUKS2)
         read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
@@ -2059,11 +2066,16 @@ luks_lvm_route() {
 
         read -rp "Name for mapped device (default: cryptlvm): " cryptname
         cryptname="${cryptname:-cryptlvm}"
+        LUKS_MAPPER_NAME="$cryptname"
         cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
         LUKS_MAPPER="/dev/mapper/${cryptname}"
         BASE_DEVICE="$LUKS_MAPPER"
         echo "→ LUKS mapper at $LUKS_MAPPER"
+
+        # GET AND SAVE THE UUID of the physical partition
+        LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
     else
+        ENCRYPTION_ENABLED=0
         BASE_DEVICE="$PART"
     fi
 
@@ -2072,6 +2084,7 @@ luks_lvm_route() {
     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
     read -rp "Volume Group name (default: vg0): " VGNAME
     VGNAME="${VGNAME:-vg0}"
+    LVM_VG_NAME="$VGNAME"
     vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
 
     # Interactive creation of LVs
@@ -2095,6 +2108,10 @@ luks_lvm_route() {
         read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
         lvmnt="${lvmnt:-none}"
 
+        if [[ "$lvmnt" == "/" ]]; then
+        LVM_ROOT_LV_NAME="$lvname"
+        fi
+        
         # Filesystem choice (skip if swap)
         if [[ "$lvmnt" == "swap" ]]; then
             lvfs="swap"
