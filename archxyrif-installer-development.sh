@@ -1834,11 +1834,8 @@ format_and_mount_custom() {
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
-    # Optional first argument: if non-empty, enable LUKS+LVM support (install cryptsetup/lvm2 and add mkinitcpio hooks)
-    local enable_luks="${1:-}"
-    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
-
     # Detect requested FS types (prefer PARTITIONS array)
+    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
     if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
         for e in "${PARTITIONS[@]}"; do
             IFS=':' read -r p m f l <<< "$e"
@@ -1871,106 +1868,57 @@ ensure_fs_support_for_custom() {
     (( want_btrfs ))&& pkgs+=(btrfs-progs)
     (( want_ext4 )) && pkgs+=(e2fsprogs)
 
-    # If LUKS/LVM requested, ensure cryptsetup/lvm2 are installed in the target
-    if [[ -n "$enable_luks" ]]; then
-        pkgs+=(cryptsetup lvm2)
-    fi
-
     if [[ ${#pkgs[@]} -eq 0 ]]; then
         echo "→ No special filesystem tools required for custom install."
-    else
-        echo "→ Installing filesystem/tools into target: ${pkgs[*]}"
-        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
-            echo "⚠️ pacman install inside chroot failed once; retrying..."
-            sleep 1
-            arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
-        }
+        return 0
     fi
 
+    echo "→ Installing filesystem tools into target: ${pkgs[*]}"
+    arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
+        echo "⚠️ pacman install inside chroot failed once; retrying..."
+        sleep 1
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
+    }
+
     # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
-    # We pass the enable flag into the chroot environment so the heredoc's shell can read it.
-    arch-chroot /mnt env ENABLE_LUKS="${enable_luks}" /bin/bash <<'CHROOT_EOF'
+    arch-chroot /mnt /bin/bash <<'CHROOT_EOF'
 set -e
 MKCONF="/etc/mkinitcpio.conf"
 
 echo "→ (chroot) Patching ${MKCONF}..."
 
-# Read current HOOKS if present (extract content within parentheses)
+# Ensure HOOKS contains 'block' before 'filesystems'. If HOOKS exists, try to ensure order.
 if grep -q '^HOOKS=' "$MKCONF"; then
+    # Extract current hooks (naive)
     current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
-else
-    current_hooks=""
-fi
-
-# Build the base hooks sequence we want to ensure exist, preserving existing tokens
-# Keep 'filesystems' near the end, ensure 'block' before it.
-base_tokens=(base udev autodetect modconf block)
-
-# If encryption/LVM requested in the caller, insert 'encrypt' and 'lvm2' after 'block' (but only if not present)
-if [[ -n "${ENABLE_LUKS:-}" ]]; then
-    # Insert in desired order: encrypt then lvm2 (if not already present)
-    base_tokens+=(encrypt lvm2)
-fi
-
-# Ensure 'filesystems' is present after block/encrypt/lvm2
-base_tokens+=(filesystems)
-
-# Now append any tokens from current_hooks that are not already included, preserving order
-for tok in $current_hooks; do
-    # skip if token already present in base_tokens
-    already=0
-    for bt in "${base_tokens[@]}"; do
-        if [[ "$bt" == "$tok" ]]; then
-            already=1
-            break
+    # Build a desired base sequence and then append any existing hooks not duplicate
+    base="base udev autodetect modconf block filesystems"
+    # Append any tokens from current_hooks that aren't already in base
+    for tok in $current_hooks; do
+        if ! echo " $base " | grep -q " $tok "; then
+            base="$base $tok"
         fi
     done
-    if [[ $already -eq 0 ]]; then
-        base_tokens+=("$tok")
-    fi
-done
-
-# Rebuild HOOKS line safely: join tokens with space
-new_hooks_line="HOOKS=($(
-    first=1
-    for t in "${base_tokens[@]}"; do
-        if [[ $first -eq 1 ]]; then
-            printf "%s" "$t"
-            first=0
-        else
-            printf " %s" "$t"
-        fi
-    done
-))" 
-
-# Replace or add the HOOKS= line
-if grep -q '^HOOKS=' "$MKCONF"; then
-    # use sed to replace the whole line
-    sed -i "s|^HOOKS=.*|${new_hooks_line}|" "$MKCONF" || true
+    # Replace HOOKS line
+    sed -i "s|^HOOKS=(.*)|HOOKS=($base)|" "$MKCONF" 2>/dev/null || sed -i "s|^HOOKS=.*|HOOKS=($base)|" "$MKCONF" || true
 else
-    echo "${new_hooks_line}" >> "$MKCONF"
+    echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
 fi
 
-# Build desired module list depending on available mkfs utilities (do not overwrite existing modules)
+# Build desired module list depending on available mkfs utilities
 desired_modules=()
 command -v mkfs.xfs >/dev/null 2>&1 && desired_modules+=(xfs)
 command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
 command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
 command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
 
+# If MODULES exists, append missing modules; otherwise create it.
 if grep -q '^MODULES=' "$MKCONF"; then
     existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF" || echo "")
     for m in "${desired_modules[@]}"; do
         if ! echo " $existing " | grep -q " $m "; then
             # append module
-            # handle empty capture gracefully
-            if [[ -z "$existing" ]]; then
-                sed -i "s|^MODULES=.*|MODULES=($m)|" "$MKCONF" || true
-                existing="$m"
-            else
-                sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
-                existing="$existing $m"
-            fi
+            sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
         fi
     done
 else
