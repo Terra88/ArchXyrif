@@ -1925,9 +1925,9 @@ luks_lvm_route() {
     # Example (pseudo):
     if [ "$BOOTMODE" = "uefi" ]; then
       parted -s "$DEV" mklabel gpt
-      parted -s "$DEV" mkpart ESP fat32 1MiB 513MiB
+      parted -s "$DEV" mkpart ESP fat32 1MiB 1024MiB
       parted -s "$DEV" set 1 boot on
-      parted -s "$DEV" mkpart primary 513MiB 100%
+      parted -s "$DEV" mkpart primary 1025MiB 100%
       PART_BOOT="${DEV}${ps}1"
       PART="${DEV}${ps}2"
       mkfs.fat -F32 "$PART_BOOT"
@@ -2097,7 +2097,7 @@ luks_lvm_route() {
         esac
     done
 
-    ensure_fs_support_for_custom luks
+    ensure_fs_support_for_luks_lvm
     # Continue with common installer flow
     install_base_system
 
