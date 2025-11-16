@@ -1446,6 +1446,9 @@ convert_to_mib() {
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
+# -------------------------
+# Improved custom_partition_wizard (no resetting of PARTITIONS)
+# -------------------------
 custom_partition_wizard() {
     clear
     detect_boot_mode
@@ -1475,14 +1478,13 @@ custom_partition_wizard() {
     read -rp "How many partitions would you like to create? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
-    PARTITIONS=()
     local START=1  # start in MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
     for ((i=1; i<=COUNT; i++)); do
         echo ""
-        echo "--- Partition $i ---"
+        echo "--- Partition $i on $DEV ---"
         parted -s "$DEV" unit MiB print
 
         # Read size
@@ -1501,9 +1503,14 @@ custom_partition_wizard() {
             END="100%"
         fi
 
-        # Mountpoint
+        # Mountpoint (validate input; disallow /mnt-prefixed values)
         while true; do
             read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
+            # Prevent user from entering /mnt/...
+            if [[ "$MNT" == /mnt* ]]; then
+                echo "Do NOT include /mnt in the mountpoint. Use e.g. /home, not /mnt/home."
+                continue
+            fi
             case "$MNT" in
                 /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
                 *) echo "Invalid mountpoint." ;;
@@ -1522,9 +1529,9 @@ custom_partition_wizard() {
         read -rp "Label (optional): " LABEL
 
         # Create partition
-        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
+        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed creating partition $i on $DEV"
 
-        # Construct partition node
+        # Construct partition node (e.g. /dev/sda1 or /dev/nvme0n1p1)
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
@@ -1540,46 +1547,98 @@ custom_partition_wizard() {
     done
 
     echo ""
-    echo "=== Partition layout created ==="
+    echo "=== Partition layout appended ==="
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
 }
 
+# -------------------------
+# create_more_disks (unchanged other than message)
+# -------------------------
 create_more_disks(){
-
-while true; do
-    read -rp "Do you want to edit more disks? (Y/n): " answer
-
-    case "$answer" in
-        [Yy]|"")
-            echo "Edit another disk ? ? ?"
-            custom_partition_wizard
-            ;;
-        [Nn])
-            echo "No more disks. Continuing..."
-            break
-            ;;
-        *)
-            echo "Please enter Y or n."
-            ;;
-    esac
-done
-
-echo "Continuing with the rest of the script..."
-
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                custom_partition_wizard
+                ;;
+            [Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+    echo "Continuing with the rest of the script..."
 }
 
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
+# -------------------------
+# format_and_mount_custom: strong validation + mount-order and checks
+# -------------------------
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
     mkdir -p /mnt
 
-    # Sort PARTITIONS so that / is mounted first, then /boot, then others
-    IFS=$'\n' sorted_partitions=($(printf "%s\n" "${PARTITIONS[@]}" | sort -t':' -k2,2))
-    unset IFS
+    # Validate that at least one root (/) entry exists
+    root_found=0
+    for e in "${PARTITIONS[@]}"; do
+        IFS=':' read -r _ m _ _ <<< "$e"
+        [[ "$m" == "/" ]] && root_found=1 && break
+    done
+    [[ $root_found -eq 1 ]] || die "No root (/) partition defined — aborting."
 
+    # Prevent duplicate mountpoints (except 'none' and 'swap')
+    declare -A seen_mp=()
+    for e in "${PARTITIONS[@]}"; do
+        IFS=':' read -r p m f l <<< "$e"
+        [[ "$m" == "none" || "$m" == "swap" ]] && continue
+        if [[ -n "${seen_mp[$m]:-}" ]]; then
+            die "Duplicate mountpoint detected: $m (each mountpoint should be unique)."
+        fi
+        seen_mp[$m]=1
+    done
+
+    # Sorting priority: / first, then /boot & /efi, then other explicit ones (home,data), then the rest
+    # Create a prioritized list
+    sorted_partitions=()
+    # helper to append matches
+    append_matches() {
+        local match="$1"
+        for e in "${PARTITIONS[@]}"; do
+            IFS=':' read -r p m f l <<< "$e"
+            if [[ "$m" == "$match" ]]; then
+                sorted_partitions+=("$e")
+            fi
+        done
+    }
+    append_matches "/"          # root first
+    append_matches "/boot"      # boot second
+    append_matches "/efi"       # efi next (also matches /boot/efi below)
+    # include /boot/efi (explicit)
+    for e in "${PARTITIONS[@]}"; do
+        IFS=':' read -r p m f l <<< "$e"
+        [[ "$m" == "/boot/efi" ]] && sorted_partitions+=("$e")
+    done
+    # then common mounts
+    append_matches "/home"
+    append_matches "/data1"
+    append_matches "/data2"
+    # then any remaining entries that haven't been added yet
+    for e in "${PARTITIONS[@]}"; do
+        already=0
+        for s in "${sorted_partitions[@]}"; do
+            [[ "$s" == "$e" ]] && already=1 && break
+        done
+        [[ $already -eq 0 ]] && sorted_partitions+=("$e")
+    done
+
+    # Now iterate sorted list and format & mount
     for entry in "${sorted_partitions[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
 
@@ -1588,9 +1647,9 @@ format_and_mount_custom() {
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        echo ">>> $PART ($FS) mount as $MOUNT"
+        echo ">>> $PART ($FS) -> $MOUNT"
 
-        # Format partition
+        # Format partition (skip formatting if MOUNT == none)
         case "$FS" in
             ext4)  mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
@@ -1611,45 +1670,58 @@ format_and_mount_custom() {
                 f2fs) f2fslabel "$PART" "$LABEL" ;;
                 fat32|vfat) fatlabel "$PART" "$LABEL" ;;
                 swap) mkswap -L "$LABEL" "$PART" ;;
-            esac
+            esac || echo "⚠️ Label command failed for $PART"
         }
 
-        # Mount according to mountpoint
+        # Mount according to mountpoint — ensure root mounts before others (we sorted)
         case "$MOUNT" in
             "/")
+                # mount root to /mnt and verify
                 if [[ "$FS" == "btrfs" ]]; then
-                    mount "$PART" /mnt
-                    btrfs subvolume create /mnt/@
-                    umount /mnt
-                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                    mount "$PART" /mnt || die "Failed to mount root $PART -> /mnt"
+                    btrfs subvolume create /mnt/@ || true
+                    umount /mnt || die "Failed to unmount temporarily mounted btrfs root"
+                    mount -o subvol=@,compress=zstd "$PART" /mnt || die "Failed to mount btrfs subvol @"
                 else
-                    mount "$PART" /mnt
+                    mount "$PART" /mnt || die "Failed to mount root $PART -> /mnt"
                 fi
-                ;;
-            /home)
-                mkdir -p /mnt/home
-                mount "$PART" /mnt/home
                 ;;
             /boot)
                 mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot
+                mount "$PART" /mnt/boot || die "Failed to mount $PART -> /mnt/boot"
                 ;;
             /efi|/boot/efi)
                 mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi || die "Failed to mount $PART -> /mnt/boot/efi"
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$PART" /mnt/home || die "Failed to mount $PART -> /mnt/home"
+                ;;
+            /data1)
+                mkdir -p /mnt/data1
+                mount "$PART" /mnt/data1 || die "Failed to mount $PART -> /mnt/data1"
+                ;;
+            /data2)
+                mkdir -p /mnt/data2
+                mount "$PART" /mnt/data2 || die "Failed to mount $PART -> /mnt/data2"
                 ;;
             *)
+                # generic mount: create parent dir under /mnt
                 mkdir -p "/mnt$MOUNT"
-                mount "$PART" "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT" || die "Failed to mount $PART -> /mnt$MOUNT"
                 ;;
         esac
     done
+
+    # Final check: ensure /mnt is a mountpoint before genfstab
+    mountpoint -q /mnt || die "/mnt is not a mountpoint after mounting root — aborting."
 
     echo "✅ All custom partitions formatted and mounted correctly."
 
     echo "→ Generating /etc/fstab..."
     mkdir -p /mnt/etc
-    genfstab -U /mnt > /mnt/etc/fstab
+    genfstab -U /mnt > /mnt/etc/fstab || die "genfstab failed"
     echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
@@ -1823,6 +1895,9 @@ CHROOT_EOF
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
 #=========================================================================================================================================#
+# -------------------------
+# custom_partition entrypoint (unchanged, but kept for clarity)
+# -------------------------
 custom_partition(){
     custom_partition_wizard
     create_more_disks
@@ -1842,6 +1917,7 @@ custom_partition(){
     optional_aur
     hyprland_optional
 }
+
 
 #=========================================================================================================================================#
 #=========================================================================================================================================#
