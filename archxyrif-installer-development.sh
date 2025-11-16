@@ -2198,9 +2198,19 @@ luks_lvm_route() {
         esac
     done
 
+    # --- ADD THIS SECTION ---
+    echo "→ Mounting boot partition..."
+    if [[ "$BOOTMODE" = "uefi" ]]; then # This logic is also flawed, see section 3
+        mkdir -p /mnt/boot/efi
+        mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
+    else
+        mkdir -p /mnt/boot
+        mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
+    fi
+    
+    install_base_system
     ensure_fs_support_for_luks_lvm
     # Continue with common installer flow
-    install_base_system
     
      # Create crypttab so system can map the LUKS container at boot
     if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
