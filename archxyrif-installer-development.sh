@@ -748,6 +748,7 @@ set -euo pipefail
 #========================================================#
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
+KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 #========================================================#
@@ -777,10 +778,10 @@ HOSTS
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
-echo "KEYMAP=${DEFAULT_KEYMAP}" > /etc/vconsole.conf
+echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
-localectl set-keymap ${DEFAULT_KEYMAP}
-localectl set-x11-keymap ${DEFAULT_KEYMAP}
+localectl set-keymap ${KEYMAP}
+localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 # 5) Initramfs
 #========================================================#
@@ -839,6 +840,7 @@ EOF
 # -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 # -------------------------------
