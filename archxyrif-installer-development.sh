@@ -864,7 +864,7 @@ install_grub() {
     ps=$(part_suffix "$DEV")
 
     # Start with minimal essential modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid"
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2"
 
     #--------------------------------------#
     # Add FS module (idempotent)
@@ -1477,6 +1477,52 @@ convert_to_mib() {
         return 1
     fi
 }
+handle_bios_gpt_partitions() {
+    local DEV="$1"
+    local ps=$(part_suffix "$DEV")
+    local START_SECTOR="1MiB" # Start of the first partition
+
+    echo "→ Configuring necessary BIOS/GPT partitions on $DEV."
+
+    # 1. CRITICAL: Create the BIOS Boot Partition (2 MiB, unformatted)
+    parted -s "$DEV" mkpart primary "$START_SECTOR" 3MiB
+    parted -s "$DEV" set 1 bios_grub on
+    echo "    - Partition 1 (BIOS Boot) created and flagged."
+    
+    local MAIN_START="3MiB" # New starting point for the next partition
+
+    # 2. Ask the user if they want a separate /boot
+    read -rp "Create separate 512MiB /boot partition? (Recommended) [Y/n]: " create_separate_boot
+    create_separate_boot="${create_separate_boot:-Y}"
+    
+    if [[ "$create_separate_boot" =~ ^[Yy]$ ]]; then
+        # Create Partition 2: /boot (512 MiB)
+        parted -s "$DEV" mkpart primary "$MAIN_START" 515MiB
+        PART_BOOT="${DEV}${ps}2"
+        mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 for /boot failed"
+        echo "    - Partition 2 (/boot) created and formatted."
+        MAIN_START="515MiB"
+        
+        # The main partition will be number 3
+        PART_NUMBER=3
+    else
+        echo "    - Skipping separate /boot partition."
+        # The main partition will be number 2
+        PART_NUMBER=2
+    fi
+
+    # 3. Create the Main Partition
+    parted -s "$DEV" mkpart primary "$MAIN_START" 100%
+    PART="${DEV}${ps}${PART_NUMBER}"
+    
+    echo "→ Main data partition created on: $PART (Partition $PART_NUMBER)."
+
+    partprobe "$DEV"; udevadm settle --timeout=5
+    
+    # Export necessary variables for the rest of the script
+    export PART_BOOT
+    export PART # The main partition to be used for LUKS/LVM or root
+}
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
@@ -1502,6 +1548,20 @@ custom_partition_wizard() {
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
+    # ----------------------------------------------------------------------
+    # CRITICAL: Handle BIOS Boot Partition for GPT disks in BIOS mode
+    # This prepares Partition 1 (BIOS Boot) and potentially Partition 2 (/boot)
+    # ----------------------------------------------------------------------
+    local START=1 MiB # Default start sector is 1 MiB
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
+    
+    if [[ "$MODE" == "BIOS" ]]; then
+        # This function creates Partition 1 (BIOS Boot) and potentially Partition 2 (/boot).
+        # It updates the global $PART_BOOT and returns the starting sector for the next partition.
+        START=$(handle_bios_gpt_partitions "$DEV") # handle_bios_gpt_partitions must return the next START sector
+    fi
+
     # Disk size in MiB
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
@@ -1509,14 +1569,23 @@ custom_partition_wizard() {
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     echo "Disk size: ${disk_gib_float} GiB"
 
+    # You'll need to calculate the correct starting partition index (i) 
+    # based on how many partitions handle_bios_gpt_partitions created.
+    # We'll use a new variable for the starting index.
+    local START_INDEX=1
+    if [[ "$MODE" == "BIOS" ]]; then
+        # Check how many partitions were made by the helper:
+        local last_part_num=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {last=$1} END{print last}')
+        START_INDEX=$(( last_part_num + 1 )) # Start numbering the user partitions after the helper's partitions
+        # Ensure START is correctly converted from MiB string to integer MiB for calculation
+        START=$(echo "$START" | sed 's/MiB//')
+    fi
+
     read -rp "How many partitions would you like to create? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
-    local START=1  # start in MiB
-    local ps=""
-    [[ "$DEV" =~ nvme ]] && ps="p"
-
-    for ((i=1; i<=COUNT; i++)); do
+    # Loop starts at the correct index (1, 2, or 3)
+    for ((i=START_INDEX; i<START_INDEX+COUNT; i++)); do
         echo ""
         echo "--- Partition $i on $DEV ---"
         parted -s "$DEV" unit MiB print
@@ -1562,10 +1631,10 @@ custom_partition_wizard() {
 
         read -rp "Label (optional): " LABEL
 
-        # Create partition
-        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed creating partition $i on $DEV"
+        # When creating the partition, the index 'i' is the correct partition number
+        parted -s "$DEV" mkpart primary ${PART_SIZE} || die "parted failed creating partition $i on $DEV"
 
-        # Construct partition node (e.g. /dev/sda1 or /dev/nvme0n1p1)
+        # Construct partition node
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
@@ -2120,14 +2189,23 @@ if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
       PART_BOOT="${DEV}${ps}1"
       PART="${DEV}${ps}2"
       mkfs.fat -F32 "$PART_BOOT"
-else
+elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+    # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
       # BIOS: create /boot unencrypted small partition, rest LUKS
       parted -s "$DEV" mklabel gpt
-      parted -s "$DEV" mkpart primary 1MiB 512MiB
-      parted -s "$DEV" mkpart primary 513MiB 100%
-      PART_BOOT="${DEV}${ps}1"
-      PART="${DEV}${ps}2"
+      parted -s "$DEV" mkpart primary 1MiB 2MiB
+      # CRITICAL: BIOS Boot Partition (1MiB, unformatted)
+      parted -s "$DEV" set 1 bios_grub on
+      PART_GRUB_BIOS="$[DEV}${ps}1" # Store this for reference if needed
+
+      # Separate /boot partition (512MiB, formatted ext4)
+      parted -s "$DEV" mkpart primary 2MiB 514MiB
+      PART_BOOT="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"
+      
+    # Main LUKS/LVM partition (rest of disk)
+    parted -s "$DEV" mkpart primary 515MiB 100%
+    PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3   
 fi
 
     # Ask about encryption
