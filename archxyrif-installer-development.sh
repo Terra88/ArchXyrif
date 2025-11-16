@@ -1574,13 +1574,16 @@ echo "Continuing with the rest of the script..."
 #=========================================================================================================================================#
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
-
     mkdir -p /mnt
 
-    for entry in "${PARTITIONS[@]}"; do
+    # Sort PARTITIONS so that / is mounted first, then /boot, then others
+    IFS=$'\n' sorted_partitions=($(printf "%s\n" "${PARTITIONS[@]}" | sort -t':' -k2,2))
+    unset IFS
+
+    for entry in "${sorted_partitions[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-    
-        # wait for kernel to expose new partition
+
+        # Wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
@@ -1604,7 +1607,7 @@ format_and_mount_custom() {
             case "$FS" in
                 ext4) e2label "$PART" "$LABEL" ;;
                 btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
+                xfs) xfs_admin -L "$LABEL" "$PART" ;;
                 f2fs) f2fslabel "$PART" "$LABEL" ;;
                 fat32|vfat) fatlabel "$PART" "$LABEL" ;;
                 swap) mkswap -L "$LABEL" "$PART" ;;
@@ -1635,14 +1638,6 @@ format_and_mount_custom() {
                 mkdir -p /mnt/boot/efi
                 mount "$PART" /mnt/boot/efi
                 ;;
-            /data1)
-                mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1
-                ;;
-            /data2)
-                mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2
-                ;;
             *)
                 mkdir -p "/mnt$MOUNT"
                 mount "$PART" "/mnt$MOUNT"
@@ -1652,10 +1647,9 @@ format_and_mount_custom() {
 
     echo "✅ All custom partitions formatted and mounted correctly."
 
-    echo "Generating /etc/fstab..."
-    
+    echo "→ Generating /etc/fstab..."
     mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
+    genfstab -U /mnt > /mnt/etc/fstab
     echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
