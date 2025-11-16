@@ -2015,7 +2015,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) luks_lvm_route
+                3) luks_lvm_route ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
