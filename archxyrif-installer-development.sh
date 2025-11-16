@@ -696,6 +696,166 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
+
+#=========================================================================================================================================#
+# Configure system
+#=========================================================================================================================================#
+configure_system() {
+sleep 1
+clear
+echo "#===================================================================================================#"
+echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
+echo "#===================================================================================================#"
+echo
+# -------------------------------
+# Prompt for timezone, locale, hostname, and username
+# -------------------------------
+DEFAULT_TZ="Europe/Helsinki"
+read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+TZ="${TZ:-$DEFAULT_TZ}"
+
+DEFAULT_LOCALE="fi_FI.UTF-8"
+read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+
+DEFAULT_HOSTNAME="archbox"
+read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+
+DEFAULT_USER="user"
+read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+# -------------------------------
+# Prepare chroot (mount pseudo-filesystems etc.)
+# -------------------------------
+prepare_chroot
+#---------------------------------------------
+# If LV/LUKS - Regen Hooks
+#---------------------------------------------
+# Assuming ENCRYPTION_ENABLED global variable is available:
+if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+    # Full LUKS/LVM hooks (needed for encryption)
+    arch-chroot /mnt sed -i \
+        's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block encrypt lvm2 filesystems keyboard fsck)/' \
+        /etc/mkinitcpio.conf
+else
+    # LVM-only hooks (for your successful test run)
+    arch-chroot /mnt sed -i \
+        's/^HOOKS=.*/HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)/' \
+        /etc/mkinitcpio.conf
+fi
+# -------------------------------
+# Create postinstall.sh inside chroot
+# -------------------------------
+cat > /mnt/root/postinstall.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+#========================================================#
+# Variables injected by main installer
+#========================================================#
+TZ="{{TIMEZONE}}"
+LANG_LOCALE="{{LANG_LOCALE}}"
+HOSTNAME="{{HOSTNAME}}"
+NEWUSER="{{NEWUSER}}"
+#========================================================#
+# 1) Timezone & hardware clock
+#========================================================#
+ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
+hwclock --systohc
+#========================================================#
+# 2) Locale
+#========================================================#
+if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+fi
+locale-gen
+echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
+export LANG="${LANG_LOCALE}"
+export LC_ALL="${LANG_LOCALE}"
+#========================================================#
+# 3) Hostname & /etc/hosts
+#========================================================#
+echo "${HOSTNAME}" > /etc/hostname
+cat > /etc/hosts <<HOSTS
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+HOSTS
+#========================================================#
+# 4) Keyboard layout
+#========================================================#
+echo "KEYMAP=fi" > /etc/vconsole.conf
+echo "FONT=lat9w-16" >> /etc/vconsole.conf
+localectl set-keymap fi
+localectl set-x11-keymap fi
+#========================================================#
+# 5) Initramfs
+#========================================================#
+mkinitcpio -P
+#========================================================#
+#========================================================#
+# 6) Root + user passwords (interactive with retries)
+#========================================================#
+: "${NEWUSER:?NEWUSER is not set}"
+# Helper for interactive retries (works inside chroot TTY)
+set_password_interactive() {
+    local target="$1"
+    local max_tries=3
+    local i=1
+    while (( i <= max_tries )); do
+        echo "--------------------------------------------------------"
+        echo "Set password for $target (attempt $i/$max_tries)"
+        echo "--------------------------------------------------------"
+        if passwd "$target"; then
+            echo "✅ Password set for $target"
+            return 0
+        fi
+        echo "⚠️ Password setup failed — try again."
+        ((i++))
+    done
+    echo "❌ Giving up after $max_tries failed attempts for $target"
+    return 1
+}
+
+# Create user and set passwords
+useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
+set_password_interactive "${NEWUSER}"
+set_password_interactive "root"
+#========================================================#
+# 7) Ensure user has sudo privileges
+#========================================================#
+echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
+chmod 440 /etc/sudoers.d/${NEWUSER}
+sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+#========================================================#
+# 8) Home directory setup
+#========================================================#
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+mkdir -p "$CONFIG_DIR"
+chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
+#========================================================#
+# 9) Enable basic services
+#========================================================#
+systemctl enable NetworkManager
+systemctl enable sshd
+echo "Postinstall inside chroot finished."
+EOF
+# -------------------------------
+# Inject actual values into postinstall.sh
+# -------------------------------
+sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+# -------------------------------
+# Make executable and run inside chroot
+# -------------------------------
+chmod +x /mnt/root/postinstall.sh
+arch-chroot /mnt /root/postinstall.sh
+rm -f /mnt/root/postinstall.sh
+echo "✅ System configured."
+}
 #=========================================================================================================================================#
 # GRUB installation
 #=========================================================================================================================================#
@@ -840,150 +1000,6 @@ install_grub() {
     fi
 fi
     echo "✅ GRUB fully installed and configured."
-}
-#=========================================================================================================================================#
-# Configure system
-#=========================================================================================================================================#
-configure_system() {
-sleep 1
-clear
-echo "#===================================================================================================#"
-echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
-echo "#===================================================================================================#"
-echo
-# -------------------------------
-# Prompt for timezone, locale, hostname, and username
-# -------------------------------
-DEFAULT_TZ="Europe/Helsinki"
-read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-TZ="${TZ:-$DEFAULT_TZ}"
-
-DEFAULT_LOCALE="fi_FI.UTF-8"
-read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
-
-DEFAULT_HOSTNAME="archbox"
-read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
-HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
-
-DEFAULT_USER="user"
-read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
-NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-# -------------------------------
-# Prepare chroot (mount pseudo-filesystems etc.)
-# -------------------------------
-prepare_chroot
-# -------------------------------
-# Create postinstall.sh inside chroot
-# -------------------------------
-cat > /mnt/root/postinstall.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-#========================================================#
-# Variables injected by main installer
-#========================================================#
-TZ="{{TIMEZONE}}"
-LANG_LOCALE="{{LANG_LOCALE}}"
-HOSTNAME="{{HOSTNAME}}"
-NEWUSER="{{NEWUSER}}"
-#========================================================#
-# 1) Timezone & hardware clock
-#========================================================#
-ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
-hwclock --systohc
-#========================================================#
-# 2) Locale
-#========================================================#
-if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
-fi
-locale-gen
-echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
-export LANG="${LANG_LOCALE}"
-export LC_ALL="${LANG_LOCALE}"
-#========================================================#
-# 3) Hostname & /etc/hosts
-#========================================================#
-echo "${HOSTNAME}" > /etc/hostname
-cat > /etc/hosts <<HOSTS
-127.0.0.1   localhost
-::1         localhost
-127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
-HOSTS
-#========================================================#
-# 4) Keyboard layout
-#========================================================#
-echo "KEYMAP=fi" > /etc/vconsole.conf
-echo "FONT=lat9w-16" >> /etc/vconsole.conf
-localectl set-keymap fi
-localectl set-x11-keymap fi
-#========================================================#
-# 5) Initramfs
-#========================================================#
-mkinitcpio -P
-#========================================================#
-#========================================================#
-# 6) Root + user passwords (interactive with retries)
-#========================================================#
-: "${NEWUSER:?NEWUSER is not set}"
-# Helper for interactive retries (works inside chroot TTY)
-set_password_interactive() {
-    local target="$1"
-    local max_tries=3
-    local i=1
-    while (( i <= max_tries )); do
-        echo "--------------------------------------------------------"
-        echo "Set password for $target (attempt $i/$max_tries)"
-        echo "--------------------------------------------------------"
-        if passwd "$target"; then
-            echo "✅ Password set for $target"
-            return 0
-        fi
-        echo "⚠️ Password setup failed — try again."
-        ((i++))
-    done
-    echo "❌ Giving up after $max_tries failed attempts for $target"
-    return 1
-}
-
-# Create user and set passwords
-useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
-set_password_interactive "${NEWUSER}"
-set_password_interactive "root"
-#========================================================#
-# 7) Ensure user has sudo privileges
-#========================================================#
-echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
-chmod 440 /etc/sudoers.d/${NEWUSER}
-sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-#========================================================#
-# 8) Home directory setup
-#========================================================#
-HOME_DIR="/home/$NEWUSER"
-CONFIG_DIR="$HOME_DIR/.config"
-mkdir -p "$CONFIG_DIR"
-chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
-#========================================================#
-# 9) Enable basic services
-#========================================================#
-systemctl enable NetworkManager
-systemctl enable sshd
-echo "Postinstall inside chroot finished."
-EOF
-# -------------------------------
-# Inject actual values into postinstall.sh
-# -------------------------------
-sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
-sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
-sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
-sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
-# -------------------------------
-# Make executable and run inside chroot
-# -------------------------------
-chmod +x /mnt/root/postinstall.sh
-arch-chroot /mnt /root/postinstall.sh
-rm -f /mnt/root/postinstall.sh
-echo "✅ System configured."
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
