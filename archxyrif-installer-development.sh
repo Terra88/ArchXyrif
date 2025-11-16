@@ -2194,6 +2194,7 @@ luks_lvm_route() {
                 P_ROOT="$lv_path"
                 # handle btrfs subvol if requested similarly to your logic
                 if [[ "$fs" == "btrfs" ]]; then
+                    btrfs subvolume create /mnt/@ || true
                     umount /mnt
                     mount -o subvol=@,compress=zstd "$lv_path" /mnt || die "btrfs mount failed"
                 fi
