@@ -2021,6 +2021,16 @@ create_more_lvm(){
     done
     echo "Continuing with the rest of the script..."
 }
+wait_for_lv() {
+    local dev="$1"
+    local timeout=10
+    for ((i=0;i<timeout;i++)); do
+        [[ -b "$dev" ]] && return 0
+        sleep 0.5
+        udevadm settle --timeout=2
+    done
+    return 1
+}
 #=====================================================================================================================================#
 # LUKS LV
 #=====================================================================================================================================#
@@ -2108,14 +2118,25 @@ luks_lvm_route() {
         else
             cryptsetup luksFormat "$PART" || die "luksFormat failed"
         fi
-
+        
         read -rp "Name for mapped device (default: cryptlvm): " cryptname
         cryptname="${cryptname:-cryptlvm}"
-        LUKS_MAPPER_NAME="$cryptname"
-        cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
-        LUKS_MAPPER="/dev/mapper/${cryptname}"
-        BASE_DEVICE="$LUKS_MAPPER"
-        echo "→ LUKS mapper at $LUKS_MAPPER"
+            
+            # Ensure unique mapper name
+            if [[ -e "/dev/mapper/$cryptname" ]]; then
+                idx=1
+                while [[ -e "/dev/mapper/${cryptname}${idx}" ]]; do ((idx++)); done
+                cryptname="${cryptname}${idx}"
+                echo "→ Using mapped name $cryptname"
+            fi
+            
+            LUKS_MAPPER_NAME="$cryptname"
+            cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
+
+        
+            LUKS_MAPPER="/dev/mapper/${cryptname}"
+            BASE_DEVICE="$LUKS_MAPPER"
+            echo "→ LUKS mapper at $LUKS_MAPPER"
 
         # GET AND SAVE THE UUID of the physical partition
         LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
@@ -2126,11 +2147,33 @@ luks_lvm_route() {
 
     # Make LVM physical volume and VG
     echo "→ Setting up LVM on $BASE_DEVICE"
-    pvcreate "$BASE_DEVICE" || die "pvcreate failed"
-    read -rp "Volume Group name (default: vg0): " VGNAME
-    VGNAME="${VGNAME:-vg0}"
-    LVM_VG_NAME="$VGNAME"
-    vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+    
+     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+    
+        read -rp "Volume Group name (default: vg0): " VGNAME
+        VGNAME="${VGNAME:-vg0}"
+        LVM_VG_NAME="$VGNAME"
+        
+        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+            read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
+            add="${add:-Y}"
+            if [[ "$add" =~ ^[Yy]$ ]]; then
+                echo "→ Extending existing VG $VGNAME with $BASE_DEVICE"
+                vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+            else
+                read -rp "Enter new VG name: " VGNAME
+                VGNAME="${VGNAME:-vg0}"
+                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+            fi
+        else
+            echo "→ Creating new VG $VGNAME with $BASE_DEVICE"
+            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+        fi
+        
+        # Ensure device nodes exist
+        vgscan --mknodes
+        vgchange -ay "$VGNAME" || die "Failed to activate VG $VGNAME"
+        udevadm settle --timeout=5
 
     # Interactive creation of LVs
     declare -a LV_NAMES=()
@@ -2202,6 +2245,10 @@ luks_lvm_route() {
         fs="${LV_FSS[i]}"
         mnt="${LV_MOUNTS[i]}"
         lv_path="/dev/${VGNAME}/${name}"
+        if ! wait_for_lv "$lv_path"; then
+            die "LV device $lv_path did not appear"
+        fi
+        # then mkfs/mount as usual
 
         if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
             echo "  → Creating swap LV: $lv_path"
