@@ -2260,6 +2260,8 @@ luks_lvm_route() {
         mkdir -p /mnt/boot
         mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
     fi
+
+    create_more_lvm
     
     install_base_system
     ensure_fs_support_for_luks_lvm
@@ -2275,8 +2277,6 @@ luks_lvm_route() {
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
-
-    create_more_lvm
 
     #---------------------------------------------
     # If LV/LUKS - Regen Hooks
