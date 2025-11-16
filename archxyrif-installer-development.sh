@@ -725,6 +725,7 @@ install_grub() {
         GRUB_MODULES+=" mdraid1x"
     fi
 
+if [[ "$VGNAME" == "${VGNAME[@]}" ]]; then
     #--------------------------------------#
     # Detect LUKS (outermost layer)
     #--------------------------------------#
@@ -744,6 +745,12 @@ install_grub() {
         [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
     fi
 
+    #Luks - crypttab detector:
+    #-------------------------
+    arch-chroot GRUB_CMDLINE_LINUX="cryptdevice=UUID=<uuid>:cryptlvm root=/dev/<vgname>/<rootlv>"
+
+else
+
     #--------------------------------------#
     # Detect filesystems under /mnt (final layer)
     #--------------------------------------#
@@ -755,11 +762,7 @@ install_grub() {
     done
 
     echo "→ Final GRUB modules: $GRUB_MODULES"
-
-    #Luks - crypttab detector:
-    #-------------------------
-    arch-chroot GRUB_CMDLINE_LINUX="cryptdevice=UUID=<uuid>:cryptlvm root=/dev/<vgname>/<rootlv>"
-
+    
     #--------------------------------------#
     # BIOS MODE
     #--------------------------------------#
@@ -819,7 +822,7 @@ install_grub() {
         arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
         arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
     fi
-
+fi
     echo "✅ GRUB fully installed and configured."
 }
 #=========================================================================================================================================#
