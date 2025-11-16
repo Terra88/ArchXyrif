@@ -1903,6 +1903,29 @@ luks_lvm_route() {
 
     safe_disk_cleanup
 
+    # Ask about encryption
+    read -rp "Encrypt this partition with LUKS? [Y/n]: " BOOTMODE
+    BOOTMODE="${BOOTMODE:-Y}"
+    
+    # Example (pseudo):
+    if [ "$BOOTMODE" = "uefi" ]; then
+      parted -s "$DEV" mklabel gpt
+      parted -s "$DEV" mkpart ESP fat32 1MiB 513MiB
+      parted -s "$DEV" set 1 boot on
+      parted -s "$DEV" mkpart primary 513MiB 100%
+      PART_BOOT="${DEV}${ps}1"
+      PART="${DEV}${ps}2"
+      mkfs.fat -F32 "$PART_BOOT"
+    else
+      # BIOS: create /boot unencrypted small partition, rest LUKS
+      parted -s "$DEV" mklabel gpt
+      parted -s "$DEV" mkpart primary 1MiB 512MiB
+      parted -s "$DEV" mkpart primary 513MiB 100%
+      PART_BOOT="${DEV}${ps}1"
+      PART="${DEV}${ps}2"
+      mkfs.ext4 "$PART_BOOT"
+    fi
+
     # Create GPT and single primary partition occupying the usable space (leave small buffer)
     ps=$(part_suffix "$DEV")
     echo "→ Creating a single primary partition on $DEV (GPT)"
@@ -2074,15 +2097,17 @@ luks_lvm_route() {
         esac
     done
 
-    # Generate fstab
+    ensure_fs_support_for_custom luks
+    # Continue with common installer flow
+    install_base_system
+
+     # Generate fstab
     arch-chroot /mnt pacman -Sy --noconfirm --needed --quiet >/dev/null || true
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
-
-    ensure_fs_support_for_custom
-    # Continue with common installer flow
-    install_base_system
+    echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
+    
     configure_system
 
     # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
