@@ -683,6 +683,7 @@ PKGS=(
   linux-zen
   linux-headers
   linux-firmware
+  linux-firmware-whence
   vim
   sudo
   nano
