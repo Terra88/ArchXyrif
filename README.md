@@ -94,7 +94,13 @@ sudo nano networkmanager efibootmgr openssh intel-ucode amd-ucode btrfs-progs
 
 -Created a table of contents to the start of the script and Interactive Headers that pop up, when next stage of installation starts to help the user with the installation progress. Makes the installation much more clear, when the new header pops and the old "garbage on the screen clears".<br>
 
--Added Block 11: to install a custom hyprland theme from another project of mine "https://GitHub.com/Terra88/hyprland-setup"<br><br>
+-Added Block 11: to install a custom hyprland theme from another project of mine "https://GitHub.com/Terra88/hyprland-setup"<br><br>Current keybinds, are:<br>
+-windows+Q : exit highlighted window/program.<br>
+-windows+Enter(Return): open terminal<br>
+-windows+R: open menu(installed programs)<br>
+-windows+E: open file manager.<br>
+-windows+M: logout to login screen(for power button etc)<br>
+<br>
 -Block 11 will prompt if you install Hyprland and ask, if you want to add my custom theme to it y/N. If you answer yes, additional packages will be installed that the theme requires and .config files will be copied automatically from my other GitHub project.<br><br>
 -it will automatically give new user the rights to that folder. Also wallpaper engine will be added to /home as wallpaper.sh and a wallpaper folder that the engine rotates. hyprlock will have a lock button and a wallpaper set to it in /home/wallpaper folder called lock.jpg
 <br>
