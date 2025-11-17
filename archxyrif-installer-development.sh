@@ -2515,22 +2515,22 @@ luks_lvm_post_install_steps()
 
     if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
         echo "→ Generating /mnt/etc/crypttab for root and home..."
-        
-        # 1. Root device (SDA3) - Must be first and use '>' to create/overwrite the file
-        ROOT_PART_UUID=$(blkid -s UUID -o value "$P_ROOT_BASE_DEVICE")
-        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_PART_UUID} none luks" > /mnt/etc/crypttab
-
+    
+        # 1. Root device (SDA3) - Use the global variables already set.
+        # We use $ROOT_LUKS_PART_UUID instead of re-running blkid on a potentially unbound P_ROOT_BASE_DEVICE.
+        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
+    
         # 2. Home device (SDB1) - APPENDED, with USB delay fix
-        # Ensure P_HOME_BASE_DEVICE is set globally by your partitioning logic
         if [[ -n "$P_HOME_BASE_DEVICE" ]]; then
-            HOME_PART_UUID=$(blkid -s UUID -o value "$P_HOME_BASE_DEVICE") 
-            # Use 'crypt_home' or the actual mapper name you set for the home LUKS container
-            HOME_MAPPER_NAME="crypt_home" 
-            
-            # The CRITICAL USB FIX: Add systemd timeout for slow external drive
-            echo "${HOME_MAPPER_NAME} UUID=${HOME_PART_UUID} none luks,x-systemd.device-timeout=90s" >> /mnt/etc/crypttab
+            HOME_LUKS_UUID=$(blkid -s UUID -o value "$P_HOME_BASE_DEVICE")
+            HOME_MAPPER_NAME="crypt_home"
+    
+            # CRITICAL USB FIX: Add the systemd timeout (90s) to wait for the slow USB drive.
+            # This 'echo' MUST be inside the 'if' block to prevent runtime errors.
+            echo "${HOME_MAPPER_NAME} UUID=${HOME_LUKS_UUID} none luks,x-systemd.device-timeout=90s" >> /mnt/etc/crypttab
+        else
+            echo "⚠️ WARNING: P_HOME_BASE_DEVICE is not set. /home LUKS entry skipped."
         fi
-        
     else
         # If root isn't encrypted, ensure crypttab is empty/removed
         rm -f /mnt/etc/crypttab || true
