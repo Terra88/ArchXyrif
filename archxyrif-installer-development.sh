@@ -2441,6 +2441,14 @@ luks_lvm_post_install_steps() {
     # install grub in chroot
     install_grub || die "install_grub failed"
 
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    
     echo "→ LUKS+LVM post-install done."
 }
 #=========================================================================================================================================#
