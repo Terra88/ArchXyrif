@@ -2137,10 +2137,10 @@ ensure_fs_support_for_luks_lvm()
     if [[ "$enable_luks" -eq 1 ]]; then
         echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
         # Note the order: encrypt MUST be before lvm2
-        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)'
+        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block usb encrypt lvm2 filesystems fsck)'
     else
         echo "→ Patching mkinitcpio.conf for LVM only..."
-        HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
+        HOOKS_LINE='HOOKS=(base udev autodetect modconf block usb lvm2 filesystems keyboard fsck)'
     fi
     
     arch-chroot /mnt sed -i \
