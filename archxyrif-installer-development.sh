@@ -1517,6 +1517,28 @@ convert_to_mib() {
         return 1
     fi
 }
+# ---------------------------------------------
+# create_more_disks (Custom_Partitioon_wizard)
+# ---------------------------------------------
+create_more_disks(){
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                custom_partition_wizard
+                ;;
+            [Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+    echo "Continuing with the rest of the script..."
+}
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
 #=========================================================================================================================================#
@@ -1912,6 +1934,7 @@ CHROOT_EOF
 #=========================================================================================================================================#
 custom_partition(){
     custom_partition_wizard
+    create_more_disks
     format_and_mount_custom
     install_base_system
 
