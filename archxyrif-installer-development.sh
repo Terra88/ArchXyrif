@@ -2338,7 +2338,7 @@ fi
         
                 echo "Available disks (again):"
                 lsblk -d -o NAME,SIZE,MODEL,TYPE
-                 while true; do
+                while true; do
                 read -rp "Enter partition for encrypted /home (e.g. /dev/sdb1): " HOME_PARTITION
                 HOME_PARTITION="/dev/${HOME_PARTITION##*/}"
                 [[ -b "$HOME_PARTITION" ]] && break || echo "Invalid device, try again."
@@ -2372,8 +2372,9 @@ fi
                 # Create a simple global flag variable only for the crypt_home device
                 LUKS_DEVICES_TIMEOUT["$HOME_MAPPER_NAME"]=1
 #===================================================================================================OH MY FUCKING GOD==================================#
+                fi
             fi
-
+            
     # Interactive creation of LVs
     declare -a LV_NAMES=()
     declare -a LV_SIZES=()
