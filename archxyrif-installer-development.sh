@@ -1517,59 +1517,9 @@ convert_to_mib() {
         return 1
     fi
 }
-handle_bios_gpt_partitions() {
-local DEV="$1"
-    local ps=$(part_suffix "$DEV")
-    local START_SECTOR="1MiB"
-
-    # Redirect all status messages to stderr (>&2) to prevent capture by $()
-    echo "→ Configuring necessary BIOS/GPT partitions on $DEV." >&2
-
-    # 1. CRITICAL: Create the BIOS Boot Partition (2 MiB, unformatted)
-    parted -s "$DEV" mkpart primary "$START_SECTOR" 3MiB
-    parted -s "$DEV" set 1 bios_grub on
-    echo "    - Partition 1 (BIOS Boot) created and flagged." >&2
-    
-    local MAIN_START="3MiB" # New starting point for the next partition
-
-    # 2. Ask the user if they want a separate /boot
-    # Use >&2 for the prompt if 'read -rp' doesn't automatically print to stderr
-    read -rp "Create separate 512MiB /boot partition? (Recommended) [Y/n]: " create_separate_boot
-    create_separate_boot="${create_separate_boot:-Y}"
-    
-    if [[ "$create_separate_boot" =~ ^[Yy]$ ]]; then
-        # Create Partition 2: /boot (512 MiB)
-        parted -s "$DEV" mkpart primary "$MAIN_START" 515MiB
-        PART_BOOT="${DEV}${ps}2"
-        mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 for /boot failed"
-        echo "    - Partition 2 (/boot) created and formatted." >&2
-        MAIN_START="515MiB"
-        
-        # The main partition will be number 3
-        PART_NUMBER=3
-    else
-        echo "    - Skipping separate /boot partition." >&2
-        # The main partition will be number 2
-        PART_NUMBER=2
-    fi
-
-    partprobe "$DEV" >&2; udevadm settle --timeout=5 >&2
-    
-    echo "→ Main data partition created on: $PART (Partition $PART_NUMBER)."
-
-    partprobe "$DEV"; udevadm settle --timeout=5
-
-    # Export necessary variables for the rest of the script
-    export PART_BOOT
-    echo "$MAIN_START"
-
-}
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
 #=========================================================================================================================================#
-# -------------------------
-# Improved custom_partition_wizard (no resetting of PARTITIONS)
-# -------------------------
 custom_partition_wizard() {
     clear
     detect_boot_mode
@@ -1589,20 +1539,6 @@ custom_partition_wizard() {
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
-    # ----------------------------------------------------------------------
-    # CRITICAL: Handle BIOS Boot Partition for GPT disks in BIOS mode
-    # This prepares Partition 1 (BIOS Boot) and potentially Partition 2 (/boot)
-    # ----------------------------------------------------------------------
-    local START="1MiB" # Default start sector is 1 MiB <-------------------------------------------------------------------------------
-    local ps=""
-    [[ "$DEV" =~ nvme ]] && ps="p"
-    
-    if [[ "$MODE" == "BIOS" ]]; then
-        # This function creates Partition 1 (BIOS Boot) and potentially Partition 2 (/boot).
-        # It updates the global $PART_BOOT and returns the starting sector for the next partition.
-        START=$(handle_bios_gpt_partitions "$DEV") # handle_bios_gpt_partitions must return the next START sector
-    fi
-
     # Disk size in MiB
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
@@ -1610,187 +1546,98 @@ custom_partition_wizard() {
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     echo "Disk size: ${disk_gib_float} GiB"
 
-# You'll need to calculate the correct starting partition index (i) 
-    # based on how many partitions handle_bios_gpt_partitions created.
-    # We'll use a new variable for the starting index.
-    local START_INDEX=1
-    
-    if [[ "$MODE" == "BIOS" ]]; then
-        # START now holds the next sector (e.g., "515MiB") echoed by the helper.
-        
-        # Check how many partitions were made by the helper:
-        local last_part_num=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {last=$1} END{print last}')
-        START_INDEX=$(( last_part_num + 1 )) # Start numbering the user partitions after the helper's partitions
-        
-        # Ensure START is correctly converted from MiB string to integer MiB for calculation
-        # This is CRITICAL for the subsequent arithmetic: END=$(( START + SIZE_MI ))
-        START=$(echo "$START" | sed 's/MiB//')
-    fi
-
-        read -rp "How many partitions would you like to create? " COUNT
+    read -rp "How many partitions would you like to create? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
-    # Loop starts at the correct index (1, 2, or 3)
-    for ((i=START_INDEX; i<START_INDEX+COUNT; i++)); do
+    PARTITIONS=()
+    local START=1  # start in MiB
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
+
+    for ((i=1; i<=COUNT; i++)); do
         echo ""
-        echo "--- Partition $i on $DEV ---"
+        echo "--- Partition $i ---"
         parted -s "$DEV" unit MiB print
 
         # Read size
         while true; do
-            # Ensure convert_to_mib is robust and handles G, M, and 100% inputs
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
             break
         done
 
-        # START is guaranteed to be an integer (MiB) at this point from the setup block above.
-        local END_ARG=""
-        local NEXT_START=""
-        
         # Calculate partition end
         if [[ "$SIZE_MI" != "100%" ]]; then
-            # Calculate the numerical end sector
-            local END_MI=$(( START + SIZE_MI ))
-            END_ARG="${END_MI}MiB"
-            NEXT_START="$END_MI" # Next START is the integer value
+            END=$(( START + SIZE_MI ))
+            PART_SIZE="${START}MiB ${END}MiB"
         else
-            END_ARG="100%"
-            NEXT_START="100%"
+            PART_SIZE="${START}MiB 100%"
+            END="100%"
         fi
 
-        # **CRITICAL FIX:** Use 'unit MiB' and 'start MiB' and 'end MiB' explicitly with parted.
-        # -a opt ensures optimal alignment, which is best practice.
-        parted -s -a opt "$DEV" unit MiB mkpart primary "$START" "$END_ARG" || die "parted failed creating partition $i on $DEV"
+        # Mountpoint
+        while true; do
+            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
+            case "$MNT" in
+                /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
+                *) echo "Invalid mountpoint." ;;
+            esac
+        done
 
-        # Read mount point, filesystem, and label here (omitted for brevity, but you'd have your code here)
-        # Example of where you would read MNT, FS, and LABEL:
-        read -rp "Enter Mount Point (/, /home, /var, etc.): " MNT
-        read -rp "Enter Filesystem (ext4, btrfs, etc.): " FS
-        read -rp "Enter Label (optional): " LABEL
+        # Filesystem
+        while true; do
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            case "$FS" in
+                ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
+                *) echo "Unsupported FS." ;;
+            esac
+        done
 
-        # Construct partition node (assuming PARTITIONS is a global array)
+        read -rp "Label (optional): " LABEL
+
+        # Create partition
+        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
+
+        # Construct partition node
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
 
         # Update start for next partition (skip if last uses 100%)
-        [[ "$NEXT_START" != "100%" ]] && START=$NEXT_START
+        [[ "$END" != "100%" ]] && START=$END
 
-        # Show remaining disk - only if it wasn't 100%
-        if [[ "$END_ARG" != "100%" ]]; then
-            # Recalculate remaining space based on the last actual end sector
-            # We use the previous LAST_END (calculated from the initial size) as the new START for the display here
-            REMAINING=$(( disk_mib - START ))
-            echo "→ Remaining disk: ${REMAINING}MiB"
-        fi
+        # Show remaining disk
+        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
+        REMAINING=$(( disk_mib - LAST_END ))
+        echo "→ Remaining disk: ${REMAINING}MiB"
     done
 
     echo ""
-    echo "=== Partition layout appended ==="
+    echo "=== Partition layout created ==="
     printf "%s\n" "${PARTITIONS[@]}"
     parted -s "$DEV" unit MiB print
-}
-
-# ---------------------------------------------
-# create_more_disks (Custom_Partitioon_wizard)
-# ---------------------------------------------
-create_more_disks(){
-    while true; do
-        read -rp "Do you want to edit another disk? (Y/n): " answer
-        case "$answer" in
-            [Yy]|"")
-                echo "→ Editing another disk..."
-                custom_partition_wizard
-                ;;
-            [Nn])
-                echo "→ No more disks. Continuing..."
-                break
-                ;;
-            *)
-                echo "Please enter Y or n."
-                ;;
-        esac
-    done
-    echo "Continuing with the rest of the script..."
 }
 
 #=========================================================================================================================================#
 #  Formato AND MOUNTO CUSTOMMO
 #=========================================================================================================================================#
-# -------------------------
-# format_and_mount_custom: strong validation + mount-order and checks
-# -------------------------
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
+
     mkdir -p /mnt
 
-    # Validate that at least one root (/) entry exists
-    root_found=0
-    for e in "${PARTITIONS[@]}"; do
-        IFS=':' read -r _ m _ _ <<< "$e"
-        [[ "$m" == "/" ]] && root_found=1 && break
-    done
-    [[ $root_found -eq 1 ]] || die "No root (/) partition defined — aborting."
-
-    # Prevent duplicate mountpoints (except 'none' and 'swap')
-    declare -A seen_mp=()
-    for e in "${PARTITIONS[@]}"; do
-        IFS=':' read -r p m f l <<< "$e"
-        [[ "$m" == "none" || "$m" == "swap" ]] && continue
-        if [[ -n "${seen_mp[$m]:-}" ]]; then
-            die "Duplicate mountpoint detected: $m (each mountpoint should be unique)."
-        fi
-        seen_mp[$m]=1
-    done
-
-    # Sorting priority: / first, then /boot & /efi, then other explicit ones (home,data), then the rest
-    # Create a prioritized list
-    sorted_partitions=()
-    # helper to append matches
-    append_matches() {
-        local match="$1"
-        for e in "${PARTITIONS[@]}"; do
-            IFS=':' read -r p m f l <<< "$e"
-            if [[ "$m" == "$match" ]]; then
-                sorted_partitions+=("$e")
-            fi
-        done
-    }
-    append_matches "/"          # root first
-    append_matches "/boot"      # boot second
-    append_matches "/efi"       # efi next (also matches /boot/efi below)
-    # include /boot/efi (explicit)
-    for e in "${PARTITIONS[@]}"; do
-        IFS=':' read -r p m f l <<< "$e"
-        [[ "$m" == "/boot/efi" ]] && sorted_partitions+=("$e")
-    done
-    # then common mounts
-    append_matches "/home"
-    append_matches "/data1"
-    append_matches "/data2"
-    # then any remaining entries that haven't been added yet
-    for e in "${PARTITIONS[@]}"; do
-        already=0
-        for s in "${sorted_partitions[@]}"; do
-            [[ "$s" == "$e" ]] && already=1 && break
-        done
-        [[ $already -eq 0 ]] && sorted_partitions+=("$e")
-    done
-
-    # Now iterate sorted list and format & mount
-    for entry in "${sorted_partitions[@]}"; do
+    for entry in "${PARTITIONS[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-
-        # Wait for kernel to expose new partition
+    
+        # wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        echo ">>> $PART ($FS) -> $MOUNT"
+        echo ">>> $PART ($FS) mount as $MOUNT"
 
-        # Format partition (skip formatting if MOUNT == none)
+        # Format partition
         case "$FS" in
             ext4)  mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
@@ -1807,62 +1654,58 @@ format_and_mount_custom() {
             case "$FS" in
                 ext4) e2label "$PART" "$LABEL" ;;
                 btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs) xfs_admin -L "$LABEL" "$PART" ;;
+                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
                 f2fs) f2fslabel "$PART" "$LABEL" ;;
                 fat32|vfat) fatlabel "$PART" "$LABEL" ;;
                 swap) mkswap -L "$LABEL" "$PART" ;;
-            esac || echo "⚠️ Label command failed for $PART"
+            esac
         }
 
-        # Mount according to mountpoint — ensure root mounts before others (we sorted)
+        # Mount according to mountpoint
         case "$MOUNT" in
             "/")
-                # mount root to /mnt and verify
                 if [[ "$FS" == "btrfs" ]]; then
-                    mount "$PART" /mnt || die "Failed to mount root $PART -> /mnt"
-                    btrfs subvolume create /mnt/@ || true
-                    umount /mnt || die "Failed to unmount temporarily mounted btrfs root"
-                    mount -o subvol=@,compress=zstd "$PART" /mnt || die "Failed to mount btrfs subvol @"
+                    mount "$PART" /mnt
+                    btrfs subvolume create /mnt/@
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
                 else
-                    mount "$PART" /mnt || die "Failed to mount root $PART -> /mnt"
+                    mount "$PART" /mnt
                 fi
-                ;;
-            /boot)
-                mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot || die "Failed to mount $PART -> /mnt/boot"
-                ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi || die "Failed to mount $PART -> /mnt/boot/efi"
                 ;;
             /home)
                 mkdir -p /mnt/home
-                mount "$PART" /mnt/home || die "Failed to mount $PART -> /mnt/home"
+                mount "$PART" /mnt/home
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$PART" /mnt/boot
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$PART" /mnt/boot/efi
                 ;;
             /data1)
                 mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1 || die "Failed to mount $PART -> /mnt/data1"
+                mount "$PART" /mnt/data1
                 ;;
             /data2)
                 mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2 || die "Failed to mount $PART -> /mnt/data2"
+                mount "$PART" /mnt/data2
                 ;;
             *)
-                # generic mount: create parent dir under /mnt
                 mkdir -p "/mnt$MOUNT"
-                mount "$PART" "/mnt$MOUNT" || die "Failed to mount $PART -> /mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
                 ;;
         esac
     done
 
-    # Final check: ensure /mnt is a mountpoint before genfstab
-    mountpoint -q /mnt || die "/mnt is not a mountpoint after mounting root — aborting."
-
     echo "✅ All custom partitions formatted and mounted correctly."
 
-    echo "→ Generating /etc/fstab..."
+    echo "Generating /etc/fstab..."
+    
     mkdir -p /mnt/etc
-    genfstab -U /mnt > /mnt/etc/fstab || die "genfstab failed"
+    genfstab -U /mnt >> /mnt/etc/fstab
     echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
@@ -1980,16 +1823,11 @@ CHROOT_EOF
 
     echo "→ ensure_fs_support_for_custom() finished."
 }
-
 #=========================================================================================================================================#
 # CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
 #=========================================================================================================================================#
-# -------------------------
-# custom_partition entrypoint (unchanged, but kept for clarity)
-# -------------------------
 custom_partition(){
     custom_partition_wizard
-    create_more_disks
     format_and_mount_custom
     install_base_system
 
@@ -2006,7 +1844,6 @@ custom_partition(){
     optional_aur
     hyprland_optional
 }
-
 
 #=========================================================================================================================================#
 #=========================================================================================================================================#
