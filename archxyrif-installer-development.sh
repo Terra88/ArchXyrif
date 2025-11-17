@@ -1553,8 +1553,8 @@ custom_partition_wizard() {
 
     # ---------------- BIOS / UEFI reserved partitions ----------------
     if [[ "$MODE" == "BIOS" ]]; then
-        read -rp "Create BIOS Boot Partition automatically? (y/n, default is no, if you add additional disks):" bios_auto
-        bios_auto="${bios_auto:-}"  
+        read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
+        bios_auto="${bios_auto:-n}"
         if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
             parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
@@ -1565,8 +1565,8 @@ custom_partition_wizard() {
     fi
 
     if [[ "$MODE" == "UEFI" ]]; then
-        read -rp "Automatically create 1024MiB EFI System Partition? (y/n, default is no, if you add additional disks): " esp_auto
-        esp_auto="${esp_auto:-}"   
+        read -rp "Automatically create 1024MiB EFI System Partition? (y/n): " esp_auto
+        esp_auto="${esp_auto:-n}"
         if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
             parted -s "$DEV" set 1 esp on
@@ -1591,10 +1591,20 @@ custom_partition_wizard() {
         i=$((j + RESERVED_PARTS))
         parted -s "$DEV" unit MiB print
 
+        # Determine available space for this partition
+        local AVAILABLE=$((disk_mib - START))
+        echo "Available space on disk: $AVAILABLE MiB"
+
         # Size
         while true; do
-            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
+            SIZE="${SIZE:-100%}"
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
+
+            if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
+                echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
+                continue
+            fi
             break
         done
 
@@ -1607,9 +1617,9 @@ custom_partition_wizard() {
         fi
 
         # Mountpoint
-        read -rp "Mountpoint (/, /home, /boot, swap, none, or leave blank for auto /dataX): " MNT
+        read -rp "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): " MNT
         if [[ -z "$MNT" ]]; then
-            # automatically assign /data1, /data2, etc. for secondary disks
+            # Auto-assign /dataX for secondary partitions
             local next_data=1
             while grep -q "/data$next_data" <<<"${PARTITIONS[*]}"; do
                 ((next_data++))
@@ -1627,44 +1637,60 @@ custom_partition_wizard() {
             esac
         done
 
+        # Label
         read -rp "Label (optional): " LABEL
+
+        # Create partition
         parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
         PART="${DEV}${ps}${i}"
         NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
         [[ "$END" != "100%" ]] && START=$END
     done
 
-    # Merge to global PARTITIONS array
+    # Merge per-disk NEW_PARTS into global PARTITIONS
     PARTITIONS+=("${NEW_PARTS[@]}")
     echo "=== Partitions for $DEV ==="
     printf "%s\n" "${NEW_PARTS[@]}"
 }
+
+#======================================CUSTOMDISKS=======================================================#
 create_more_disks() {
-    local disk_counter=2  # for naming /dataX automatically
+    local disk_counter=1  # start numbering for /dataX
+
+    # Initialize disk_counter based on existing PARTITIONS
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r _ MOUNT _ _ <<< "$entry"
+        if [[ "$MOUNT" =~ ^/data([0-9]+)$ ]]; then
+            ((disk_counter = disk_counter > ${BASH_REMATCH[1]} ? disk_counter : ${BASH_REMATCH[1]}))
+        fi
+    done
+    ((disk_counter++))
 
     while true; do
-        read -rp "Do you want to edit another disk? (Yy/Nn? Default:no): " answer
+        read -rp "Do you want to edit another disk? (Yy/Nn, default no): " answer
         case "$answer" in
             [Yy])
                 echo "→ Editing another disk..."
                 custom_partition_wizard
 
-                # Automatically assign secondary partitions to /dataX if mount is not root/boot/etc
+                # Auto-assign /dataX for new partitions with 'none' mount
                 for i in "${!PARTITIONS[@]}"; do
-                    IFS=':' read -r p m f l <<< "${PARTITIONS[$i]}"
+                    IFS=':' read -r PART MOUNT FS LABEL <<< "${PARTITIONS[$i]}"
 
-                    # Skip first disk partitions (already correctly mounted)
-                    if [[ "$p" =~ ^/dev/sda ]] || [[ "$p" =~ ^/dev/nvme0n1 ]]; then
+                    # Skip partitions already assigned
+                    if [[ "$MOUNT" != "none" && "$MOUNT" != "" ]]; then
                         continue
                     fi
 
-                    # Auto assign /dataX for secondary disks if mount is 'none'
-                    if [[ "$m" == "none" ]]; then
-                        PARTITIONS[$i]="$p:/data$disk_counter:$f:$l"
+                    # Skip root /boot /efi etc
+                    if [[ "$LABEL" == "bios_grub" || "$MOUNT" =~ ^/(boot|boot/efi|)$ ]]; then
+                        continue
                     fi
-                done
 
-                disk_counter=$((disk_counter + 1))
+                    PARTITIONS[$i]="$PART:/data$disk_counter:$FS:$LABEL"
+                    echo "→ Auto-assigned $PART to /data$disk_counter"
+                    ((disk_counter++))
+                done
                 ;;
             ""|[Nn])
                 echo "→ No more disks. Continuing..."
