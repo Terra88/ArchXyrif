@@ -2136,11 +2136,12 @@ ensure_fs_support_for_luks_lvm()
     local HOOKS_LINE
     if [[ "$enable_luks" -eq 1 ]]; then
         echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
-        # Note the order: encrypt MUST be before lvm2
-        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block usb encrypt lvm2 filesystems fsck)'
+        # Note the order: encrypt MUST be before lvm2. The 'usb' hook is removed.
+        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)'
     else
         echo "→ Patching mkinitcpio.conf for LVM only..."
-        HOOKS_LINE='HOOKS=(base udev autodetect modconf block usb lvm2 filesystems keyboard fsck)'
+        # The 'usb' hook is removed.
+        HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
     fi
     
     arch-chroot /mnt sed -i \
@@ -2508,21 +2509,31 @@ luks_lvm_post_install_steps()
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
 
-    # 🛑 CRITICAL FIX: Set the kernel command line parameters for LUKS/LVM
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 && -n "$ROOT_LV_NAME" ]]; then
-        # 1. Construct the boot parameters using the correct ROOT_ variables
-        local BOOT_PARAMS="cryptdevice=UUID=${ROOT_LUKS_PART_UUID}:${ROOT_LUKS_MAPPER_NAME} root=/dev/mapper/${ROOT_VG_NAME}-${ROOT_LV_NAME} quiet"
+    # -------------------------------------------------------------
+    # FIX: Configure comprehensive /etc/crypttab for ALL encrypted disks
+    # -------------------------------------------------------------
+
+    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
+        echo "→ Generating /mnt/etc/crypttab for root and home..."
         
-        echo "→ Patching /etc/default/grub with LUKS/LVM boot parameters..."
+        # 1. Root device (SDA3) - Must be first and use '>' to create/overwrite the file
+        ROOT_PART_UUID=$(blkid -s UUID -o value "$P_ROOT_BASE_DEVICE")
+        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_PART_UUID} none luks" > /mnt/etc/crypttab
+
+        # 2. Home device (SDB1) - APPENDED, with USB delay fix
+        # Ensure P_HOME_BASE_DEVICE is set globally by your partitioning logic
+        if [[ -n "$P_HOME_BASE_DEVICE" ]]; then
+            HOME_PART_UUID=$(blkid -s UUID -o value "$P_HOME_BASE_DEVICE") 
+            # Use 'crypt_home' or the actual mapper name you set for the home LUKS container
+            HOME_MAPPER_NAME="crypt_home" 
+            
+            # The CRITICAL USB FIX: Add systemd timeout for slow external drive
+            echo "${HOME_MAPPER_NAME} UUID=${HOME_PART_UUID} none luks,x-systemd.device-timeout=90s" >> /mnt/etc/crypttab
+        fi
         
-        # 2. Patch GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
-        arch-chroot /mnt sed -i \
-            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${BOOT_PARAMS}\"|" \
-            /etc/default/grub || die "Failed to set GRUB_CMDLINE_LINUX_DEFAULT"
-        
-        # 3. Add the LVM hook to grub.cfg generation
-        arch-chroot /mnt sed -i 's/^GRUB_DISABLE_LINUX_UUID=true/#GRUB_DISABLE_LINUX_UUID=true/' /etc/default/grub
-        arch-chroot /mnt sed -i '/GRUB_PRELOAD_MODULES/a GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub
+    else
+        # If root isn't encrypted, ensure crypttab is empty/removed
+        rm -f /mnt/etc/crypttab || true
     fi
     
     ensure_fs_support_for_luks_lvm "$ROOT_IS_ENCRYPTED"     
