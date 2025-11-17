@@ -2534,13 +2534,15 @@ fi
             # 🛑 CRITICAL FIX for separate /boot partition
             # Ensure GRUB loads ext2 to read the /boot partition (/dev/sda2)
             echo "→ Patching /etc/default/grub to preload ext2 module..."
-            arch-chroot /mnt sed -i \
-                "s|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"${GRUB_PRELOAD_MODULES} ext2\"|" \
-                /etc/default/grub || true
             
+            # FIX: Use sed backreference (\1) to capture existing content and append ' ext2'
+            arch-chroot /mnt sed -i \
+                's|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"\1 ext2\"|' \
+                /etc/default/grub || true
+                        
             # If the line doesn't exist, append it
             if ! grep -q "GRUB_PRELOAD_MODULES" /mnt/etc/default/grub; then
-                 echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
+                echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
             fi
         
         install_grub
