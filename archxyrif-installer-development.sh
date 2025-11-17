@@ -104,6 +104,7 @@ declare -g ROOT_VG_NAME=""
 declare -g ROOT_LUKS_MAPPER_NAME=""
 declare -g ROOT_LUKS_PART_UUID=""
 declare -g ROOT_IS_ENCRYPTED=0
+declare -A LUKS_DEVICES=()
 # =======================================
 # =======================================
 #=========================================================================================================================================#
@@ -2256,7 +2257,8 @@ fi
         local do_encrypt="${do_encrypt:-Y}" # Use local copy
         
         if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-            local ENCRYPTION_ENABLED=1
+            # FIX 1: Remove 'local' for global access
+            ENCRYPTION_ENABLED=1 
             echo "→ Creating LUKS container on $PART"
             local luks2 # <- Declare local luks2
             read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
@@ -2269,7 +2271,7 @@ fi
         
             local cryptname # <- Declare local cryptname
             read -rp "Name for mapped device (default: cryptlvm): " cryptname
-            local cryptname="${cryptname:-cryptlvm}" # Use local copy
+            cryptname="${cryptname:-cryptlvm}" # Use global variable assignment
             
             # Ensure unique mapper name
             if [[ -e "/dev/mapper/$cryptname" ]]; then
@@ -2279,19 +2281,57 @@ fi
                 echo "→ Using mapped name $cryptname"
             fi
             
-            local LUKS_MAPPER_NAME="$cryptname" # <- MUST be local
+            LUKS_MAPPER_NAME="$cryptname" 
             cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
             
-            local LUKS_MAPPER="/dev/mapper/${cryptname}" # <- MUST be local
-            local BASE_DEVICE="$LUKS_MAPPER" # <- MUST be local
+            LUKS_MAPPER="/dev/mapper/${cryptname}" 
+            BASE_DEVICE="$LUKS_MAPPER" 
             echo "→ LUKS mapper at $LUKS_MAPPER"
 
             # GET AND SAVE THE UUID of the physical partition
-                local LUKS_PART_UUID=$(blkid -s UUID -o value "$PART") # <- MUST be local
-            else
-                local ENCRYPTION_ENABLED=0 # <- MUST be local
-                local BASE_DEVICE="$PART" # <- MUST be local
+                LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
+
+                LUKS_DEVICES["$LUKS_PART_UUID"]="$LUKS_MAPPER_NAME"
+                
+        else
+            # FIX 5: Remove 'local' for global access
+            ENCRYPTION_ENABLED=0 
+            BASE_DEVICE="$PART" 
+          fi
+    
+                # Secondary Disk Setup Prompt (for the external /home drive)
+                read -rp "Set up a SECOND encrypted disk for /home (USB fix required)? [y/N]: " setup_home_luks
+            if [[ "$setup_home_luks" =~ ^[Yy]$ ]]; then
+        
+                echo "Available disks (again):"
+                lsblk -d -o NAME,SIZE,MODEL,TYPE
+                 while true; do
+                read -rp "Enter partition for encrypted /home (e.g. /dev/sdb1): " HOME_PARTITION
+                HOME_PARTITION="/dev/${HOME_PARTITION##*/}"
+                [[ -b "$HOME_PARTITION" ]] && break || echo "Invalid device, try again."
+            done
+    
+                # 1. Format and encrypt the home partition
+                echo "→ Creating LUKS container on $HOME_PARTITION (using password from primary LUKS)"
+                cryptsetup luksFormat "$HOME_PARTITION" || die "Home partition luksFormat failed."
+            
+                # 2. Open the device with a fixed mapper name for easy identification
+                HOME_MAPPER_NAME="crypt_home"
+                cryptsetup open "$HOME_PARTITION" "$HOME_MAPPER_NAME" || die "cryptsetup open failed for home."
+                
+                # 3. GET AND SAVE THE UUID
+                HOME_LUKS_PART_UUID=$(blkid -s UUID -o value "$HOME_PARTITION")
+                
+                # 4. === CRITICAL INSERTION: Register the secondary LUKS container ===
+                LUKS_DEVICES["$HOME_LUKS_PART_UUID"]="$HOME_MAPPER_NAME"
+                
+                # 5. Add this new PV to the main LVM Volume Group (vg0)
+                echo "→ Adding $HOME_MAPPER_NAME to Volume Group $VGNAME"
+                pvcreate "/dev/mapper/$HOME_MAPPER_NAME" || die "pvcreate failed for home."
+                vgextend "$VGNAME" "/dev/mapper/$HOME_MAPPER_NAME" || die "vgextend failed for home."
             fi
+
+
 
         # Make LVM physical volume and VG
         echo "→ Setting up LVM on $BASE_DEVICE"
@@ -2509,32 +2549,43 @@ luks_lvm_post_install_steps()
     echo "→ Generated /mnt/etc/fstab:"
     cat /mnt/etc/fstab
 
-    # -------------------------------------------------------------
-    # FIX: Configure comprehensive /etc/crypttab for ALL encrypted disks
-    # -------------------------------------------------------------
-
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
-        echo "→ Generating /mnt/etc/crypttab for root and home..."
-    
-        # 1. Root device (SDA3) - Use the global variables already set.
-        # We use $ROOT_LUKS_PART_UUID instead of re-running blkid on a potentially unbound P_ROOT_BASE_DEVICE.
-        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
-    
-        # 2. Home device (SDB1) - APPENDED, with USB delay fix
-        if [[ -n "$P_HOME_BASE_DEVICE" ]]; then
-            HOME_LUKS_UUID=$(blkid -s UUID -o value "$P_HOME_BASE_DEVICE")
-            HOME_MAPPER_NAME="crypt_home"
-    
-            # CRITICAL USB FIX: Add the systemd timeout (90s) to wait for the slow USB drive.
-            # This 'echo' MUST be inside the 'if' block to prevent runtime errors.
-            echo "${HOME_MAPPER_NAME} UUID=${HOME_LUKS_UUID} none luks,x-systemd.device-timeout=90s" >> /mnt/etc/crypttab
+        # =================================================================
+        # Dynamic /etc/crypttab Generation (Inside luks_lvm_post_install_steps)
+        # =================================================================
+        
+        if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
+            echo "→ Dynamically generating /mnt/etc/crypttab for all encrypted devices..."
+            local first_line=true
+            
+            # Iterate over the global LUKS_DEVICES array
+            for PART_UUID in "${!LUKS_DEVICES[@]}"; do
+                MAPPER_NAME="${LUKS_DEVICES[$PART_UUID]}"
+                OPTIONS="none luks" # Default options
+                
+                # Apply the crucial USB delay fix only to the device named 'crypt_home'
+                if [[ "$MAPPER_NAME" == "crypt_home" ]]; then
+                    OPTIONS="none luks,x-systemd.device-timeout=90s"
+                fi
+        
+                local entry="${MAPPER_NAME} UUID=${PART_UUID} ${OPTIONS}"
+                
+                if $first_line ; then
+                    echo "$entry" > /mnt/etc/crypttab # Overwrite for the first device (ROOT)
+                    first_line=false
+                else
+                    echo "$entry" >> /mnt/etc/crypttab # Append for all other devices
+                fi
+            done
+            
+            if $first_line ; then
+                # Handle case where array was empty but encryption flag was set
+                rm -f /mnt/etc/crypttab || true
+            fi
+        
         else
-            echo "⚠️ WARNING: P_HOME_BASE_DEVICE is not set. /home LUKS entry skipped."
+            # If root isn't encrypted, ensure crypttab is empty/removed
+            rm -f /mnt/etc/crypttab || true
         fi
-    else
-        # If root isn't encrypted, ensure crypttab is empty/removed
-        rm -f /mnt/etc/crypttab || true
-    fi
     
     ensure_fs_support_for_luks_lvm "$ROOT_IS_ENCRYPTED"     
     
