@@ -1518,20 +1518,22 @@ convert_to_mib() {
     fi
 }
 handle_bios_gpt_partitions() {
-    local DEV="$1"
+local DEV="$1"
     local ps=$(part_suffix "$DEV")
-    local START_SECTOR="1MiB" # Start of the first partition
+    local START_SECTOR="1MiB"
 
-    echo "→ Configuring necessary BIOS/GPT partitions on $DEV."
+    # Redirect all status messages to stderr (>&2) to prevent capture by $()
+    echo "→ Configuring necessary BIOS/GPT partitions on $DEV." >&2
 
     # 1. CRITICAL: Create the BIOS Boot Partition (2 MiB, unformatted)
     parted -s "$DEV" mkpart primary "$START_SECTOR" 3MiB
     parted -s "$DEV" set 1 bios_grub on
-    echo "    - Partition 1 (BIOS Boot) created and flagged."
+    echo "    - Partition 1 (BIOS Boot) created and flagged." >&2
     
     local MAIN_START="3MiB" # New starting point for the next partition
 
     # 2. Ask the user if they want a separate /boot
+    # Use >&2 for the prompt if 'read -rp' doesn't automatically print to stderr
     read -rp "Create separate 512MiB /boot partition? (Recommended) [Y/n]: " create_separate_boot
     create_separate_boot="${create_separate_boot:-Y}"
     
@@ -1540,28 +1542,27 @@ handle_bios_gpt_partitions() {
         parted -s "$DEV" mkpart primary "$MAIN_START" 515MiB
         PART_BOOT="${DEV}${ps}2"
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 for /boot failed"
-        echo "    - Partition 2 (/boot) created and formatted."
+        echo "    - Partition 2 (/boot) created and formatted." >&2
         MAIN_START="515MiB"
         
         # The main partition will be number 3
         PART_NUMBER=3
     else
-        echo "    - Skipping separate /boot partition."
+        echo "    - Skipping separate /boot partition." >&2
         # The main partition will be number 2
         PART_NUMBER=2
     fi
 
-    # 3. Create the Main Partition
-    parted -s "$DEV" mkpart primary "$MAIN_START" 100%
-    PART="${DEV}${ps}${PART_NUMBER}"
+    partprobe "$DEV" >&2; udevadm settle --timeout=5 >&2
     
     echo "→ Main data partition created on: $PART (Partition $PART_NUMBER)."
 
     partprobe "$DEV"; udevadm settle --timeout=5
-    
+
     # Export necessary variables for the rest of the script
     export PART_BOOT
-    export PART # The main partition to be used for LUKS/LVM or root
+    echo "$MAIN_START"
+
 }
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS)
