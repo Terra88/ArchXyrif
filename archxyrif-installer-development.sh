@@ -1481,6 +1481,39 @@ hyprland_optional()
                               fi
                           fi
 }                          
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
+echo "#===================================================================================================#"
+echo
+echo 
+echo "Custom package installation phase complete."
+echo "You can later add more software manually or extend these lists:"
+echo "  - EXTRA_PKGS[] for pacman packages"
+echo "  - AUR_PKGS[] for AUR software"
+echo " ----------------------------------------------------------------------------------------------------"
+echo "You can now unmount and reboot:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo "  reboot"
+#Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
+#Final messages & instructions
+echo
+echo "Installation base and basic configuration finished."
+echo "To reboot into your new system:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo "  reboot"
+echo
+echo "Done."
+echo "#===========================================================================#"
+echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
+echo "# -Author  : Terra88                                                        #"
+echo "# -GitHub  : http://github.com/Terra88                                      #"
+echo "#===========================================================================#"
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
@@ -2032,7 +2065,7 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
-    final_cleanup_and_exit
+    cleanup
 }
 
 
@@ -2211,7 +2244,7 @@ luks_lvm_route()
       PART_BOOT="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"     
     # Main LUKS/LVM partition (rest of disk)
-    parted -s "$DEV" mkpart primary 515MiB 100%
+    parted -s "$DEV" mkpart primary 516MiB 100%
     PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3         
     
 elif [[ "$MODE" == "UEFI" ]]; then
@@ -2496,7 +2529,7 @@ fi
         extra_pacman_pkg
         optional_aur
         hyprland_optional
-        final_cleanup_and_exit
+        cleanup
     
         echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
@@ -2532,36 +2565,3 @@ logo
 #=========================================================================================================================================#
 menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #=========================================================================================================================================#                  
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
-echo "#===================================================================================================#"
-echo
-echo 
-echo "Custom package installation phase complete."
-echo "You can later add more software manually or extend these lists:"
-echo "  - EXTRA_PKGS[] for pacman packages"
-echo "  - AUR_PKGS[] for AUR software"
-echo " ----------------------------------------------------------------------------------------------------"
-echo "You can now unmount and reboot:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
-#Cleanup postinstall script
-rm -f /mnt/root/postinstall.sh
-#Final messages & instructions
-echo
-echo "Installation base and basic configuration finished."
-echo "To reboot into your new system:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
-echo
-echo "Done."
-echo "#===========================================================================#"
-echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
-echo "# -Author  : Terra88                                                        #"
-echo "# -GitHub  : http://github.com/Terra88                                      #"
-echo "#===========================================================================#"
