@@ -969,19 +969,30 @@ if [[ "$MODE" == "BIOS" ]]; then
             }
     done
     
-# --------------------------------------#
-# UEFI MODE
-# --------------------------------------#
-elif [[ "$MODE" == "UEFI" ]]; then # Use 'elif' here
+elif [[ "$MODE" == "UEFI" ]]; then
     echo "→ Installing GRUB for UEFI..."
 
-    # Ensure EFI is mounted (Using your existing variable pattern)
+    # Ensure EFI partition is mounted
     if ! mountpoint -q /mnt/boot/efi; then
         mkdir -p /mnt/boot/efi
-        # NOTE: If you need NVMe support (nvme0n1p1), you MUST use ${DEV}${ps}1 here.
-        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI" 
+        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
     fi
 
+    # Ensure GRUB knows about encrypted disks
+    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+        # Add cryptodisk support to /etc/default/grub
+        arch-chroot /mnt bash -c "grep -q '^GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
+        echo "→ GRUB_ENABLE_CRYPTODISK=y added to /etc/default/grub"
+
+        # Append kernel parameter for encrypted root
+        GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
+        arch-chroot /mnt sed -i \
+            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
+            /etc/default/grub
+        echo "→ Added cryptdevice=UUID to GRUB_CMDLINE_LINUX_DEFAULT"
+    fi
+
+    # Install GRUB
     arch-chroot /mnt grub-install \
         --target=x86_64-efi \
         --efi-directory=/boot/efi \
@@ -990,55 +1001,32 @@ elif [[ "$MODE" == "UEFI" ]]; then # Use 'elif' here
         --recheck \
         --no-nvram || die "grub-install UEFI failed"
 
-    # Fallback BOOTX64.EFI
+    # Optional fallback for BOOTX64.EFI
     arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
-    # Reset stale entries
+    # Clean old Arch entries
     LABEL="Arch Linux"
     for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
         efibootmgr -b "$num" -B || true
     done
 
-    # Create entry
-    # Target the physical disk of the EFI partition
-    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true 
-fi # <--- CRITICAL: Close the IF/ELIF structure here!
-    
+    # Create new EFI boot entry
+    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
 
-# --------------------------------------#
-# Generate GRUB config (Runs for both BIOS and UEFI)
-# --------------------------------------#
-if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-    echo "→ Encryption enabled. Configuring /etc/default/grub..."
-    
-    # This is the kernel parameter GRUB needs
-    local GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
-    
-    # Use arch-chroot to run sed *inside* /mnt
-    arch-chroot /mnt sed -i \
-        "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
-        /etc/default/grub
-        
-    echo "→ Updated GRUB_CMDLINE_LINUX_DEFAULT in /mnt/etc/default/grub"
-else
-    echo "→ Encryption not enabled. Skipping GRUB CMDLINE update."
-fi
+    # Generate GRUB config
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
-arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-    
-# --------------------------------------#
-# Optional Secure Boot (Also moved, but limited to UEFI mode)
-# --------------------------------------#
-if [[ "$MODE" == "UEFI" ]]; then
+    # Optional: Secure Boot signing
     if arch-chroot /mnt command -v sbctl &>/dev/null; then
-        echo "→ Secure Boot: signing binaries"
+        echo "→ Secure Boot detected, signing GRUB and kernel"
         arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
         arch-chroot /mnt sbctl enroll-keys --microsoft || true
         arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
         arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
     fi
+
+    echo "✅ UEFI GRUB installed with LUKS+LVM support"
 fi
-    echo "✅ GRUB fully installed and configured."
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
