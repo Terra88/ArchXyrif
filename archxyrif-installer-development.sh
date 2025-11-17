@@ -929,22 +929,16 @@ install_grub() {
     echo "→ Final GRUB modules: $GRUB_MODULES"
 
     for PART in $MOUNTED_PARTS; do
-        # Use lsblk to find the parent device (e.g., /dev/sda for /dev/sda3)
-        # Note: If partitions are LUKS/LVM, this will trace back to the physical device.
-        # -dn: no headers, no children
-        # -o PKNAME: prints the physical device name (e.g., sda)
-        local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
-
-        if [[ -n "$PARENT_DISK" ]]; then
-            # Reconstruct the full path (e.g., /dev/sda)
-            local FULL_DISK="/dev/$PARENT_DISK"
-            
-            # Add to list if not already present
-            if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
-                TARGET_DISKS+=("$FULL_DISK")
-            fi
+    # Find the parent device (e.g., /dev/sda for /dev/sda3, or for LVM volumes)
+    local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
+    if [[ -n "$PARENT_DISK" ]]; then
+        local FULL_DISK="/dev/$PARENT_DISK"
+        # Deduplicate the list
+        if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
+            TARGET_DISKS+=("$FULL_DISK")
         fi
-    done
+    fi
+done
 
     if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
         echo "ERROR: Could not find any physical disk devices mounted under /mnt."
@@ -954,75 +948,88 @@ install_grub() {
     echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
 
     
-    #--------------------------------------#
-    # BIOS MODE
-    #--------------------------------------#
-    prepare_chroot
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Installing GRUB for BIOS..."
+# --------------------------------------#
+# BIOS MODE
+# --------------------------------------#
+if [[ "$MODE" == "BIOS" ]]; then
+    
+    echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
+    
+    # Iterate over all physical disks involved in the install
+    for DISK in "${TARGET_DISKS[@]}"; do
+        echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
+        
+        # We must use $DISK here to target the physical drive
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
-            --recheck "$DEV" || die "grub-install BIOS failed"
-
-    #--------------------------------------#
-    # UEFI MODE
-    #--------------------------------------#
-    else
-        echo "→ Installing GRUB for UEFI..."
-
-        # Ensure EFI is mounted
-        if ! mountpoint -q /mnt/boot/efi; then
-            mkdir -p /mnt/boot/efi
-            mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI"
-        fi
-
-        arch-chroot /mnt grub-install \
-            --target=x86_64-efi \
-            --efi-directory=/boot/efi \
-            --bootloader-id=GRUB \
-            --modules="$GRUB_MODULES" \
-            --recheck \
-            --no-nvram || die "grub-install UEFI failed"
-
-        # Fallback BOOTX64.EFI
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-        # Reset stale entries
-        LABEL="Arch Linux"
-        for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-            efibootmgr -b "$num" -B || true
-        done
-
-        # Create entry
-        efibootmgr -c -d "$DEV" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
+            --recheck "$DISK" || {
+                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
+                return 1
+            }
+    done
     
+# --------------------------------------#
+# UEFI MODE
+# --------------------------------------#
+elif [[ "$MODE" == "UEFI" ]]; then # Use 'elif' here
+    echo "→ Installing GRUB for UEFI..."
 
-    #--------------------------------------#
-    # Generate GRUB config
-    #--------------------------------------#
-    #---FOR ENCRYPTION SETTINGS LUKS-------#
-    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-        echo "→ Encryption enabled. Configuring /etc/default/grub..."
-        
-        # This is the kernel parameter GRUB needs
-        local GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
-        
-        # Use arch-chroot to run sed *inside* /mnt
-        arch-chroot /mnt sed -i \
-            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
-            /etc/default/grub
-            
-        echo "→ Updated GRUB_CMDLINE_LINUX_DEFAULT in /mnt/etc/default/grub"
-    else
-        echo "→ Encryption not enabled. Skipping GRUB CMDLINE update."
+    # Ensure EFI is mounted (Using your existing variable pattern)
+    if ! mountpoint -q /mnt/boot/efi; then
+        mkdir -p /mnt/boot/efi
+        # NOTE: If you need NVMe support (nvme0n1p1), you MUST use ${DEV}${ps}1 here.
+        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI" 
     fi
-    
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
-    #--------------------------------------#
-    # Optional Secure Boot
-    #--------------------------------------#
+    arch-chroot /mnt grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=GRUB \
+        --modules="$GRUB_MODULES" \
+        --recheck \
+        --no-nvram || die "grub-install UEFI failed"
+
+    # Fallback BOOTX64.EFI
+    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+    # Reset stale entries
+    LABEL="Arch Linux"
+    for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+        efibootmgr -b "$num" -B || true
+    done
+
+    # Create entry
+    # Target the physical disk of the EFI partition
+    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true 
+fi # <--- CRITICAL: Close the IF/ELIF structure here!
+    
+
+# --------------------------------------#
+# Generate GRUB config (Runs for both BIOS and UEFI)
+# --------------------------------------#
+if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+    echo "→ Encryption enabled. Configuring /etc/default/grub..."
+    
+    # This is the kernel parameter GRUB needs
+    local GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
+    
+    # Use arch-chroot to run sed *inside* /mnt
+    arch-chroot /mnt sed -i \
+        "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
+        /etc/default/grub
+        
+    echo "→ Updated GRUB_CMDLINE_LINUX_DEFAULT in /mnt/etc/default/grub"
+else
+    echo "→ Encryption not enabled. Skipping GRUB CMDLINE update."
+fi
+
+arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+    
+# --------------------------------------#
+# Optional Secure Boot (Also moved, but limited to UEFI mode)
+# --------------------------------------#
+if [[ "$MODE" == "UEFI" ]]; then
     if arch-chroot /mnt command -v sbctl &>/dev/null; then
         echo "→ Secure Boot: signing binaries"
         arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
@@ -2162,33 +2169,39 @@ luks_lvm_route()
     read -rp "Create and format the required boot partition (${MODE} on ${DEV})? [Y/n]: " BOOTMODE
     BOOTMODE="${BOOTMODE:-Y}"
     
-    # Example (pseudo):
-if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
-      parted -s "$DEV" mklabel gpt
-      parted -s "$DEV" mkpart ESP fat32 1MiB 1024MiB
-      parted -s "$DEV" set 1 boot on
-      parted -s "$DEV" mkpart primary 1025MiB 100%
-      PART_BOOT="${DEV}${ps}1"
-      PART="${DEV}${ps}2"
-      mkfs.fat -F32 "$PART_BOOT"
-elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
-    # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
-      # BIOS: create /boot unencrypted small partition, rest LUKS
-      parted -s "$DEV" mklabel gpt
+
+
+  if [[ "$MODE" == "BIOS" ]]; then
+      pardet -s "$DEV" mklabel gpt
+      # P1: CRITICAL BIOS Boot Partition (1MiB, unformatted)
+    # Starts at 1MiB, ends at 2MiB.
       parted -s "$DEV" mkpart primary 1MiB 2MiB
-      # CRITICAL: BIOS Boot Partition (1MiB, unformatted)
+     # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
+      # BIOS: create /boot unencrypted small partition, rest LUKS
       parted -s "$DEV" set 1 bios_grub on
       PART_GRUB_BIOS="${DEV}${ps}1" # Store this for reference if needed
-
       # Separate /boot partition (512MiB, formatted ext4)
       parted -s "$DEV" mkpart primary 2MiB 514MiB
       PART_BOOT="${DEV}${ps}2"
-      mkfs.ext4 "$PART_BOOT"
-      
+      mkfs.ext4 "$PART_BOOT"     
     # Main LUKS/LVM partition (rest of disk)
     parted -s "$DEV" mkpart primary 515MiB 100%
-    PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3   
+    PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3         
+    
+elif [[ "$MODE" == "UEFI" ]]; then
+
+      parted -s "$DEV" mklabel gpt
+      parted -s "$DEV" mkpart ESP fat32 1MiB 1025MiB
+      parted -s "$DEV" set 1 boot on
+      PART_BOOT="${DEV}${ps}1"
+      mkfs.fat -F32 "$PART_BOOT"    
+      
+      parted -s "$DEV" mkpart primary 1026MiB 100%
+      PART="${DEV}${ps}2"
 fi
+
+
+
 
     # Ask about encryption
     read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
