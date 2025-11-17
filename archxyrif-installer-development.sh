@@ -97,15 +97,6 @@ P_BOOT=""
 P_SWAP=""
 P_ROOT=""
 P_HOME=""
-# === GLOBAL ROOT/LUKS BOOT VARIABLES ===
-# Variables to store the root filesystem location, set ONLY once.
-declare -g ROOT_LV_NAME=""
-declare -g ROOT_VG_NAME=""
-declare -g ROOT_LUKS_MAPPER_NAME=""
-declare -g ROOT_LUKS_PART_UUID=""
-declare -g ROOT_IS_ENCRYPTED=0
-# =======================================
-# =======================================
 #=========================================================================================================================================#
 # Helpers
 #=========================================================================================================================================#
@@ -958,49 +949,24 @@ done
 
     
 # --------------------------------------#
-# BIOS MODE (FIXED)
+# BIOS MODE
 # --------------------------------------#
 if [[ "$MODE" == "BIOS" ]]; then
     
     echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
     
-    # 1. Identify the physical disk that contains the actual /boot partition.
-    # We use the $PART_BOOT variable set earlier (e.g., /dev/sda2)
-    local BOOT_DISK_NAME=$(lsblk -dn -o PKNAME "$PART_BOOT" 2>/dev/null | head -n 1)
-    local PRIMARY_BOOT_DISK="/dev/$BOOT_DISK_NAME"
-
-    if [[ -z "$BOOT_DISK_NAME" ]]; then
-        echo "ERROR: Could not find physical disk for boot partition ($PART_BOOT). Defaulting to first target disk."
-        PRIMARY_BOOT_DISK="${TARGET_DISKS[0]}"
-    fi
-
-    echo "→ Primary boot device (containing /boot content): $PRIMARY_BOOT_DISK"
-
-    # 2. Iterate over all physical disks involved in the install
+    # Iterate over all physical disks involved in the install
     for DISK in "${TARGET_DISKS[@]}"; do
         echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
-
-        if [[ "$DISK" == "$PRIMARY_BOOT_DISK" ]]; then
-            # Install to the primary disk normally
-            arch-chroot /mnt grub-install \
-                --target=i386-pc \
-                --modules="$GRUB_MODULES" \
-                --recheck "$PRIMARY_BOOT_DISK"
-        else
-            # Install to secondary disk, explicitly pointing it to the /boot directory
-            # (which is visible as /boot inside the chroot)
-            arch-chroot /mnt grub-install \
-                --target=i386-pc \
-                --modules="$GRUB_MODULES" \
-                --recheck \
-                --boot-directory=/boot \
-                "$DISK"
-        fi
         
-        if [ $? -ne 0 ]; then
-            echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
-            return 1
-        fi
+        # We must use $DISK here to target the physical drive
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --modules="$GRUB_MODULES" \
+            --recheck "$DISK" || {
+                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
+                return 1
+            }
     done
     
 # --------------------------------------#
@@ -1489,42 +1455,7 @@ hyprland_optional()
                                   echo "Skipping Hyprland theme setup."
                               fi
                           fi
-}
-endscreen(){
-sleep 1
-clear
-echo
-echo "#===================================================================================================#"
-echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
-echo "#===================================================================================================#"
-echo
-echo 
-echo "Custom package installation phase complete."
-echo "You can later add more software manually or extend these lists:"
-echo "  - EXTRA_PKGS[] for pacman packages"
-echo "  - AUR_PKGS[] for AUR software"
-echo " ----------------------------------------------------------------------------------------------------"
-echo "You can now unmount and reboot:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
-#Cleanup postinstall script
-rm -f /mnt/root/postinstall.sh
-#Final messages & instructions
-echo
-echo "Installation base and basic configuration finished."
-echo "To reboot into your new system:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
-echo
-echo "Done."
-echo "#===========================================================================#"
-echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
-echo "# -Author  : Terra88                                                        #"
-echo "# -GitHub  : http://github.com/Terra88                                      #"
-echo "#===========================================================================#"
-}
+}                          
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
@@ -1557,7 +1488,6 @@ quick_partition() {
     extra_pacman_pkg
     optional_aur
     hyprland_optional
-    endscreen
     
 
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
@@ -2077,7 +2007,6 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
-    endscreen
 }
 
 
@@ -2137,10 +2066,10 @@ ensure_fs_support_for_luks_lvm()
     if [[ "$enable_luks" -eq 1 ]]; then
         echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
         # Note the order: encrypt MUST be before lvm2
-        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block usb encrypt lvm2 filesystems fsck)'
+        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)'
     else
         echo "→ Patching mkinitcpio.conf for LVM only..."
-        HOOKS_LINE='HOOKS=(base udev autodetect modconf block usb lvm2 filesystems keyboard fsck)'
+        HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
     fi
     
     arch-chroot /mnt sed -i \
@@ -2154,6 +2083,28 @@ ensure_fs_support_for_luks_lvm()
     echo "→ ensure_fs_support_for_luks_lvm() finished."
 } # End of function
 
+# ---------------------------------------------
+# create_more_Luks&LVM (Luks+LVM-Route)
+# ---------------------------------------------
+create_more_lvm(){
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                luks_lvm_route
+                ;;
+            [Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+    echo "Continuing with the rest of the script..."
+}
 wait_for_lv() {
     local dev="$1"
     local timeout=10
@@ -2221,7 +2172,7 @@ luks_lvm_route()
 
 
   if [[ "$MODE" == "BIOS" ]]; then
-      parted -s "$DEV" mklabel gpt
+      pardet -s "$DEV" mklabel gpt
       # P1: CRITICAL BIOS Boot Partition (1MiB, unformatted)
     # Starts at 1MiB, ends at 2MiB.
       parted -s "$DEV" mkpart primary 1MiB 2MiB
@@ -2230,11 +2181,11 @@ luks_lvm_route()
       parted -s "$DEV" set 1 bios_grub on
       PART_GRUB_BIOS="${DEV}${ps}1" # Store this for reference if needed
       # Separate /boot partition (512MiB, formatted ext4)
-      parted -s "$DEV" mkpart primary 2MiB 513MiB
+      parted -s "$DEV" mkpart primary 2MiB 514MiB
       PART_BOOT="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"     
     # Main LUKS/LVM partition (rest of disk)
-    parted -s "$DEV" mkpart primary 514MiB 100%
+    parted -s "$DEV" mkpart primary 515MiB 100%
     PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3         
     
 elif [[ "$MODE" == "UEFI" ]]; then
@@ -2249,26 +2200,27 @@ elif [[ "$MODE" == "UEFI" ]]; then
       PART="${DEV}${ps}2"
 fi
 
-        # Ask about encryption
-        local do_encrypt # <- Declare the local flag
-        read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
-        local do_encrypt="${do_encrypt:-Y}" # Use local copy
+
+
+
+    # Ask about encryption
+    read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
+    do_encrypt="${do_encrypt:-Y}"
+
+    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+        ENCRYPTION_ENABLED=1
+        echo "→ Creating LUKS container on $PART"
+        # Prompt for LUKS options (default: LUKS2)
+        read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
+        luks2="${luks2:-Y}"
+        if [[ "$luks2" =~ ^[Yy]$ ]]; then
+            cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
+        else
+            cryptsetup luksFormat "$PART" || die "luksFormat failed"
+        fi
         
-        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-            local ENCRYPTION_ENABLED=1
-            echo "→ Creating LUKS container on $PART"
-            local luks2 # <- Declare local luks2
-            read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
-            local luks2="${luks2:-Y}" # Use local copy
-            if [[ "$luks2" =~ ^[Yy]$ ]]; then
-                cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
-            else
-                cryptsetup luksFormat "$PART" || die "luksFormat failed"
-            fi
-        
-            local cryptname # <- Declare local cryptname
-            read -rp "Name for mapped device (default: cryptlvm): " cryptname
-            local cryptname="${cryptname:-cryptlvm}" # Use local copy
+        read -rp "Name for mapped device (default: cryptlvm): " cryptname
+        cryptname="${cryptname:-cryptlvm}"
             
             # Ensure unique mapper name
             if [[ -e "/dev/mapper/$cryptname" ]]; then
@@ -2278,30 +2230,29 @@ fi
                 echo "→ Using mapped name $cryptname"
             fi
             
-            local LUKS_MAPPER_NAME="$cryptname" # <- MUST be local
+            LUKS_MAPPER_NAME="$cryptname"
             cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
-            
-            local LUKS_MAPPER="/dev/mapper/${cryptname}" # <- MUST be local
-            local BASE_DEVICE="$LUKS_MAPPER" # <- MUST be local
+
+        
+            LUKS_MAPPER="/dev/mapper/${cryptname}"
+            BASE_DEVICE="$LUKS_MAPPER"
             echo "→ LUKS mapper at $LUKS_MAPPER"
 
-            # GET AND SAVE THE UUID of the physical partition
-                local LUKS_PART_UUID=$(blkid -s UUID -o value "$PART") # <- MUST be local
-            else
-                local ENCRYPTION_ENABLED=0 # <- MUST be local
-                local BASE_DEVICE="$PART" # <- MUST be local
-            fi
+        # GET AND SAVE THE UUID of the physical partition
+        LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
+    else
+        ENCRYPTION_ENABLED=0
+        BASE_DEVICE="$PART"
+    fi
 
-        # Make LVM physical volume and VG
-        echo "→ Setting up LVM on $BASE_DEVICE"
+    # Make LVM physical volume and VG
+    echo "→ Setting up LVM on $BASE_DEVICE"
     
-         pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
     
-        # New (Correct):
-        local VGNAME # <- Declare local VGNAME
         read -rp "Volume Group name (default: vg0): " VGNAME
-        local VGNAME="${VGNAME:-vg0}" # Use local copy
-        local LVM_VG_NAME="$VGNAME" # <- MUST be local
+        VGNAME="${VGNAME:-vg0}"
+        LVM_VG_NAME="$VGNAME"
         
         if vgdisplay "$VGNAME" >/dev/null 2>&1; then
             read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
@@ -2344,17 +2295,9 @@ fi
         # Ask for intended mount
         read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
         lvmnt="${lvmnt:-none}"
-        
-        # Inside luks_lvm_route's LV creation loop:
+
         if [[ "$lvmnt" == "/" ]]; then
-            # CRITICAL: Store root device details in global variables, only if not set.
-            if [[ -z "$ROOT_LV_NAME" ]]; then
-                ROOT_LV_NAME="$lvname"
-                ROOT_VG_NAME="$VGNAME" # This must be the local VGNAME
-                ROOT_LUKS_MAPPER_NAME="$LUKS_MAPPER_NAME" # This must be the local LUKS_MAPPER_NAME
-                ROOT_LUKS_PART_UUID="$LUKS_PART_UUID" # This must be the local UUID
-                ROOT_IS_ENCRYPTED="$ENCRYPTION_ENABLED"
-            fi
+        LVM_ROOT_LV_NAME="$lvname"
         fi
         
         # Filesystem choice (skip if swap)
@@ -2392,6 +2335,8 @@ fi
             lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
         fi
     done
+    
+
 
     # Compose LV device paths and format/mount them
     echo "→ Formatting and mounting LVs..."
@@ -2412,7 +2357,7 @@ fi
             mkswap "$lv_path" || die "mkswap failed $lv_path"
             swapon "$lv_path" || die "swapon failed $lv_path"
             P_SWAP="$lv_path"
-            continue # <--- This prevents it from falling through to mkfs
+            continue
         fi
 
         echo "  → Formatting $lv_path as $fs"
@@ -2420,7 +2365,7 @@ fi
             ext4)  mkfs.ext4 -F "$lv_path" ;;
             btrfs) mkfs.btrfs -f "$lv_path" ;;
             xfs)   mkfs.xfs -f "$lv_path" ;;
-            f2fs)  mkfs.f2fs -f "$lv_path" ;; # <--- If $fs was f2fs for /root or /home, this runs next.
+            f2fs)  mkfs.f2fs -f "$lv_path" ;;
             *) die "Unsupported FS: $fs" ;;
         esac
 
@@ -2482,103 +2427,46 @@ fi
             mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
             P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
         fi
+    
+        create_more_lvm
+    
+        # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
+        mkdir -p /mnt/etc/lvm # Ensure directory exists
+        cp /etc/lvm/lvm.conf /mnt/etc/lvm/
+    
+        install_base_system
+    
+        # Continue with common installer flow
         
+         # Create crypttab so system can map the LUKS container at boot
+        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+          UUID=$(blkid -s UUID -o value "$PART")
+          echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
+        fi
+        
+        # Generate fstab after pacstrap
+        genfstab -U /mnt > /mnt/etc/fstab
+        echo "→ Generated /mnt/etc/fstab:"
+        cat /mnt/etc/fstab
+    
+        ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
+        
+        configure_system
+    
+        # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
+        # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
+        install_grub
+        network_mirror_selection
+        gpu_driver
+        window_manager
+        lm_dm
+        extra_pacman_pkg
+        optional_aur
+        hyprland_optional
+    
+        echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
 
-# =====================================================================================================#
-# === LUKS LVM Post-Install Steps (Runs only once) ===
-# =====================================================================================================#
-luks_lvm_post_install_steps()
-{
-
-    install_base_system
-    
-    # -------------------------------------------------------------
-    # 2. Configure LUKS/LVM for boot
-    # -------------------------------------------------------------
-    # Ensure crypttab is empty before we start appending
-    rm -f /mnt/etc/crypttab
-    
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
-        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
-    fi
-    
-    # Generate fstab after pacstrap
-    genfstab -U /mnt > /mnt/etc/fstab
-    echo "→ Generated /mnt/etc/fstab:"
-    cat /mnt/etc/fstab
-
-    # 🛑 CRITICAL FIX: Set the kernel command line parameters for LUKS/LVM
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 && -n "$ROOT_LV_NAME" ]]; then
-        # 1. Construct the boot parameters using the correct ROOT_ variables
-        local BOOT_PARAMS="cryptdevice=UUID=${ROOT_LUKS_PART_UUID}:${ROOT_LUKS_MAPPER_NAME} root=/dev/mapper/${ROOT_VG_NAME}-${ROOT_LV_NAME} quiet"
-        
-        echo "→ Patching /etc/default/grub with LUKS/LVM boot parameters..."
-        
-        # 2. Patch GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
-        arch-chroot /mnt sed -i \
-            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${BOOT_PARAMS}\"|" \
-            /etc/default/grub || die "Failed to set GRUB_CMDLINE_LINUX_DEFAULT"
-        
-        # 3. Add the LVM hook to grub.cfg generation
-        arch-chroot /mnt sed -i 's/^GRUB_DISABLE_LINUX_UUID=true/#GRUB_DISABLE_LINUX_UUID=true/' /etc/default/grub
-        arch-chroot /mnt sed -i '/GRUB_PRELOAD_MODULES/a GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub
-    fi
-    
-    ensure_fs_support_for_luks_lvm "$ROOT_IS_ENCRYPTED"     
-    
-    configure_system
-    
-    # 🛑 CRITICAL FIX for separate /boot partition
-    echo "→ Patching /etc/default/grub to preload ext2 module..."
-    # FIX: Use sed backreference (\1) to capture existing content and append ' ext2'
-    arch-chroot /mnt sed -i \
-        's|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"\1 ext2\"|' \
-        /etc/default/grub || true
-                
-    if ! grep -q "GRUB_PRELOAD_MODULES" /mnt/etc/default/grub; then
-        echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
-    fi
-    
-    install_grub
-    network_mirror_selection
-    gpu_driver
-    window_manager
-    lm_dm
-    extra_pacman_pkg
-    optional_aur
-    hyprland_optional
-    endscreen
-    
-    echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
-}
-# =====================================================================================================#
-# === LUKS LVM Master Installation Flow (Call this from menu option 3) ===
-# =====================================================================================================#
-luks_lvm_master_flow()
-{
-    luks_lvm_route # Handle the first disk (required for the boot partition to be available for mounting)
-    
-    # Handle subsequent disks
-    while true; do
-        read -rp "Do you want to edit another disk? (Y/n): " answer
-        case "$answer" in
-            [Yy]|"")
-                echo "→ Editing another disk..."
-                luks_lvm_route # Call the partitioning function for the next disk
-                ;;
-            [Nn])
-                echo "→ All disks partitioned. Proceeding to system setup..."
-                break
-                ;;
-            *)
-                echo "Please enter Y or n."
-                ;;
-        esac
-    done
-
-    luks_lvm_post_install_steps # Run all the critical setup steps ONCE
-}
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
@@ -2600,7 +2488,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) luks_lvm_master_flow ;;
+                3) luks_lvm_route ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
@@ -2610,3 +2498,36 @@ logo
 #=========================================================================================================================================#
 menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 #=========================================================================================================================================#                  
+sleep 1
+clear
+echo
+echo "#===================================================================================================#"
+echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
+echo "#===================================================================================================#"
+echo
+echo 
+echo "Custom package installation phase complete."
+echo "You can later add more software manually or extend these lists:"
+echo "  - EXTRA_PKGS[] for pacman packages"
+echo "  - AUR_PKGS[] for AUR software"
+echo " ----------------------------------------------------------------------------------------------------"
+echo "You can now unmount and reboot:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo "  reboot"
+#Cleanup postinstall script
+rm -f /mnt/root/postinstall.sh
+#Final messages & instructions
+echo
+echo "Installation base and basic configuration finished."
+echo "To reboot into your new system:"
+echo "  umount -R /mnt"
+echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo "  reboot"
+echo
+echo "Done."
+echo "#===========================================================================#"
+echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
+echo "# -Author  : Terra88                                                        #"
+echo "# -GitHub  : http://github.com/Terra88                                      #"
+echo "#===========================================================================#"
