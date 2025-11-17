@@ -949,25 +949,52 @@ done
 
     
 # --------------------------------------#
-# BIOS MODE
+# BIOS MODE (FIXED)
 # --------------------------------------#
 if [[ "$MODE" == "BIOS" ]]; then
     
     echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
     
-    # Iterate over all physical disks involved in the install
+    # 1. Identify the physical disk that contains the actual /boot partition.
+    # We use the $PART_BOOT variable set earlier (e.g., /dev/sda2)
+    local BOOT_DISK_NAME=$(lsblk -dn -o PKNAME "$PART_BOOT" 2>/dev/null | head -n 1)
+    local PRIMARY_BOOT_DISK="/dev/$BOOT_DISK_NAME"
+
+    if [[ -z "$BOOT_DISK_NAME" ]]; then
+        echo "ERROR: Could not find physical disk for boot partition ($PART_BOOT). Defaulting to first target disk."
+        PRIMARY_BOOT_DISK="${TARGET_DISKS[0]}"
+    fi
+
+    echo "→ Primary boot device (containing /boot content): $PRIMARY_BOOT_DISK"
+
+    # 2. Iterate over all physical disks involved in the install
     for DISK in "${TARGET_DISKS[@]}"; do
         echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
+
+        if [[ "$DISK" == "$PRIMARY_BOOT_DISK" ]]; then
+            # Install to the primary disk normally
+            arch-chroot /mnt grub-install \
+                --target=i386-pc \
+                --modules="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2" \
+                --recheck "$PRIMARY_BOOT_DISK"
+        else
+            # Install to secondary disk, explicitly pointing it to the /boot directory
+            # (which is visible as /boot inside the chroot)
+            arch-chroot /mnt grub-install \
+                --target=i386-pc \
+                --modules="$GRUB_MODULES" \
+                --recheck \
+                --boot-directory=/boot \
+                "$DISK"
+        fi
         
-        # We must use $DISK here to target the physical drive
-        arch-chroot /mnt grub-install \
-            --target=i386-pc \
-            --modules="$GRUB_MODULES" \
-            --recheck "$DISK" || {
-                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
-                return 1
-            }
+        if [ $? -ne 0 ]; then
+            echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
+            return 1
+        fi
     done
+    
+fi # End BIOS Mode block
     
 # --------------------------------------#
 # UEFI MODE
@@ -2007,6 +2034,7 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+    final_cleanup_and_exit
 }
 
 
@@ -2455,6 +2483,13 @@ fi
     
         # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
         # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
+
+        # 🛑 CRITICAL FIX: Regenerate Initramfs after configuring LUKS/LVM hooks
+        if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+            echo "→ Regenerating initramfs with encrypt and lvm2 hooks..."
+            arch-chroot /mnt mkinitcpio -P || die "mkinitcpio failed to rebuild initramfs."
+        fi
+        
         install_grub
         network_mirror_selection
         gpu_driver
