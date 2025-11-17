@@ -1609,15 +1609,20 @@ custom_partition_wizard() {
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     echo "Disk size: ${disk_gib_float} GiB"
 
-    # You'll need to calculate the correct starting partition index (i) 
+# You'll need to calculate the correct starting partition index (i) 
     # based on how many partitions handle_bios_gpt_partitions created.
     # We'll use a new variable for the starting index.
     local START_INDEX=1
+    
     if [[ "$MODE" == "BIOS" ]]; then
+        # START now holds the next sector (e.g., "515MiB") echoed by the helper.
+        
         # Check how many partitions were made by the helper:
         local last_part_num=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {last=$1} END{print last}')
         START_INDEX=$(( last_part_num + 1 )) # Start numbering the user partitions after the helper's partitions
+        
         # Ensure START is correctly converted from MiB string to integer MiB for calculation
+        # This is CRITICAL for the subsequent arithmetic: END=$(( START + SIZE_MI ))
         START=$(echo "$START" | sed 's/MiB//')
     fi
 
