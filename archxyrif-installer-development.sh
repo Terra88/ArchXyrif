@@ -2610,7 +2610,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) luks_lvm_post_install_flow ;;
+                3) luks_lvm_master_flow ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
