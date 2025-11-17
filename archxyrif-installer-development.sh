@@ -1518,7 +1518,7 @@ convert_to_mib() {
     fi
 }
 #=========================================================================================================================================#
-# Custom Partition Wizard (Unlimited partitions, any FS)
+# Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
 #=========================================================================================================================================#
 custom_partition_wizard() {
     clear
@@ -1538,74 +1538,104 @@ custom_partition_wizard() {
     safe_disk_cleanup
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
-    
-#================================AUTOMATED BOOT SECTOR CREATOR=================================================#
+
+    # Determine partition name suffix for NVMe (p) or empty for /dev/sdX
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
+
+    # Initialize PARTITIONS array
+    PARTITIONS=()
+
+    # START is the start position (in MiB) for the next non-reserved partition
+    # Initialize to 1MiB by default (parted alignment safe)
+    local START=1
+
+    # Keep track how many partition slots we've reserved (so the user partitions start at the right number)
+    local RESERVED_PARTS=0
+
+    # ---------------------------
     # BIOS Boot Partition Handling
-if [[ "$MODE" == "BIOS" ]]; then
-    echo ""
-    echo "BIOS mode detected."
-    echo "A BIOS Boot Partition (1 MiB, unformatted, bios_grub flag) is REQUIRED for GRUB on GPT disks."
-    read -rp "Create BIOS Boot Partition automatically? (YES/no): " bios_auto
+    # ---------------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo ""
+        echo "BIOS mode detected."
+        echo "A BIOS Boot Partition (1 MiB, unformatted, bios_grub flag) is REQUIRED for GRUB on GPT disks."
+        read -rp "Create BIOS Boot Partition automatically? (YES/no): " bios_auto
 
-    if [[ "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
-        echo "→ Creating BIOS Boot Partition..."
-        parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create bios_grub partition."
-        parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag."
+        if [[ "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+            echo "→ Creating BIOS Boot Partition (1MiB - 2MiB)..."
+            # create from 1MiB to 2MiB
+            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create bios_grub partition."
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag."
 
-        BIOS_BOOT_PART="${DEV}${ps}1"
-        PARTITIONS+=("$BIOS_BOOT_PART:none:none:bios_grub")
-        START=2  # Next partition starts after 2MiB
-        echo "✔ BIOS Boot Partition created at $BIOS_BOOT_PART"
-    else
-        echo "⚠ WARNING: No BIOS Boot Partition created."
-        echo "GRUB BIOS install WILL FAIL unless you create one manually."
-        echo "Continuing..."
+            # Record the reserved partition node and don't format/mount it later
+            BIOS_BOOT_PART="${DEV}${ps}1"
+            # Use FS field 'none' and label 'bios_grub' so format_and_mount_custom can skip it safely
+            PARTITIONS+=("$BIOS_BOOT_PART:none:none:bios_grub")
+
+            RESERVED_PARTS=$((RESERVED_PARTS + 1))
+            START=2   # next user partition should start at 2MiB
+            echo "✔ BIOS Boot Partition created at $BIOS_BOOT_PART"
+        else
+            echo "⚠ WARNING: No BIOS Boot Partition created."
+            echo "GRUB BIOS install WILL FAIL unless you create one manually."
+            echo "Continuing..."
+        fi
     fi
-fi
 
-# UEFI ESP auto creation
-if [[ "$MODE" == "UEFI" ]]; then
-    echo ""
-    echo "UEFI mode detected."
-    echo "An EFI System Partition (ESP) is REQUIRED for UEFI boot."
-    read -rp "Automatically create a 1024MiB EFI System Partition? (YES/no): " esp_auto
+    # ---------------------------
+    # UEFI ESP auto creation
+    # ---------------------------
+    if [[ "$MODE" == "UEFI" ]]; then
+        echo ""
+        echo "UEFI mode detected."
+        echo "An EFI System Partition (ESP) is REQUIRED for UEFI boot."
+        read -rp "Automatically create a 1024MiB EFI System Partition? (YES/no): " esp_auto
 
-    if [[ "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
-        echo "→ Creating EFI System Partition (ESP)..."
-        parted -s "$DEV" mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP."
-        parted -s "$DEV" set 1 esp on || die "Failed to set esp flag."
-        parted -s "$DEV" set 1 boot on || true
+        if [[ "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+            echo "→ Creating EFI System Partition (ESP) (1MiB - 1025MiB)..."
+            # create from 1MiB to 1025MiB (1024 MiB total)
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP."
+            parted -s "$DEV" set 1 esp on || die "Failed to set esp flag."
+            parted -s "$DEV" set 1 boot on || true
 
-        ESP_PART="${DEV}${ps}1"
-        PARTITIONS+=("$ESP_PART:/boot/efi:fat32:EFI")
-        START=1025
-        echo "✔ EFI System Partition created at $ESP_PART (1025MiB)"
-    else
-        echo "⚠ WARNING: No ESP created."
-        echo "GRUB UEFI install WILL FAIL unless you create one manually."
-        echo "Continuing..."
+            ESP_PART="${DEV}${ps}1"
+            # Add to PARTITIONS so it will be formatted and mounted at /boot/efi
+            PARTITIONS+=("$ESP_PART:/boot/efi:fat32:EFI")
+
+            RESERVED_PARTS=$((RESERVED_PARTS + 1))
+            START=1025
+            echo "✔ EFI System Partition created at $ESP_PART (1024MiB)"
+        else
+            echo "⚠ WARNING: No ESP created."
+            echo "GRUB UEFI install WILL FAIL unless you create one manually."
+            echo "Continuing..."
+        fi
     fi
-fi
-#================================AUTOMATED BOOT SECTOR CREATOR=================================================#
 
-    # Disk size in MiB
+    # ---------------------------
+    # Disk size in MiB (for convenience)
+    # ---------------------------
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     echo "Disk size: ${disk_gib_float} GiB"
 
+    # Ask how many user-defined partitions to create
     read -rp "How many partitions would you like to create? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
-    PARTITIONS=()
-    local START=1  # start in MiB
-    local ps=""
-    [[ "$DEV" =~ nvme ]] && ps="p"
+    echo ""
+    echo "→ Note: Reserved partitions: $RESERVED_PARTS. Your first custom partition will be number $(( RESERVED_PARTS + 1 ))."
+    echo ""
 
-    for ((i=1; i<=COUNT; i++)); do
+    # For loop: create COUNT partitions, but assign them partition numbers after reserved ones.
+    # We'll iterate j from 1..COUNT and compute actual partition index i = j + RESERVED_PARTS
+    for ((j=1; j<=COUNT; j++)); do
+        i=$(( j + RESERVED_PARTS ))   # actual partition number on disk
         echo ""
-        echo "--- Partition $i ---"
+        echo "--- Partition $j (will be $DEV${ps}${i}) ---"
         parted -s "$DEV" unit MiB print
 
         # Read size
@@ -1615,7 +1645,7 @@ fi
             break
         done
 
-        # Calculate partition end
+        # Calculate partition end (use START in MiB)
         if [[ "$SIZE_MI" != "100%" ]]; then
             END=$(( START + SIZE_MI ))
             PART_SIZE="${START}MiB ${END}MiB"
@@ -1644,10 +1674,11 @@ fi
 
         read -rp "Label (optional): " LABEL
 
-        # Create partition
-        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
+        # Use parted to create the partition at the requested START..END
+        echo "→ Creating partition ${DEV}${ps}${i} -> $PART_SIZE"
+        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "parted failed creating partition $i"
 
-        # Construct partition node
+        # Construct partition node string for later formatting/mounting
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
@@ -1669,7 +1700,7 @@ fi
 }
 
 #=========================================================================================================================================#
-#  Formato AND MOUNTO CUSTOMMO
+#  Format AND Mount Custom - UPDATED (Skips bios_grub specially)
 #=========================================================================================================================================#
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
@@ -1683,6 +1714,12 @@ format_and_mount_custom() {
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
+
+        # Skip bios_grub reserved partition entirely (never format or mount)
+        if [[ "$LABEL" == "bios_grub" ]]; then
+            echo ">>> Skipping BIOS boot partition $PART (label=bios_grub)"
+            continue
+        fi
 
         echo ">>> $PART ($FS) mount as $MOUNT"
 
