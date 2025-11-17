@@ -2240,11 +2240,11 @@ luks_lvm_route()
       parted -s "$DEV" set 1 bios_grub on
       PART_GRUB_BIOS="${DEV}${ps}1" # Store this for reference if needed
       # Separate /boot partition (512MiB, formatted ext4)
-      parted -s "$DEV" mkpart primary 2MiB 514MiB
+      parted -s "$DEV" mkpart primary 2MiB 513MiB
       PART_BOOT="${DEV}${ps}2"
       mkfs.ext4 "$PART_BOOT"     
     # Main LUKS/LVM partition (rest of disk)
-    parted -s "$DEV" mkpart primary 516MiB 100%
+    parted -s "$DEV" mkpart primary 514MiB 100%
     PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3         
     
 elif [[ "$MODE" == "UEFI" ]]; then
