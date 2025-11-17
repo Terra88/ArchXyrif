@@ -2358,7 +2358,7 @@ luks_lvm_post_install_steps(){
             P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
         fi
     
-        create_more_lvm
+        luks_lvm_master_flow
     
         # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
         mkdir -p /mnt/etc/lvm # Ensure directory exists
