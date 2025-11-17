@@ -1553,7 +1553,7 @@ custom_partition_wizard() {
 
     # ---------------- BIOS / UEFI reserved partitions ----------------
     if [[ "$MODE" == "BIOS" ]]; then
-        read -rp "Create BIOS Boot Partition automatically? (YES/Enter for yes, no to skip): " bios_auto
+        read -rp "Create BIOS Boot Partition automatically? (y/n, default is no, if you add additional disks):" bios_auto
         bios_auto="${bios_auto:-}"  
         if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
@@ -1565,7 +1565,7 @@ custom_partition_wizard() {
     fi
 
     if [[ "$MODE" == "UEFI" ]]; then
-        read -rp "Automatically create 1024MiB EFI System Partition? (YES/Enter for yes, no to skip): " esp_auto
+        read -rp "Automatically create 1024MiB EFI System Partition? (y/n, default is no, if you add additional disks): " esp_auto
         esp_auto="${esp_auto:-}"   
         if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
