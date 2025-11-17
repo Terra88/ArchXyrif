@@ -69,6 +69,7 @@ set -euo pipefail
 #----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
+MNT=""
 BIOS_BOOT_PART_CREATED=false
 SWAP_SIZE_MIB=0
 SWAP_ON=""
@@ -84,6 +85,12 @@ BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
 EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
+#-------------------LV-LUKS-----------------------------------#
+ENCRYPTION_ENABLED=0 # 0=false, 1=true
+LUKS_PART_UUID=""
+LUKS_MAPPER_NAME=""
+LVM_VG_NAME=""
+LVM_ROOT_LV_NAME=""
 # Global partition variables (will be set in format_and_mount)
 P_EFI=""
 P_BOOT=""
@@ -151,26 +158,11 @@ safe_disk_cleanup() {
     local iso_dev
     iso_dev=$(findmnt -no SOURCE / 2>/dev/null || true)
     if [[ "$iso_dev" == "$DEV"* ]]; then
-        echo "❌ Refusing to touch the live ISO device ($iso_dev)"
+        echo "❌ This disk is being used as the live ISO source. Aborting."
         return 1
     fi
 
-    # 2) Deactivate LVMs on this disk
-    echo "→ Deactivating LVM volumes related to $DEV ..."
-    vgchange -an || true
-    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
-        dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
-    done
-
-    # 3) Close any LUKS mappings that belong to this disk
-    echo "→ Closing any LUKS mappings..."
-    for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
-        local backing
-        backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
-        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
-    done
-
-    # 4) Unmount all partitions of $DEV (not anything else!)
+    # 2) Unmount all partitions of $DEV (not anything else!)
     echo "→ Unmounting mounted partitions of $DEV..."
     for p in $(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
         local part="/dev/$p"
@@ -180,6 +172,24 @@ safe_disk_cleanup() {
     done
     swapoff "${DEV}"* 2>/dev/null || true
 
+    # 3) Deactivate LVMs on this disk
+    echo "→ Deactivating LVM volumes related to $DEV ..."
+    vgchange -an || true
+    for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
+        dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
+    done
+
+    # 4) Close any LUKS mappings that belong to this disk
+    echo "→ Closing any LUKS mappings..."
+    for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
+        local backing
+        backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
+        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
+    done
+
+    echo "→ Removing stray device-mapper entries ..."
+    dmsetup remove_all 2>/dev/null || true
+    
     # 5) Remove old BTRFS subvolume mounts (if any)
     echo "→ Cleaning BTRFS subvolumes..."
     for mnt in $(mount | grep "$DEV" | awk '{print $3}' | sort -r); do
@@ -676,6 +686,7 @@ PKGS=(
   linux-zen
   linux-headers
   linux-firmware
+  linux-firmware-whence
   vim
   sudo
   nano
@@ -684,139 +695,16 @@ PKGS=(
   openssh
   intel-ucode
   amd-ucode
-  btrfs-progs     
+  btrfs-progs
+  f2fs-tools
+  xfsprogs
+  lvm2
+  cryptsetup
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
-#=========================================================================================================================================#
-# GRUB installation
-#=========================================================================================================================================#
-install_grub() {
-    detect_boot_mode
-    local ps
-    ps=$(part_suffix "$DEV")
 
-    # Start with minimal essential modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid"
-
-    #--------------------------------------#
-    # Add FS module (idempotent)
-    #--------------------------------------#
-    add_fs_module() {
-        local fs="$1"
-        case "$fs" in
-            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
-            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
-            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
-            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
-            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
-            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
-        esac
-    }
-
-    #--------------------------------------#
-    # Detect RAID (mdadm)
-    #--------------------------------------#
-    echo "→ Detecting RAID arrays..."
-    if lsblk -o TYPE -nr /mnt | grep -q "raid"; then
-        echo "→ Found md RAID."
-        GRUB_MODULES+=" mdraid1x"
-    fi
-
-    #--------------------------------------#
-    # Detect LUKS (outermost layer)
-    #--------------------------------------#
-    echo "→ Detecting LUKS containers..."
-    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
-    for line in "${luks_lines[@]}"; do
-        echo "→ LUKS container: $line"
-        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
-    done
-
-    #--------------------------------------#
-    # Detect LVM (next layer)
-    #--------------------------------------#
-    echo "→ Detecting LVM volumes..."
-    if lsblk -o TYPE -nr | grep -q "lvm"; then
-        echo "→ Found LVM."
-        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
-    fi
-
-    #--------------------------------------#
-    # Detect filesystems under /mnt (final layer)
-    #--------------------------------------#
-    echo "→ Detecting filesystems..."
-    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
-    for line in "${fs_lines[@]}"; do
-        fs=$(awk '{print $2}' <<< "$line")
-        [[ -n "$fs" ]] && add_fs_module "$fs"
-    done
-
-    echo "→ Final GRUB modules: $GRUB_MODULES"
-
-    #--------------------------------------#
-    # BIOS MODE
-    #--------------------------------------#
-    prepare_chroot
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Installing GRUB for BIOS..."
-        arch-chroot /mnt grub-install \
-            --target=i386-pc \
-            --modules="$GRUB_MODULES" \
-            --recheck "$DEV" || die "grub-install BIOS failed"
-
-    #--------------------------------------#
-    # UEFI MODE
-    #--------------------------------------#
-    else
-        echo "→ Installing GRUB for UEFI..."
-
-        # Ensure EFI is mounted
-        if ! mountpoint -q /mnt/boot/efi; then
-            mkdir -p /mnt/boot/efi
-            mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI"
-        fi
-
-        arch-chroot /mnt grub-install \
-            --target=x86_64-efi \
-            --efi-directory=/boot/efi \
-            --bootloader-id=GRUB \
-            --modules="$GRUB_MODULES" \
-            --recheck \
-            --no-nvram || die "grub-install UEFI failed"
-
-        # Fallback BOOTX64.EFI
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-        # Reset stale entries
-        LABEL="Arch Linux"
-        for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-            efibootmgr -b "$num" -B || true
-        done
-
-        # Create entry
-        efibootmgr -c -d "$DEV" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
-    fi
-
-    #--------------------------------------#
-    # Generate GRUB config
-    #--------------------------------------#
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-    #--------------------------------------#
-    # Optional Secure Boot
-    #--------------------------------------#
-    if arch-chroot /mnt command -v sbctl &>/dev/null; then
-        echo "→ Secure Boot: signing binaries"
-        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-        arch-chroot /mnt sbctl enroll-keys --microsoft || true
-        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
-        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-    fi
-
-    echo "✅ GRUB fully installed and configured."
-}
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
@@ -837,6 +725,10 @@ TZ="${TZ:-$DEFAULT_TZ}"
 DEFAULT_LOCALE="fi_FI.UTF-8"
 read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
 LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+
+DEFAULT_KEYMAP="fi"
+read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
+KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
@@ -860,6 +752,7 @@ set -euo pipefail
 #========================================================#
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
+KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 #========================================================#
@@ -889,10 +782,10 @@ HOSTS
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
-echo "KEYMAP=fi" > /etc/vconsole.conf
+echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
-localectl set-keymap fi
-localectl set-x11-keymap fi
+localectl set-keymap ${KEYMAP}
+localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 # 5) Initramfs
 #========================================================#
@@ -951,6 +844,7 @@ EOF
 # -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 # -------------------------------
@@ -960,6 +854,191 @@ chmod +x /mnt/root/postinstall.sh
 arch-chroot /mnt /root/postinstall.sh
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
+}
+#=========================================================================================================================================#
+# GRUB installation
+#=========================================================================================================================================#
+install_grub() {
+    detect_boot_mode
+    local ps
+    # 1. Determine the list of disks involved in the installation
+    # This finds all physical disks that have a partition currently mounted in /mnt.
+    # It ensures that all disks contributing to the root or boot filesystem are targeted.
+    local TARGET_DISKS=()
+    # Get all physical devices that contain partitions currently mounted in /mnt
+    # Using 'mount' to find all mounted partitions, then 'lsblk' to find their parent disk.
+    local MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
+    ps=$(part_suffix "$DEV")
+
+    # Start with minimal essential modules
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2"
+
+    #--------------------------------------#
+    # Add FS module (idempotent)
+    #--------------------------------------#
+    add_fs_module() {
+        local fs="$1"
+        case "$fs" in
+            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
+            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
+            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
+            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
+            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
+            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
+        esac
+    }
+
+    #--------------------------------------#
+    # Detect RAID (mdadm)
+    #--------------------------------------#
+    echo "→ Detecting RAID arrays..."
+    if lsblk -l -o TYPE -nr /mnt | grep -q "raid"; then
+        echo "→ Found md RAID."
+        GRUB_MODULES+=" mdraid1x"
+    fi
+
+    #--------------------------------------#
+    # Detect LUKS (outermost layer)
+    #--------------------------------------#
+    echo "→ Detecting LUKS containers..."
+    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
+    for line in "${luks_lines[@]}"; do
+        echo "→ LUKS container: $line"
+        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
+    done
+
+    #--------------------------------------#
+    # Detect LVM (next layer)
+    #--------------------------------------#
+    echo "→ Detecting LVM volumes..."
+    if lsblk -o TYPE -nr | grep -q "lvm"; then
+        echo "→ Found LVM."
+        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
+    fi
+
+    #--------------------------------------#
+    # Detect filesystems under /mnt (final layer)
+    #--------------------------------------#
+    echo "→ Detecting filesystems..."
+    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    for line in "${fs_lines[@]}"; do
+        fs=$(awk '{print $2}' <<< "$line")
+        [[ -n "$fs" ]] && add_fs_module "$fs"
+    done
+
+    echo "→ Final GRUB modules: $GRUB_MODULES"
+
+    for PART in $MOUNTED_PARTS; do
+    # Find the parent device (e.g., /dev/sda for /dev/sda3, or for LVM volumes)
+    local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
+    if [[ -n "$PARENT_DISK" ]]; then
+        local FULL_DISK="/dev/$PARENT_DISK"
+        # Deduplicate the list
+        if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
+            TARGET_DISKS+=("$FULL_DISK")
+        fi
+    fi
+done
+
+    if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
+        echo "ERROR: Could not find any physical disk devices mounted under /mnt."
+        return 1
+    fi
+
+    echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
+
+    
+# --------------------------------------#
+# BIOS MODE
+# --------------------------------------#
+if [[ "$MODE" == "BIOS" ]]; then
+    
+    echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
+    
+    # Iterate over all physical disks involved in the install
+    for DISK in "${TARGET_DISKS[@]}"; do
+        echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
+        
+        # We must use $DISK here to target the physical drive
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --modules="$GRUB_MODULES" \
+            --recheck "$DISK" || {
+                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
+                return 1
+            }
+    done
+    
+# --------------------------------------#
+# UEFI MODE
+# --------------------------------------#
+elif [[ "$MODE" == "UEFI" ]]; then # Use 'elif' here
+    echo "→ Installing GRUB for UEFI..."
+
+    # Ensure EFI is mounted (Using your existing variable pattern)
+    if ! mountpoint -q /mnt/boot/efi; then
+        mkdir -p /mnt/boot/efi
+        # NOTE: If you need NVMe support (nvme0n1p1), you MUST use ${DEV}${ps}1 here.
+        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI" 
+    fi
+
+    arch-chroot /mnt grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=GRUB \
+        --modules="$GRUB_MODULES" \
+        --recheck \
+        --no-nvram || die "grub-install UEFI failed"
+
+    # Fallback BOOTX64.EFI
+    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+    # Reset stale entries
+    LABEL="Arch Linux"
+    for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+        efibootmgr -b "$num" -B || true
+    done
+
+    # Create entry
+    # Target the physical disk of the EFI partition
+    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true 
+fi # <--- CRITICAL: Close the IF/ELIF structure here!
+    
+
+# --------------------------------------#
+# Generate GRUB config (Runs for both BIOS and UEFI)
+# --------------------------------------#
+if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+    echo "→ Encryption enabled. Configuring /etc/default/grub..."
+    
+    # This is the kernel parameter GRUB needs
+    local GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
+    
+    # Use arch-chroot to run sed *inside* /mnt
+    arch-chroot /mnt sed -i \
+        "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
+        /etc/default/grub
+        
+    echo "→ Updated GRUB_CMDLINE_LINUX_DEFAULT in /mnt/etc/default/grub"
+else
+    echo "→ Encryption not enabled. Skipping GRUB CMDLINE update."
+fi
+
+arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+    
+# --------------------------------------#
+# Optional Secure Boot (Also moved, but limited to UEFI mode)
+# --------------------------------------#
+if [[ "$MODE" == "UEFI" ]]; then
+    if arch-chroot /mnt command -v sbctl &>/dev/null; then
+        echo "→ Secure Boot: signing binaries"
+        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+        arch-chroot /mnt sbctl enroll-keys --microsoft || true
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+    fi
+fi
+    echo "✅ GRUB fully installed and configured."
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
@@ -1098,8 +1177,8 @@ window_manager()
         case "$WM_CHOICE" in
             1)
                 echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock waybar kitty )
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
+                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty kvantum dolphin dolphin-plugins rofi discover nwg-displays nwg-look breeze breeze-icons blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark qview)
+                WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
                 echo "→ Selected: Sway (Wayland)"
@@ -1272,7 +1351,7 @@ optional_aur()
                          read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
                      
                          # Predefined extra AUR packages
-                         EXTRA_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+                         EXTRA_AUR_PKGS=( )
                      
                          # Merge WM + DM AUR packages with user input
                          AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
@@ -1419,10 +1498,13 @@ quick_partition() {
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# ---------------------------
+# Convert size to MiB helper
+# ---------------------------
 convert_to_mib() {
     local SIZE="$1"
-    SIZE="${SIZE,,}"   # lowercase
-    SIZE="${SIZE// /}" # remove spaces
+    SIZE="${SIZE,,}"       # lowercase
+    SIZE="${SIZE// /}"     # remove spaces
 
     if [[ "$SIZE" == "100%" ]]; then
         echo "100%"
@@ -1439,7 +1521,7 @@ convert_to_mib() {
     fi
 }
 #=========================================================================================================================================#
-# Custom Partition Wizard (Unlimited partitions, any FS)
+# Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
 #=========================================================================================================================================#
 custom_partition_wizard() {
     clear
@@ -1453,43 +1535,81 @@ custom_partition_wizard() {
     [[ -b "$DEV" ]] || die "Device $DEV not found."
 
     echo "WARNING: This will erase everything on $DEV"
-    read -rp "Type YES to continue: " CONFIRM
-    [[ "$CONFIRM" == "YES" ]] || die "Aborted."
+    read -rp "Type y/n to continue (Enter for yes): " CONFIRM
+    if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
+        die "Aborted."
+    fi
 
     safe_disk_cleanup
-    echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
-    # Disk size in MiB
-    local disk_bytes disk_mib disk_gib_float
-    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
-    disk_mib=$(( disk_bytes / 1024 / 1024 ))
-    disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
-    echo "Disk size: ${disk_gib_float} GiB"
-
-    read -rp "How many partitions would you like to create? " COUNT
-    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
-
-    PARTITIONS=()
-    local START=1  # start in MiB
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
-    for ((i=1; i<=COUNT; i++)); do
-        echo ""
-        echo "--- Partition $i ---"
+    # local per-disk partition array
+    local NEW_PARTS=()
+    local START=1
+    local RESERVED_PARTS=0
+
+    # ---------------- BIOS / UEFI reserved partitions ----------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
+        bios_auto="${bios_auto:-n}"
+        if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
+            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
+            NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
+            RESERVED_PARTS=$((RESERVED_PARTS+1))
+            START=2
+        fi
+    fi
+
+    if [[ "$MODE" == "UEFI" ]]; then
+        read -rp "Automatically create 1024MiB EFI System Partition? (y/n): " esp_auto
+        esp_auto="${esp_auto:-n}"
+        if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
+            parted -s "$DEV" set 1 esp on
+            parted -s "$DEV" set 1 boot on || true
+            NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
+            RESERVED_PARTS=$((RESERVED_PARTS+1))
+            START=1025
+        fi
+    fi
+
+    # ---------------- Disk info ----------------
+    local disk_bytes disk_mib
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    echo "Disk size: $(( disk_mib / 1024 )) GiB"
+
+    # ---------------- User-defined partitions ----------------
+    read -rp "How many partitions would you like to create on $DEV? " COUNT
+    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
+
+    for ((j=1; j<=COUNT; j++)); do
+        i=$((j + RESERVED_PARTS))
         parted -s "$DEV" unit MiB print
 
-        # Read size
+        # Determine available space for this partition
+        local AVAILABLE=$((disk_mib - START))
+        echo "Available space on disk: $AVAILABLE MiB"
+
+        # Size
         while true; do
-            read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
+            read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
+            SIZE="${SIZE:-100%}"
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
+
+            if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
+                echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
+                continue
+            fi
             break
         done
 
-        # Calculate partition end
         if [[ "$SIZE_MI" != "100%" ]]; then
-            END=$(( START + SIZE_MI ))
+            END=$((START + SIZE_MI))
             PART_SIZE="${START}MiB ${END}MiB"
         else
             PART_SIZE="${START}MiB 100%"
@@ -1497,13 +1617,16 @@ custom_partition_wizard() {
         fi
 
         # Mountpoint
-        while true; do
-            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
-            case "$MNT" in
-                /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
-                *) echo "Invalid mountpoint." ;;
-            esac
-        done
+        read -rp "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): " MNT
+        if [[ -z "$MNT" ]]; then
+            # Auto-assign /dataX for secondary partitions
+            local next_data=1
+            while grep -q "/data$next_data" <<<"${PARTITIONS[*]}"; do
+                ((next_data++))
+            done
+            MNT="/data$next_data"
+            echo "→ Auto-assigned mountpoint: $MNT"
+        fi
 
         # Filesystem
         while true; do
@@ -1514,134 +1637,185 @@ custom_partition_wizard() {
             esac
         done
 
+        # Label
         read -rp "Label (optional): " LABEL
 
         # Create partition
-        parted -s "$DEV" mkpart primary $PART_SIZE || die "parted failed"
-
-        # Construct partition node
+        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
         PART="${DEV}${ps}${i}"
-        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
-
-        echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
-
-        # Update start for next partition (skip if last uses 100%)
+        NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
         [[ "$END" != "100%" ]] && START=$END
-
-        # Show remaining disk
-        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
-        REMAINING=$(( disk_mib - LAST_END ))
-        echo "→ Remaining disk: ${REMAINING}MiB"
     done
 
-    echo ""
-    echo "=== Partition layout created ==="
-    printf "%s\n" "${PARTITIONS[@]}"
-    parted -s "$DEV" unit MiB print
+    # Merge per-disk NEW_PARTS into global PARTITIONS
+    PARTITIONS+=("${NEW_PARTS[@]}")
+    echo "=== Partitions for $DEV ==="
+    printf "%s\n" "${NEW_PARTS[@]}"
+}
+
+#======================================CUSTOMDISKS=======================================================#
+create_more_disks() {
+    local disk_counter=1  # start numbering for /dataX
+
+    # Initialize disk_counter based on existing PARTITIONS
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r _ MOUNT _ _ <<< "$entry"
+        if [[ "$MOUNT" =~ ^/data([0-9]+)$ ]]; then
+            ((disk_counter = disk_counter > ${BASH_REMATCH[1]} ? disk_counter : ${BASH_REMATCH[1]}))
+        fi
+    done
+    ((disk_counter++))
+
+    while true; do
+        read -rp "Do you want to edit another disk? (Yy/Nn, default no): " answer
+        case "$answer" in
+            [Yy])
+                echo "→ Editing another disk..."
+                custom_partition_wizard
+
+                # Auto-assign /dataX for new partitions with 'none' mount
+                for i in "${!PARTITIONS[@]}"; do
+                    IFS=':' read -r PART MOUNT FS LABEL <<< "${PARTITIONS[$i]}"
+
+                    # Skip partitions already assigned
+                    if [[ "$MOUNT" != "none" && "$MOUNT" != "" ]]; then
+                        continue
+                    fi
+
+                    # Skip root /boot /efi etc
+                    if [[ "$LABEL" == "bios_grub" || "$MOUNT" =~ ^/(boot|boot/efi|)$ ]]; then
+                        continue
+                    fi
+
+                    PARTITIONS[$i]="$PART:/data$disk_counter:$FS:$LABEL"
+                    echo "→ Auto-assigned $PART to /data$disk_counter"
+                    ((disk_counter++))
+                done
+                ;;
+            ""|[Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
 }
 
 #=========================================================================================================================================#
-#  Formato AND MOUNTO CUSTOMMO
+#  Format AND Mount Custom - UPDATED (Skips bios_grub specially)
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
 #=========================================================================================================================================#
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
-
     mkdir -p /mnt
 
+    if [[ ${#PARTITIONS[@]} -eq 0 ]]; then
+        die "No partitions to format/mount (PARTITIONS is empty)."
+    fi
+
+    # --- Order: root (/) first, then others ---
+    local ordered=() others=()
     for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r p m f l <<< "$entry"
+        if [[ "$m" == "/" ]]; then
+            ordered+=("$entry")
+        else
+            others+=("$entry")
+        fi
+    done
+    ordered+=("${others[@]}")
+
+    for entry in "${ordered[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-    
-        # wait for kernel to expose new partition
+
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        echo ">>> $PART ($FS) mount as $MOUNT"
+        # Skip reserved partitions
+        [[ "$LABEL" == "bios_grub" ]] && { echo ">>> Skipping BIOS boot partition $PART"; continue; }
+        [[ "$FS" == "none" ]] && continue
 
-        # Format partition
+        echo ">>> Formatting $PART as $FS"
         case "$FS" in
-            ext4)  mkfs.ext4 -F "$PART" ;;
+            ext4) mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
-            xfs)   mkfs.xfs -f "$PART" ;;
-            f2fs)  mkfs.f2fs -f "$PART" ;;
+            xfs) mkfs.xfs -f "$PART" ;;
+            f2fs) mkfs.f2fs -f "$PART" ;;
             fat32|vfat) mkfs.fat -F32 "$PART" ;;
-            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
-            none)  continue ;;
+            swap) mkswap "$PART"; swapon "$PART"; continue ;;
             *) die "Unsupported filesystem: $FS" ;;
         esac
 
         # Apply label if provided
-        [[ -n "$LABEL" ]] && {
-            case "$FS" in
-                ext4) e2label "$PART" "$LABEL" ;;
-                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
-                f2fs) f2fslabel "$PART" "$LABEL" ;;
-                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-                swap) mkswap -L "$LABEL" "$PART" ;;
-            esac
-        }
+        [[ -n "$LABEL" ]] && case "$FS" in
+            ext4) e2label "$PART" "$LABEL" ;;
+            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+            xfs) xfs_admin -L "$LABEL" "$PART" ;;
+            f2fs) f2fslabel "$PART" "$LABEL" ;;
+            fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+            swap) mkswap -L "$LABEL" "$PART" ;;
+        esac
 
-        # Mount according to mountpoint
+        # --- Mount ---
         case "$MOUNT" in
-            "/")
+            "/") 
                 if [[ "$FS" == "btrfs" ]]; then
                     mount "$PART" /mnt
-                    btrfs subvolume create /mnt/@
-                    umount /mnt
+                    mountpoint -q /mnt && btrfs subvolume create /mnt/@ || true
+                    umount /mnt || true
                     mount -o subvol=@,compress=zstd "$PART" /mnt
                 else
-                    mount "$PART" /mnt
+                    mount "$PART" /mnt || die "Failed to mount root $PART on /mnt"
                 fi
                 ;;
-            /home)
-                mkdir -p /mnt/home
-                mount "$PART" /mnt/home
+            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
+            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
+            /efi|/boot/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
+            /data*)  # Auto-mount secondary disk partitions
+                local DATA_DIR="/mnt${MOUNT}"
+                mkdir -p "$DATA_DIR"
+                mount "$PART" "$DATA_DIR" || die "Failed to mount $PART on $DATA_DIR"
                 ;;
-            /boot)
-                mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot
-                ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi
-                ;;
-            /data1)
-                mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1
-                ;;
-            /data2)
-                mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2
-                ;;
-            *)
+            *)  # Any other custom mountpoint
                 mkdir -p "/mnt$MOUNT"
                 mount "$PART" "/mnt$MOUNT"
                 ;;
         esac
     done
 
+    mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
+
     echo "✅ All custom partitions formatted and mounted correctly."
 
     echo "Generating /etc/fstab..."
-    
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-    echo "Partition Table and Mountpoints:"
+    echo "→ /etc/fstab content:"
     cat /mnt/etc/fstab
 }
 #============================================================================================================================#
-#ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
+# ENSURE FS SUPPORT FOR CUSTOM PARTITION SCHEME (Robust for multiple disks / reserved partitions)
 #============================================================================================================================#
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
-    # Detect requested FS types (prefer PARTITIONS array)
+    # Initialize FS detection flags
     local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+
+    # Detect requested FS types from PARTITIONS array
     if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
-        for e in "${PARTITIONS[@]}"; do
-            IFS=':' read -r p m f l <<< "$e"
-            case "$f" in
+        for entry in "${PARTITIONS[@]}"; do
+            IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+
+            # Skip reserved partitions (e.g., BIOS boot, ESP, none)
+            [[ "$FS" == "none" || "$LABEL" == "bios_grub" || "$MOUNT" == "/boot/efi" ]] && continue
+
+            case "$FS" in
                 xfs)   want_xfs=1 ;;
                 f2fs)  want_f2fs=1 ;;
                 btrfs) want_btrfs=1 ;;
@@ -1657,7 +1831,6 @@ ensure_fs_support_for_custom() {
                     f2fs) want_f2fs=1 ;;
                     btrfs)want_btrfs=1 ;;
                     ext4) want_ext4=1 ;;
-                    *) ;; # ignore other lines
                 esac
             done < /mnt/etc/fstab
         fi
@@ -1689,19 +1862,15 @@ MKCONF="/etc/mkinitcpio.conf"
 
 echo "→ (chroot) Patching ${MKCONF}..."
 
-# Ensure HOOKS contains 'block' before 'filesystems'. If HOOKS exists, try to ensure order.
+# Ensure HOOKS contains 'block' before 'filesystems'
 if grep -q '^HOOKS=' "$MKCONF"; then
-    # Extract current hooks (naive)
     current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
-    # Build a desired base sequence and then append any existing hooks not duplicate
     base="base udev autodetect modconf block filesystems"
-    # Append any tokens from current_hooks that aren't already in base
     for tok in $current_hooks; do
         if ! echo " $base " | grep -q " $tok "; then
             base="$base $tok"
         fi
     done
-    # Replace HOOKS line
     sed -i "s|^HOOKS=(.*)|HOOKS=($base)|" "$MKCONF" 2>/dev/null || sed -i "s|^HOOKS=.*|HOOKS=($base)|" "$MKCONF" || true
 else
     echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
@@ -1714,30 +1883,23 @@ command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
 command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
 command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
 
-# If MODULES exists, append missing modules; otherwise create it.
 if grep -q '^MODULES=' "$MKCONF"; then
     existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF" || echo "")
     for m in "${desired_modules[@]}"; do
         if ! echo " $existing " | grep -q " $m "; then
-            # append module
             sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
         fi
     done
 else
-    if (( ${#desired_modules[@]} > 0 )); then
-        echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
-    fi
+    (( ${#desired_modules[@]} > 0 )) && echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
 fi
 
-# If no fsck helpers found for the installed filesystems, remove fsck hook to avoid mkinitcpio warning
+# Remove fsck hook if no helpers are installed
 has_fsck=0
 command -v fsck.ext4 >/dev/null 2>&1 && has_fsck=1
 command -v fsck.f2fs >/dev/null 2>&1 && has_fsck=1
 command -v xfs_repair >/dev/null 2>&1 && has_fsck=1
-
-if [[ $has_fsck -eq 0 ]]; then
-    sed -i '/fsck/d' "$MKCONF" || true
-fi
+(( has_fsck == 0 )) && sed -i '/fsck/d' "$MKCONF" || true
 
 echo "→ (chroot) mkinitcpio.conf patch complete."
 CHROOT_EOF
@@ -1745,16 +1907,25 @@ CHROOT_EOF
     echo "→ ensure_fs_support_for_custom() finished."
 }
 #=========================================================================================================================================#
-# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+# Multi-disk Custom Partition Flow
 #=========================================================================================================================================#
-custom_partition(){
+custom_partition() {
+    # --- First disk ---
     custom_partition_wizard
+
+    # --- Optional extra disks ---
+    create_more_disks
+
+    # --- Format & mount all partitions ---
     format_and_mount_custom
+
+    # --- Install base system ---
     install_base_system
 
-    # If we ran custom partitioning, ensure the target has needed fs tools
+    # --- Ensure filesystem tools inside target ---
     ensure_fs_support_for_custom
 
+    # --- Continue installation steps ---
     configure_system
     install_grub
     network_mirror_selection
@@ -1764,6 +1935,467 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+}
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#====================================== LUKS LVM // Choose Filesystem Custom #====================================================#
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#=====================================================================
+# Ensure system has support for LUKS + LVM (Option 3 only)
+#=====================================================================
+ensure_fs_support_for_luks_lvm() 
+{
+    echo "→ Running ensure_fs_support_for_luks_lvm() for post-install configuration."
+
+    local enable_luks="${1:-0}"
+    local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+
+    # 1. Detect required FS tools based on volumes created
+    # This logic assumes LV_FSS is a global array populated earlier.
+    for fs in "${LV_FSS[@]}"; do
+        case "$fs" in
+            xfs)   want_xfs=1 ;;
+            f2fs)  want_f2fs=1 ;;
+            btrfs) want_btrfs=1 ;;
+            ext4)  want_ext4=1 ;;
+            swap)  ;; # swap does not require FS tools
+        esac
+    done
+
+    # 2. Build package list for installation
+    local pkgs=()
+    (( want_xfs ))  && pkgs+=(xfsprogs)
+    (( want_f2fs )) && pkgs+=(f2fs-tools)
+    (( want_btrfs ))&& pkgs+=(btrfs-progs)
+    (( want_ext4 )) && pkgs+=(e2fsprogs)
+
+   # CRITICAL: Always include lvm2 and cryptsetup here to guarantee they are available for mkinitcpio.
+    pkgs+=(lvm2)
+    if [[ "$enable_luks" -eq 1 ]]; then
+        pkgs+=(cryptsetup)
+    fi
+
+   # 3. Install required tools inside chroot
+    if (( ${#pkgs[@]} > 0 )); then
+        echo "→ Installing critical filesystem/tools into target: ${pkgs[*]}"
+        
+        # Use -Syu to ensure repository synchronization (Sy) and upgrade packages (u)
+        # for a more robust installation inside the chroot environment.
+        arch-chroot /mnt pacman -Syu --noconfirm "${pkgs[@]}" || die "Failed to install required tools in target system."
+    else
+        echo "→ No special filesystem tools required beyond base/lvm2/cryptsetup."
+    fi
+
+    #4. Patch mkinitcpio.conf hooks (Single, clear block)
+    local HOOKS_LINE
+    if [[ "$enable_luks" -eq 1 ]]; then
+        echo "→ Patching mkinitcpio.conf for LUKS + LVM..."
+        # Note the order: encrypt MUST be before lvm2
+        HOOKS_LINE='HOOKS=(base udev autodetect keyboard keymap modconf block encrypt lvm2 filesystems fsck)'
+    else
+        echo "→ Patching mkinitcpio.conf for LVM only..."
+        HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
+    fi
+    
+    arch-chroot /mnt sed -i \
+        "s|^HOOKS=.*|${HOOKS_LINE}|" \
+        /etc/mkinitcpio.conf || die "mkinitcpio hook configuration failed"
+
+    # 5. CRITICAL: Regenerate Initramfs (Final step)
+    echo "→ Regenerating initramfs with LVM/LUKS hooks..."
+    arch-chroot /mnt mkinitcpio -P || die "mkinitcpio build failed."
+
+    echo "→ ensure_fs_support_for_luks_lvm() finished."
+} # End of function
+
+# =====================================================================================================#
+# === LUKS LVM Master Installation Flow (Call this from menu option 3) ===
+# =====================================================================================================#
+luks_lvm_master_flow()
+{
+    luks_lvm_route # Handle the first disk (required for the boot partition to be available for mounting)
+    
+    # Handle subsequent disks
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                luks_lvm_route # Call the partitioning function for the next disk
+                ;;
+            [Nn])
+                echo "→ All disks partitioned. Proceeding to system setup..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+
+    luks_lvm_post_install_steps # Run all the critical setup steps ONCE
+}
+wait_for_lv() {
+    local dev="$1"
+    local timeout=10
+    for ((i=0;i<timeout;i++)); do
+        [[ -b "$dev" ]] && return 0
+        sleep 0.5
+        udevadm settle --timeout=2
+    done
+    return 1
+}
+#=====================================================================================================================================#
+# LUKS LV
+#=====================================================================================================================================#
+# -------------------------------------------------------------------------
+# Option 3: LUKS + LVM guided route
+# -------------------------------------------------------------------------
+luks_lvm_route() 
+{
+    detect_boot_mode
+
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
+
+    read -rp "This will ERASE ALL DATA on $DEV. Continue? [y/N]: " yn
+    yn="${yn:-N}"
+    if [[ ! "$yn" =~ ^[Yy]$ ]]; then
+        echo "Aborted by user."
+        return 1
+    fi
+
+    # Ensure tools available on live environment
+    for cmd in cryptsetup pvcreate vgcreate lvcreate lvs; do
+        if ! command -v "$cmd" >/dev/null 2>&1; then
+            echo "ERROR: '$cmd' is required but not found on live system. Install lvm2/cryptsetup and retry."
+            return 1
+        fi
+    done
+
+    safe_disk_cleanup
+
+    # Create GPT and single primary partition occupying the usable space (leave small buffer)
+    ps=$(part_suffix "$DEV")
+    echo "→ Creating a single primary partition on $DEV (GPT)"
+    parted -s "$DEV" mklabel gpt || die "Failed to mklabel gpt on $DEV"
+
+    # Reserve EFI/boot area if UEFI/BIOS is required by your workflow. By default create one partition spanning rest.
+    # Here we create a partition from 1MiB to 100% for the LUKS container.
+    parted -s "$DEV" mkpart primary 1MiB 100% || die "parted mkpart failed"
+    partprobe "$DEV"; udevadm settle --timeout=5
+
+    PART="${DEV}${ps}1"
+    [[ -b "$PART" ]] || die "Partition $PART not found."
+
+    echo "Created partition: $PART"
+
+    # Ask about encryption
+    read -rp "Create and format the required boot partition (${MODE} on ${DEV})? [Y/n]: " BOOTMODE
+    BOOTMODE="${BOOTMODE:-Y}"
+    
+
+
+  if [[ "$MODE" == "BIOS" ]]; then
+      parted -s "$DEV" mklabel gpt
+      # P1: CRITICAL BIOS Boot Partition (1MiB, unformatted)
+    # Starts at 1MiB, ends at 2MiB.
+      parted -s "$DEV" mkpart primary 1MiB 2MiB
+     # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
+      # BIOS: create /boot unencrypted small partition, rest LUKS
+      parted -s "$DEV" set 1 bios_grub on
+      PART_GRUB_BIOS="${DEV}${ps}1" # Store this for reference if needed
+      # Separate /boot partition (512MiB, formatted ext4)
+      parted -s "$DEV" mkpart primary 2MiB 514MiB
+      PART_BOOT="${DEV}${ps}2"
+      mkfs.ext4 "$PART_BOOT"     
+    # Main LUKS/LVM partition (rest of disk)
+    parted -s "$DEV" mkpart primary 515MiB 100%
+    PART="${DEV}${ps}3" # <--- The main LUKS/LVM partition is now PARTITION 3         
+    
+elif [[ "$MODE" == "UEFI" ]]; then
+
+      parted -s "$DEV" mklabel gpt
+      parted -s "$DEV" mkpart ESP fat32 1MiB 1025MiB
+      parted -s "$DEV" set 1 boot on
+      PART_BOOT="${DEV}${ps}1"
+      mkfs.fat -F32 "$PART_BOOT"    
+      
+      parted -s "$DEV" mkpart primary 1026MiB 100%
+      PART="${DEV}${ps}2"
+fi
+
+    # Ask about encryption
+    read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
+    do_encrypt="${do_encrypt:-Y}"
+
+    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+        ENCRYPTION_ENABLED=1
+        echo "→ Creating LUKS container on $PART"
+        # Prompt for LUKS options (default: LUKS2)
+        read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
+        luks2="${luks2:-Y}"
+        if [[ "$luks2" =~ ^[Yy]$ ]]; then
+            cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
+        else
+            cryptsetup luksFormat "$PART" || die "luksFormat failed"
+        fi
+        
+        read -rp "Name for mapped device (default: cryptlvm): " cryptname
+        cryptname="${cryptname:-cryptlvm}"
+            
+            # Ensure unique mapper name
+            if [[ -e "/dev/mapper/$cryptname" ]]; then
+                idx=1
+                while [[ -e "/dev/mapper/${cryptname}${idx}" ]]; do ((idx++)); done
+                cryptname="${cryptname}${idx}"
+                echo "→ Using mapped name $cryptname"
+            fi
+            
+            LUKS_MAPPER_NAME="$cryptname"
+            cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
+
+        
+            LUKS_MAPPER="/dev/mapper/${cryptname}"
+            BASE_DEVICE="$LUKS_MAPPER"
+            echo "→ LUKS mapper at $LUKS_MAPPER"
+
+        # GET AND SAVE THE UUID of the physical partition
+        LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
+    else
+        ENCRYPTION_ENABLED=0
+        BASE_DEVICE="$PART"
+    fi
+
+    # Make LVM physical volume and VG
+    echo "→ Setting up LVM on $BASE_DEVICE"
+    
+     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+    
+        read -rp "Volume Group name (default: vg0): " VGNAME
+        VGNAME="${VGNAME:-vg0}"
+        LVM_VG_NAME="$VGNAME"
+        
+        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+            read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
+            add="${add:-Y}"
+            if [[ "$add" =~ ^[Yy]$ ]]; then
+                echo "→ Extending existing VG $VGNAME with $BASE_DEVICE"
+                vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+            else
+                read -rp "Enter new VG name: " VGNAME
+                VGNAME="${VGNAME:-vg0}"
+                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+            fi
+        else
+            echo "→ Creating new VG $VGNAME with $BASE_DEVICE"
+            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+        fi
+        
+        # Ensure device nodes exist
+        vgscan --mknodes
+        vgchange -ay "$VGNAME" || die "Failed to activate VG $VGNAME"
+        udevadm settle --timeout=5
+
+    # Interactive creation of LVs
+    declare -a LV_NAMES=()
+    declare -a LV_SIZES=()
+    declare -a LV_FSS=()
+    declare -a LV_MOUNTS=()
+
+    echo
+    echo "Now create logical volumes (examples: root 40G / , swap 8G swap, home 100%FREE /home)"
+    echo "Enter empty name to finish."
+
+    while true; do
+        read -rp "LV name (empty to finish): " lvname
+        [[ -z "$lvname" ]] && break
+
+        read -rp "Size for $lvname (e.g. 40G or 10%VG or 100%FREE): " lvsize
+        lvsize="${lvsize:-100%FREE}"
+
+        # Ask for intended mount
+        read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
+        lvmnt="${lvmnt:-none}"
+
+        if [[ "$lvmnt" == "/" ]]; then
+        LVM_ROOT_LV_NAME="$lvname"
+        fi
+        
+        # Filesystem choice (skip if swap)
+        if [[ "$lvmnt" == "swap" ]]; then
+            lvfs="swap"
+        else
+            read -rp "Filesystem for $lvname (ext4,btrfs,xfs,f2fs): " lvfs
+            lvfs="${lvfs:-ext4}"
+        fi
+
+        LV_NAMES+=("$lvname")
+        LV_SIZES+=("$lvsize")
+        LV_FSS+=("$lvfs")
+        LV_MOUNTS+=("$lvmnt")
+    done
+
+    if [[ ${#LV_NAMES[@]} -eq 0 ]]; then
+        die "No LVs defined; aborting."
+    fi
+
+    # Create LVs
+    echo "→ Creating logical volumes in VG ${VGNAME}..."
+    for i in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[i]}"
+        size="${LV_SIZES[i]}"
+        if [[ "$size" =~ %FREE ]]; then
+            # allow user to request 100%FREE; we treat '100%FREE' or '100%FREE' as full
+            if [[ "$size" == "100%FREE" || "$size" == "100%FREE" ]]; then
+                lvcreate -l 100%FREE "$VGNAME" -n "$name" || die "lvcreate $name failed"
+            else
+                # Accept other percent forms like 10%VG
+                lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
+            fi
+        else
+            lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
+        fi
+    done
+    
+    # Compose LV device paths and format/mount them
+    echo "→ Formatting and mounting LVs..."
+    mkdir -p /mnt
+
+    for i in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[i]}"
+        fs="${LV_FSS[i]}"
+        mnt="${LV_MOUNTS[i]}"
+        lv_path="/dev/${VGNAME}/${name}"
+        if ! wait_for_lv "$lv_path"; then
+            die "LV device $lv_path did not appear"
+        fi
+        # then mkfs/mount as usual
+
+        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
+            echo "  → Creating swap LV: $lv_path"
+            mkswap "$lv_path" || die "mkswap failed $lv_path"
+            swapon "$lv_path" || die "swapon failed $lv_path"
+            P_SWAP="$lv_path"
+            continue
+        fi
+
+        echo "  → Formatting $lv_path as $fs"
+        case "$fs" in
+            ext4)  mkfs.ext4 -F "$lv_path" ;;
+            btrfs) mkfs.btrfs -f "$lv_path" ;;
+            xfs)   mkfs.xfs -f "$lv_path" ;;
+            f2fs)  mkfs.f2fs -f "$lv_path" ;;
+            *) die "Unsupported FS: $fs" ;;
+        esac
+
+        # Decide mountpoint path under /mnt
+        case "$mnt" in
+            /)
+                mount "$lv_path" /mnt || die "mount $lv_path /mnt failed"
+                P_ROOT="$lv_path"
+                # handle btrfs subvol if requested similarly to your logic
+                if [[ "$fs" == "btrfs" ]]; then
+                    btrfs subvolume create /mnt/@ || true
+                    umount /mnt
+                    mount -o subvol=@,compress=zstd "$lv_path" /mnt || die "btrfs mount failed"
+                fi
+                ;;
+            /home)
+                mkdir -p /mnt/home
+                mount "$lv_path" /mnt/home || die "mount $lv_path /mnt/home failed"
+                P_HOME="$lv_path"
+                ;;
+            /boot)
+                mkdir -p /mnt/boot
+                mount "$lv_path" /mnt/boot || die "mount $lv_path /mnt/boot failed"
+                P_BOOT="$lv_path"
+                ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi
+                mount "$lv_path" /mnt/boot/efi || die "mount $lv_path /mnt/boot/efi failed"
+                P_EFI="$lv_path"
+                ;;
+            /data*|/srv|/opt)
+                mkdir -p "/mnt${mnt}"
+                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
+                ;;
+            none)
+                # skip mounting
+                ;;
+            *)
+                mkdir -p "/mnt${mnt}"
+                mount "$lv_path" "/mnt${mnt}" || die "mount $lv_path /mnt${mnt} failed"
+                ;;
+        esac
+    done
+
+
+}
+luks_lvm_post_install_steps(){
+
+        # -------------------------------------------------------------
+        # Mount the previously created Boot/EFI partition
+        # -------------------------------------------------------------
+        echo "→ Mounting boot partition..."
+    
+        # Check the actual outcome of the partitioning (determined by the earlier 'if')
+        if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
+            # This is the case where we created an ESP (EFI System Partition)
+            mkdir -p /mnt/boot/efi
+            mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount EFI partition $PART_BOOT"
+            P_EFI="$PART_BOOT" # Store EFI partition path
+        elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+            # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
+            mkdir -p /mnt/boot
+            mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
+            P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
+        fi
+    
+        create_more_lvm
+    
+        # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
+        mkdir -p /mnt/etc/lvm # Ensure directory exists
+        cp /etc/lvm/lvm.conf /mnt/etc/lvm/
+    
+        install_base_system
+    
+        # Continue with common installer flow
+        
+         # Create crypttab so system can map the LUKS container at boot
+        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+          UUID=$(blkid -s UUID -o value "$PART")
+          echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
+        fi
+        
+        # Generate fstab after pacstrap
+        genfstab -U /mnt > /mnt/etc/fstab
+        echo "→ Generated /mnt/etc/fstab:"
+        cat /mnt/etc/fstab
+    
+        ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
+        
+        configure_system
+    
+        # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
+        # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
+        install_grub
+        network_mirror_selection
+        gpu_driver
+        window_manager
+        lm_dm
+        extra_pacman_pkg
+        optional_aur
+        hyprland_optional
+    
+        echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
+
 }
 #=========================================================================================================================================#
 # Main menu
@@ -1778,13 +2410,16 @@ logo
             echo "|--------------------------------------------------|"
             echo "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
             echo "|--------------------------------------------------|"
-            echo "|-3) Return back to start                          |"
+            echo "|-3) Lvm & Luks Partitioning                       |"
+            echo "|--------------------------------------------------|"
+            echo "|-4) Return back to start                          |"
             echo "#==================================================#"
             read -rp "Enter choice [1-2]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) echo "Exiting..."; exit 0 ;;
+                3) luks_lvm_master_flow ;;
+                4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
 }
