@@ -2172,7 +2172,7 @@ luks_lvm_route()
 
 
   if [[ "$MODE" == "BIOS" ]]; then
-      pardet -s "$DEV" mklabel gpt
+      parted -s "$DEV" mklabel gpt
       # P1: CRITICAL BIOS Boot Partition (1MiB, unformatted)
     # Starts at 1MiB, ends at 2MiB.
       parted -s "$DEV" mkpart primary 1MiB 2MiB
