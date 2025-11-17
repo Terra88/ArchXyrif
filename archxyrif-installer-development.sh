@@ -105,6 +105,7 @@ declare -g ROOT_LUKS_MAPPER_NAME=""
 declare -g ROOT_LUKS_PART_UUID=""
 declare -g ROOT_IS_ENCRYPTED=0
 declare -A LUKS_DEVICES=()
+declare -A LUKS_DEVICES_TIMEOUT=()
 # =======================================
 # =======================================
 #=========================================================================================================================================#
@@ -2329,6 +2330,16 @@ fi
                 echo "→ Adding $HOME_MAPPER_NAME to Volume Group $VGNAME"
                 pvcreate "/dev/mapper/$HOME_MAPPER_NAME" || die "pvcreate failed for home."
                 vgextend "$VGNAME" "/dev/mapper/$HOME_MAPPER_NAME" || die "vgextend failed for home."
+#===================================================================================================OH MY FUCKING GOD==================================#
+                # CRITICAL: Ask if the timeout is needed
+                read -rp "Is this device (e.g., USB/slow HDD) slow to initialize? (Y/n): " needs_timeout
+                needs_timeout="${needs_timeout:-Y}" # Default to YES since the user reported a problem
+                
+                # Set a temporary flag that the crypttab generator can read
+                if [[ "$needs_timeout" =~ ^[Yy]$ ]]; then
+                # Create a simple global flag variable only for the crypt_home device
+                LUKS_DEVICES_TIMEOUT["$HOME_MAPPER_NAME"]=1
+#===================================================================================================OH MY FUCKING GOD==================================#
             fi
 
 
@@ -2339,10 +2350,10 @@ fi
          pvcreate "$BASE_DEVICE" || die "pvcreate failed"
     
         # New (Correct):
-        local VGNAME # <- Declare local VGNAME
+        VGNAME="" # Initialize to prevent unbound errors if read fails
         read -rp "Volume Group name (default: vg0): " VGNAME
-        local VGNAME="${VGNAME:-vg0}" # Use local copy
-        local LVM_VG_NAME="$VGNAME" # <- MUST be local
+        VGNAME="${VGNAME:-vg0}" 
+        LVM_VG_NAME="$VGNAME"
         
         if vgdisplay "$VGNAME" >/dev/null 2>&1; then
             read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
@@ -2561,12 +2572,18 @@ luks_lvm_post_install_steps()
             for PART_UUID in "${!LUKS_DEVICES[@]}"; do
                 MAPPER_NAME="${LUKS_DEVICES[$PART_UUID]}"
                 OPTIONS="none luks" # Default options
+
+                # Check if a timeout flag was set for this specific mapper name
+                if [[ "${LUKS_DEVICES_TIMEOUT[$MAPPER_NAME]}" -eq 1 ]]; then
+                    # Apply the timeout fix only if the user requested it
+                    OPTIONS="none luks,x-systemd.device-timeout=90s"
+                fi
                 
                 # Apply the crucial USB delay fix only to the device named 'crypt_home'
                 if [[ "$MAPPER_NAME" == "crypt_home" ]]; then
                     OPTIONS="none luks,x-systemd.device-timeout=90s"
                 fi
-        
+
                 local entry="${MAPPER_NAME} UUID=${PART_UUID} ${OPTIONS}"
                 
                 if $first_line ; then
