@@ -2074,18 +2074,21 @@ luks_lvm_route() {
             echo "Invalid block device: '$_d'. Try again."
         done
     }
-    ask_yesno_default() {
-        local prompt="$1"; local def="${2:-N}"; local ans
-        while true; do
-            read -rp "$prompt " ans
-            ans="${ans:-$def}"
-            case "$ans" in
-                [Yy]|[Yy][Ee][Ss]) return 0 ;;
-                [Nn]|[Nn][Oo]) return 1 ;;
-                *) echo "Please answer y or n." ;;
-            esac
-        done
-    }
+ask_yesno_default() {
+    local prompt="$1"
+    local def="${2:-N}"
+    local ans
+    while true; do
+        read -rp "$prompt " ans
+        ans="${ans:-$def}"
+        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
+        case "$ans_upper" in
+            Y|YES) return 0 ;;   # success = yes
+            N|NO)  return 1 ;;   # failure = no
+            *) echo "Please answer Y or N." ;;
+        esac
+    done
+}
     ask_nonempty() {
         local prompt="$1" val
         while true; do
