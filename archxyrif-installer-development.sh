@@ -975,7 +975,7 @@ if [[ "$MODE" == "BIOS" ]]; then
             # Install to the primary disk normally
             arch-chroot /mnt grub-install \
                 --target=i386-pc \
-                --modules="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2" \
+                --modules="$GRUB_MODULES" \
                 --recheck "$PRIMARY_BOOT_DISK"
         else
             # Install to secondary disk, explicitly pointing it to the /boot directory
@@ -2416,7 +2416,7 @@ fi
             mkswap "$lv_path" || die "mkswap failed $lv_path"
             swapon "$lv_path" || die "swapon failed $lv_path"
             P_SWAP="$lv_path"
-            continue
+            continue # <--- This prevents it from falling through to mkfs
         fi
 
         echo "  → Formatting $lv_path as $fs"
@@ -2424,7 +2424,7 @@ fi
             ext4)  mkfs.ext4 -F "$lv_path" ;;
             btrfs) mkfs.btrfs -f "$lv_path" ;;
             xfs)   mkfs.xfs -f "$lv_path" ;;
-            f2fs)  mkfs.f2fs -f "$lv_path" ;;
+            f2fs)  mkfs.f2fs -f "$lv_path" ;; # <--- If $fs was f2fs for /root or /home, this runs next.
             *) die "Unsupported FS: $fs" ;;
         esac
 
@@ -2507,19 +2507,41 @@ fi
         genfstab -U /mnt > /mnt/etc/fstab
         echo "→ Generated /mnt/etc/fstab:"
         cat /mnt/etc/fstab
+
+        # 🛑 CRITICAL FIX: Set the kernel command line parameters for LUKS/LVM
+            if [[ "$ENCRYPTION_ENABLED" -eq 1 && -n "$LVM_ROOT_LV_NAME" ]]; then
+                
+                # 1. Construct the boot parameters
+                BOOT_PARAMS="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME} quiet"
+            
+                echo "→ Patching /etc/default/grub with LUKS/LVM boot parameters..."
+                
+                # 2. Patch GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
+                # This replaces the line, ensuring a clean parameter set.
+                arch-chroot /mnt sed -i \
+                    "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${BOOT_PARAMS}\"|" \
+                    /etc/default/grub || die "Failed to set GRUB_CMDLINE_LINUX_DEFAULT"
+                
+                # 3. Add the LVM hook to grub.cfg generation (needed for LVM systems)
+                arch-chroot /mnt sed -i 's/^GRUB_DISABLE_LINUX_UUID=true/#GRUB_DISABLE_LINUX_UUID=true/' /etc/default/grub
+                arch-chroot /mnt sed -i '/GRUB_PRELOAD_MODULES/a GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub
+            fi
     
         ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
         
         configure_system
-    
-        # If we used LUKS, ensure initramfs includes encrypt and lvm hooks inside chroot.
-        # You may want to modify ensure_fs_support_for_custom() to ensure 'encrypt' and 'lvm' hooks exist.
-
-        # 🛑 CRITICAL FIX: Regenerate Initramfs after configuring LUKS/LVM hooks
-        if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-            echo "→ Regenerating initramfs with encrypt and lvm2 hooks..."
-            arch-chroot /mnt mkinitcpio -P || die "mkinitcpio failed to rebuild initramfs."
-        fi
+        
+            # 🛑 CRITICAL FIX for separate /boot partition
+            # Ensure GRUB loads ext2 to read the /boot partition (/dev/sda2)
+            echo "→ Patching /etc/default/grub to preload ext2 module..."
+            arch-chroot /mnt sed -i \
+                "s|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"${GRUB_PRELOAD_MODULES} ext2\"|" \
+                /etc/default/grub || true
+            
+            # If the line doesn't exist, append it
+            if ! grep -q "GRUB_PRELOAD_MODULES" /mnt/etc/default/grub; then
+                 echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
+            fi
         
         install_grub
         network_mirror_selection
