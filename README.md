@@ -169,3 +169,18 @@ known bugs: well it's not really a bug, but the unmount process at the start of 
 - Mount points currently are: /boot / (root) /home swap /data1 /data2 (can be added manually more and will be added manually more in the future)<br>
 - all the other features are pretty much the same.<br>
 <br><br>
+
+### **Version 1.4.4 - Release!!!**
+<br><br>
+- Custom partition & format route created - Now working correctly with BIOS AND UEFI - Systems<br>
+- Custom format partition route, allows the user to create multiple raw partitions, on single/multiple DISKS<br>
+- For example: you can have /boot /root /home on Disk1 and have a Disk 2 formatted and partitioned to have /data 1 /data2 etc. <br><br>
+- User can set custom partition sizes freely, and use different file systems on different partitions/disks. Swap is totally optional<br><br>
+- Luks/LVM path created: Currently you can create logical volumes and encrypt your disks with it and select multiple disks to create logical volumes to.<br>
+-  On a notice, Disks need to have similiar block rate, to avoid errors in creating bigger volumes. Currently option to cut disks rawly in half to create separate pools inside one disk is not available, will be working on it in the future. if you want to create more than 1 encrypted area on 1 disk, you will have to create the partitions beforehand.<br><br>
+
+- Filesystem options are currently followed: ext4, btrfs, xfs, f2fs, fat32, swap <br>
+- Mount points currently are: /boot / (root) /home swap /data1 /data2 /datax(only on custom/raw format mode)<br>
+- all the other features are pretty much the same as before.<br>
+- More features coming out soon.
+<br><br>
