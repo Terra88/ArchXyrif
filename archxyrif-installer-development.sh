@@ -1538,7 +1538,8 @@ custom_partition_wizard() {
     safe_disk_cleanup
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
-
+    
+#================================AUTOMATED BOOT SECTOR CREATOR=================================================#
     # BIOS Boot Partition Handling
 if [[ "$MODE" == "BIOS" ]]; then
     echo ""
@@ -1561,6 +1562,31 @@ if [[ "$MODE" == "BIOS" ]]; then
         echo "Continuing..."
     fi
 fi
+
+# UEFI ESP auto creation
+if [[ "$MODE" == "UEFI" ]]; then
+    echo ""
+    echo "UEFI mode detected."
+    echo "An EFI System Partition (ESP) is REQUIRED for UEFI boot."
+    read -rp "Automatically create a 1024MiB EFI System Partition? (YES/no): " esp_auto
+
+    if [[ "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+        echo "→ Creating EFI System Partition (ESP)..."
+        parted -s "$DEV" mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP."
+        parted -s "$DEV" set 1 esp on || die "Failed to set esp flag."
+        parted -s "$DEV" set 1 boot on || true
+
+        ESP_PART="${DEV}${ps}1"
+        PARTITIONS+=("$ESP_PART:/boot/efi:fat32:EFI")
+        START=1025
+        echo "✔ EFI System Partition created at $ESP_PART (1025MiB)"
+    else
+        echo "⚠ WARNING: No ESP created."
+        echo "GRUB UEFI install WILL FAIL unless you create one manually."
+        echo "Continuing..."
+    fi
+fi
+#================================AUTOMATED BOOT SECTOR CREATOR=================================================#
 
     # Disk size in MiB
     local disk_bytes disk_mib disk_gib_float
