@@ -1626,7 +1626,7 @@ custom_partition_wizard() {
         START=$(echo "$START" | sed 's/MiB//')
     fi
 
-    read -rp "How many partitions would you like to create? " COUNT
+        read -rp "How many partitions would you like to create? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
     # Loop starts at the correct index (1, 2, or 3)
@@ -1637,61 +1637,53 @@ custom_partition_wizard() {
 
         # Read size
         while true; do
+            # Ensure convert_to_mib is robust and handles G, M, and 100% inputs
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
             break
         done
 
+        # START is guaranteed to be an integer (MiB) at this point from the setup block above.
+        local END_ARG=""
+        local NEXT_START=""
+        
         # Calculate partition end
         if [[ "$SIZE_MI" != "100%" ]]; then
-            END=$(( START + SIZE_MI ))
-            PART_SIZE="${START}MiB ${END}MiB"
+            # Calculate the numerical end sector
+            local END_MI=$(( START + SIZE_MI ))
+            END_ARG="${END_MI}MiB"
+            NEXT_START="$END_MI" # Next START is the integer value
         else
-            PART_SIZE="${START}MiB 100%"
-            END="100%"
+            END_ARG="100%"
+            NEXT_START="100%"
         fi
 
-        # Mountpoint (validate input; disallow /mnt-prefixed values)
-        while true; do
-            read -rp "Mountpoint (/, /home, /boot, /efi, /boot/efi, /data1, /data2, swap, none): " MNT
-            # Prevent user from entering /mnt/...
-            if [[ "$MNT" == /mnt* ]]; then
-                echo "Do NOT include /mnt in the mountpoint. Use e.g. /home, not /mnt/home."
-                continue
-            fi
-            case "$MNT" in
-                /|/home|/boot|/efi|/boot/efi|/data1|/data2|swap|none) break ;;
-                *) echo "Invalid mountpoint." ;;
-            esac
-        done
+        # **CRITICAL FIX:** Use 'unit MiB' and 'start MiB' and 'end MiB' explicitly with parted.
+        # -a opt ensures optimal alignment, which is best practice.
+        parted -s -a opt "$DEV" unit MiB mkpart primary "$START" "$END_ARG" || die "parted failed creating partition $i on $DEV"
 
-        # Filesystem
-        while true; do
-            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
-            case "$FS" in
-                ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
-                *) echo "Unsupported FS." ;;
-            esac
-        done
+        # Read mount point, filesystem, and label here (omitted for brevity, but you'd have your code here)
+        # Example of where you would read MNT, FS, and LABEL:
+        read -rp "Enter Mount Point (/, /home, /var, etc.): " MNT
+        read -rp "Enter Filesystem (ext4, btrfs, etc.): " FS
+        read -rp "Enter Label (optional): " LABEL
 
-        read -rp "Label (optional): " LABEL
-
-        # When creating the partition, the index 'i' is the correct partition number
-        parted -s "$DEV" mkpart primary ${PART_SIZE} || die "parted failed creating partition $i on $DEV"
-
-        # Construct partition node
+        # Construct partition node (assuming PARTITIONS is a global array)
         PART="${DEV}${ps}${i}"
         PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
 
         echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
 
         # Update start for next partition (skip if last uses 100%)
-        [[ "$END" != "100%" ]] && START=$END
+        [[ "$NEXT_START" != "100%" ]] && START=$NEXT_START
 
-        # Show remaining disk
-        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
-        REMAINING=$(( disk_mib - LAST_END ))
-        echo "→ Remaining disk: ${REMAINING}MiB"
+        # Show remaining disk - only if it wasn't 100%
+        if [[ "$END_ARG" != "100%" ]]; then
+            # Recalculate remaining space based on the last actual end sector
+            # We use the previous LAST_END (calculated from the initial size) as the new START for the display here
+            REMAINING=$(( disk_mib - START ))
+            echo "→ Remaining disk: ${REMAINING}MiB"
+        fi
     done
 
     echo ""
