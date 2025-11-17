@@ -2083,19 +2083,23 @@ ensure_fs_support_for_luks_lvm()
     echo "→ ensure_fs_support_for_luks_lvm() finished."
 } # End of function
 
-# ---------------------------------------------
-# create_more_Luks&LVM (Luks+LVM-Route)
-# ---------------------------------------------
-create_more_lvm(){
+# =====================================================================================================#
+# === LUKS LVM Master Installation Flow (Call this from menu option 3) ===
+# =====================================================================================================#
+luks_lvm_master_flow()
+{
+    luks_lvm_route # Handle the first disk (required for the boot partition to be available for mounting)
+    
+    # Handle subsequent disks
     while true; do
         read -rp "Do you want to edit another disk? (Y/n): " answer
         case "$answer" in
             [Yy]|"")
                 echo "→ Editing another disk..."
-                luks_lvm_route
+                luks_lvm_route # Call the partitioning function for the next disk
                 ;;
             [Nn])
-                echo "→ No more disks. Continuing..."
+                echo "→ All disks partitioned. Proceeding to system setup..."
                 break
                 ;;
             *)
@@ -2103,7 +2107,8 @@ create_more_lvm(){
                 ;;
         esac
     done
-    echo "Continuing with the rest of the script..."
+
+    luks_lvm_post_install_steps # Run all the critical setup steps ONCE
 }
 wait_for_lv() {
     local dev="$1"
@@ -2199,9 +2204,6 @@ elif [[ "$MODE" == "UEFI" ]]; then
       parted -s "$DEV" mkpart primary 1026MiB 100%
       PART="${DEV}${ps}2"
 fi
-
-
-
 
     # Ask about encryption
     read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
@@ -2336,8 +2338,6 @@ fi
         fi
     done
     
-
-
     # Compose LV device paths and format/mount them
     echo "→ Formatting and mounting LVs..."
     mkdir -p /mnt
@@ -2410,6 +2410,10 @@ fi
         esac
     done
 
+
+}
+luks_lvm_post_install_steps(){
+
         # -------------------------------------------------------------
         # Mount the previously created Boot/EFI partition
         # -------------------------------------------------------------
@@ -2465,8 +2469,8 @@ fi
         hyprland_optional
     
         echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
-}
 
+}
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
@@ -2488,7 +2492,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) luks_lvm_route ;;
+                3) luks_lvm_master_flow ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
