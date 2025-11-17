@@ -1554,7 +1554,7 @@ custom_partition_wizard() {
     # ---------------- BIOS / UEFI reserved partitions ----------------
     if [[ "$MODE" == "BIOS" ]]; then
         read -rp "Create BIOS Boot Partition automatically? (YES/Enter for yes, no to skip): " bios_auto
-        if [[ -z "$bios_auto" || "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+        if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
             parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
             NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
@@ -1565,7 +1565,7 @@ custom_partition_wizard() {
 
     if [[ "$MODE" == "UEFI" ]]; then
         read -rp "Automatically create 1024MiB EFI System Partition? (YES/Enter for yes, no to skip): " esp_auto
-        if [[ -z "$esp_auto" || "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+        if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
             parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
             parted -s "$DEV" set 1 esp on
             parted -s "$DEV" set 1 boot on || true
