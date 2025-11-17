@@ -2463,6 +2463,7 @@ fi
         extra_pacman_pkg
         optional_aur
         hyprland_optional
+        final_cleanup_and_exit
     
         echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
