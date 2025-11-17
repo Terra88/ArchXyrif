@@ -2078,7 +2078,6 @@ custom_partition(){
     optional_aur
     hyprland_optional
     endscreen
-    cleanup
 }
 
 
@@ -2550,7 +2549,6 @@ luks_lvm_post_install_steps()
     optional_aur
     hyprland_optional
     endscreen
-    cleanup
     
     echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
