@@ -1643,7 +1643,7 @@ create_more_disks() {
     while true; do
         read -rp "Do you want to edit another disk? (Y/Enter for yes, n for no): " answer
         case "$answer" in
-            [Yy]|"")
+            [Yy])
                 echo "→ Editing another disk..."
                 custom_partition_wizard
 
@@ -1664,7 +1664,7 @@ create_more_disks() {
 
                 disk_counter=$((disk_counter + 1))
                 ;;
-            [Nn])
+            ""|[Nn])
                 echo "→ No more disks. Continuing..."
                 break
                 ;;
