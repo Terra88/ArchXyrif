@@ -1488,7 +1488,8 @@ hyprland_optional()
                                   echo "Skipping Hyprland theme setup."
                               fi
                           fi
-}                          
+}
+endscreen(){
 sleep 1
 clear
 echo
@@ -1522,6 +1523,7 @@ echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88           
 echo "# -Author  : Terra88                                                        #"
 echo "# -GitHub  : http://github.com/Terra88                                      #"
 echo "#===========================================================================#"
+}
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
@@ -1554,6 +1556,7 @@ quick_partition() {
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+    endscreen
     
 
     echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
@@ -2073,6 +2076,7 @@ custom_partition(){
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+    endscreen
     cleanup
 }
 
@@ -2558,6 +2562,7 @@ luks_lvm_post_install_steps()
     extra_pacman_pkg
     optional_aur
     hyprland_optional
+    endscreen
     cleanup
     
     echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
