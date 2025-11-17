@@ -2407,7 +2407,7 @@ luks_lvm_route() {
 
     echo "→ Completed LUKS+LVM route for $DEV"
     return 
-
+}
 
 # ----------------------------
 # luks_lvm_post_install_steps
