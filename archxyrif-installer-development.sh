@@ -1539,6 +1539,29 @@ custom_partition_wizard() {
     echo "→ Creating GPT partition table..."
     parted -s "$DEV" mklabel gpt
 
+    # BIOS Boot Partition Handling
+if [[ "$MODE" == "BIOS" ]]; then
+    echo ""
+    echo "BIOS mode detected."
+    echo "A BIOS Boot Partition (1 MiB, unformatted, bios_grub flag) is REQUIRED for GRUB on GPT disks."
+    read -rp "Create BIOS Boot Partition automatically? (YES/no): " bios_auto
+
+    if [[ "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+        echo "→ Creating BIOS Boot Partition..."
+        parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create bios_grub partition."
+        parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag."
+
+        BIOS_BOOT_PART="${DEV}${ps}1"
+        PARTITIONS+=("$BIOS_BOOT_PART:none:none:bios_grub")
+        START=2  # Next partition starts after 2MiB
+        echo "✔ BIOS Boot Partition created at $BIOS_BOOT_PART"
+    else
+        echo "⚠ WARNING: No BIOS Boot Partition created."
+        echo "GRUB BIOS install WILL FAIL unless you create one manually."
+        echo "Continuing..."
+    fi
+fi
+
     # Disk size in MiB
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
