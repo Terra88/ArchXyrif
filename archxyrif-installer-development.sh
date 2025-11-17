@@ -105,6 +105,7 @@ declare -g ROOT_LUKS_MAPPER_NAME=""
 declare -g ROOT_LUKS_PART_UUID=""
 declare -g ROOT_IS_ENCRYPTED=0
 # =======================================
+# =======================================
 #=========================================================================================================================================#
 # Helpers
 #=========================================================================================================================================#
@@ -2249,24 +2250,26 @@ elif [[ "$MODE" == "UEFI" ]]; then
       PART="${DEV}${ps}2"
 fi
 
-    # Ask about encryption
-    read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
-    do_encrypt="${do_encrypt:-Y}"
-
-    if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-        ENCRYPTION_ENABLED=1
-        echo "→ Creating LUKS container on $PART"
-        # Prompt for LUKS options (default: LUKS2)
-        read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
-        luks2="${luks2:-Y}"
-        if [[ "$luks2" =~ ^[Yy]$ ]]; then
-            cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
-        else
-            cryptsetup luksFormat "$PART" || die "luksFormat failed"
-        fi
+        # Ask about encryption
+        local do_encrypt # <- Declare the local flag
+        read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
+        local do_encrypt="${do_encrypt:-Y}" # Use local copy
         
-        read -rp "Name for mapped device (default: cryptlvm): " cryptname
-        cryptname="${cryptname:-cryptlvm}"
+        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
+            local ENCRYPTION_ENABLED=1
+            echo "→ Creating LUKS container on $PART"
+            local luks2 # <- Declare local luks2
+            read -rp "Use LUKS2 (recommended)? [Y/n]: " luks2
+            local luks2="${luks2:-Y}" # Use local copy
+            if [[ "$luks2" =~ ^[Yy]$ ]]; then
+                cryptsetup luksFormat --type luks2 "$PART" || die "luksFormat failed"
+            else
+                cryptsetup luksFormat "$PART" || die "luksFormat failed"
+            fi
+        
+            local cryptname # <- Declare local cryptname
+            read -rp "Name for mapped device (default: cryptlvm): " cryptname
+            local cryptname="${cryptname:-cryptlvm}" # Use local copy
             
             # Ensure unique mapper name
             if [[ -e "/dev/mapper/$cryptname" ]]; then
@@ -2276,29 +2279,30 @@ fi
                 echo "→ Using mapped name $cryptname"
             fi
             
-            LUKS_MAPPER_NAME="$cryptname"
+            local LUKS_MAPPER_NAME="$cryptname" # <- MUST be local
             cryptsetup open "$PART" "$cryptname" || die "cryptsetup open failed"
-
-        
-            LUKS_MAPPER="/dev/mapper/${cryptname}"
-            BASE_DEVICE="$LUKS_MAPPER"
+            
+            local LUKS_MAPPER="/dev/mapper/${cryptname}" # <- MUST be local
+            local BASE_DEVICE="$LUKS_MAPPER" # <- MUST be local
             echo "→ LUKS mapper at $LUKS_MAPPER"
 
-        # GET AND SAVE THE UUID of the physical partition
-        LUKS_PART_UUID=$(blkid -s UUID -o value "$PART")
-    else
-        ENCRYPTION_ENABLED=0
-        BASE_DEVICE="$PART"
-    fi
+            # GET AND SAVE THE UUID of the physical partition
+                local LUKS_PART_UUID=$(blkid -s UUID -o value "$PART") # <- MUST be local
+            else
+                local ENCRYPTION_ENABLED=0 # <- MUST be local
+                local BASE_DEVICE="$PART" # <- MUST be local
+            fi
 
-    # Make LVM physical volume and VG
-    echo "→ Setting up LVM on $BASE_DEVICE"
+        # Make LVM physical volume and VG
+        echo "→ Setting up LVM on $BASE_DEVICE"
     
-     pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+         pvcreate "$BASE_DEVICE" || die "pvcreate failed"
     
+        # New (Correct):
+        local VGNAME # <- Declare local VGNAME
         read -rp "Volume Group name (default: vg0): " VGNAME
-        VGNAME="${VGNAME:-vg0}"
-        LVM_VG_NAME="$VGNAME"
+        local VGNAME="${VGNAME:-vg0}" # Use local copy
+        local LVM_VG_NAME="$VGNAME" # <- MUST be local
         
         if vgdisplay "$VGNAME" >/dev/null 2>&1; then
             read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
@@ -2341,14 +2345,15 @@ fi
         # Ask for intended mount
         read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
         lvmnt="${lvmnt:-none}"
-
-             if [[ "$lvmnt" == "/" ]]; then
+        
+        # Inside luks_lvm_route's LV creation loop:
+        if [[ "$lvmnt" == "/" ]]; then
             # CRITICAL: Store root device details in global variables, only if not set.
             if [[ -z "$ROOT_LV_NAME" ]]; then
                 ROOT_LV_NAME="$lvname"
-                ROOT_VG_NAME="$VGNAME"
-                ROOT_LUKS_MAPPER_NAME="$LUKS_MAPPER_NAME"
-                ROOT_LUKS_PART_UUID="$LUKS_PART_UUID"
+                ROOT_VG_NAME="$VGNAME" # This must be the local VGNAME
+                ROOT_LUKS_MAPPER_NAME="$LUKS_MAPPER_NAME" # This must be the local LUKS_MAPPER_NAME
+                ROOT_LUKS_PART_UUID="$LUKS_PART_UUID" # This must be the local UUID
                 ROOT_IS_ENCRYPTED="$ENCRYPTION_ENABLED"
             fi
         fi
@@ -2478,43 +2483,25 @@ fi
             mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
             P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
         fi
+        
 }
+
 # =====================================================================================================#
 # === LUKS LVM Post-Install Steps (Runs only once) ===
 # =====================================================================================================#
 luks_lvm_post_install_steps()
 {
-    echo "→ Starting post-installation configuration..."
-    
-    # -------------------------------------------------------------
-    # 1. Mount the previously created Boot/EFI partition (using P_EFI/P_BOOT_PART set globally)
-    # -------------------------------------------------------------
-    echo "→ Mounting boot partition..."
-    
-    # Check the actual outcome of the partitioning (determined by the earlier 'if' in luks_lvm_route)
-    if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
-        # Use the global path set during partitioning of the first disk
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition $P_EFI"
-    elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
-        # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
-        mkdir -p /mnt/boot
-        mount "$P_BOOT_PART" /mnt/boot || die "Failed to mount boot partition $P_BOOT_PART"
-    fi
-    
-    # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
-    mkdir -p /mnt/etc/lvm # Ensure directory exists
-    cp /etc/lvm/lvm.conf /mnt/etc/lvm/
-    
+
     install_base_system
     
     # -------------------------------------------------------------
     # 2. Configure LUKS/LVM for boot
     # -------------------------------------------------------------
-    # Create crypttab so system can map the LUKS container at boot
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then # Use the global root flag
-      # Use the global variables set during the partitioning of the root disk
-      echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
+    # Ensure crypttab is empty before we start appending
+    rm -f /mnt/etc/crypttab
+    
+    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
+        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
     fi
     
     # Generate fstab after pacstrap
