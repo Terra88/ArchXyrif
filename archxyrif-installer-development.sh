@@ -2299,8 +2299,40 @@ fi
             ENCRYPTION_ENABLED=0 
             BASE_DEVICE="$PART" 
           fi
+
+        # Make LVM physical volume and VG
+        echo "→ Setting up LVM on $BASE_DEVICE"
     
-                # Secondary Disk Setup Prompt (for the external /home drive)
+         pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+    
+        # New (Correct):
+        VGNAME="" # Initialize to prevent unbound errors if read fails
+        read -rp "Volume Group name (default: vg0): " VGNAME
+        VGNAME="${VGNAME:-vg0}" 
+        LVM_VG_NAME="$VGNAME"
+        
+        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+            read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
+            add="${add:-Y}"
+            if [[ "$add" =~ ^[Yy]$ ]]; then
+                echo "→ Extending existing VG $VGNAME with $BASE_DEVICE"
+                vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+            else
+                read -rp "Enter new VG name: " VGNAME
+                VGNAME="${VGNAME:-vg0}"
+                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+            fi
+        else
+            echo "→ Creating new VG $VGNAME with $BASE_DEVICE"
+            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+        fi
+        
+        # Ensure device nodes exist
+        vgscan --mknodes
+        vgchange -ay "$VGNAME" || die "Failed to activate VG $VGNAME"
+        udevadm settle --timeout=5
+
+                        # Secondary Disk Setup Prompt (for the external /home drive)
                 read -rp "Set up a SECOND encrypted disk for /home (USB fix required)? [y/N]: " setup_home_luks
             if [[ "$setup_home_luks" =~ ^[Yy]$ ]]; then
         
@@ -2341,40 +2373,6 @@ fi
                 LUKS_DEVICES_TIMEOUT["$HOME_MAPPER_NAME"]=1
 #===================================================================================================OH MY FUCKING GOD==================================#
             fi
-
-
-
-        # Make LVM physical volume and VG
-        echo "→ Setting up LVM on $BASE_DEVICE"
-    
-         pvcreate "$BASE_DEVICE" || die "pvcreate failed"
-    
-        # New (Correct):
-        VGNAME="" # Initialize to prevent unbound errors if read fails
-        read -rp "Volume Group name (default: vg0): " VGNAME
-        VGNAME="${VGNAME:-vg0}" 
-        LVM_VG_NAME="$VGNAME"
-        
-        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-            read -rp "Volume group $VGNAME exists. Add PV to it? [Y/n]: " add
-            add="${add:-Y}"
-            if [[ "$add" =~ ^[Yy]$ ]]; then
-                echo "→ Extending existing VG $VGNAME with $BASE_DEVICE"
-                vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
-            else
-                read -rp "Enter new VG name: " VGNAME
-                VGNAME="${VGNAME:-vg0}"
-                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-            fi
-        else
-            echo "→ Creating new VG $VGNAME with $BASE_DEVICE"
-            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-        fi
-        
-        # Ensure device nodes exist
-        vgscan --mknodes
-        vgchange -ay "$VGNAME" || die "Failed to activate VG $VGNAME"
-        udevadm settle --timeout=5
 
     # Interactive creation of LVs
     declare -a LV_NAMES=()
@@ -2545,16 +2543,6 @@ luks_lvm_post_install_steps()
 
     install_base_system
     
-    # -------------------------------------------------------------
-    # 2. Configure LUKS/LVM for boot
-    # -------------------------------------------------------------
-    # Ensure crypttab is empty before we start appending
-    rm -f /mnt/etc/crypttab
-    
-    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
-        echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
-    fi
-    
     # Generate fstab after pacstrap
     genfstab -U /mnt > /mnt/etc/fstab
     echo "→ Generated /mnt/etc/fstab:"
@@ -2564,45 +2552,44 @@ luks_lvm_post_install_steps()
         # Dynamic /etc/crypttab Generation (Inside luks_lvm_post_install_steps)
         # =================================================================
         
-        if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
-            echo "→ Dynamically generating /mnt/etc/crypttab for all encrypted devices..."
-            local first_line=true
+          if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then
+        echo "→ Dynamically generating /mnt/etc/crypttab for all encrypted devices..."
+        local first_line=true # Reset for the start of the file
+        
+        # Iterate over the global LUKS_DEVICES array
+        for PART_UUID in "${!LUKS_DEVICES[@]}"; do
+            MAPPER_NAME="${LUKS_DEVICES[$PART_UUID]}"
+            OPTIONS="none luks" # Default options
+    
+            # CRITICAL: Check the explicit timeout flag set by the user
+            if [[ "${LUKS_DEVICES_TIMEOUT[$MAPPER_NAME]}" -eq 1 ]]; then
+                # Apply the timeout fix only if the user requested it
+                OPTIONS="none luks,x-systemd.device-timeout=90s"
+            fi
             
-            # Iterate over the global LUKS_DEVICES array
-            for PART_UUID in "${!LUKS_DEVICES[@]}"; do
-                MAPPER_NAME="${LUKS_DEVICES[$PART_UUID]}"
-                OPTIONS="none luks" # Default options
-
-                # Check if a timeout flag was set for this specific mapper name
-                if [[ "${LUKS_DEVICES_TIMEOUT[$MAPPER_NAME]}" -eq 1 ]]; then
-                    # Apply the timeout fix only if the user requested it
-                    OPTIONS="none luks,x-systemd.device-timeout=90s"
-                fi
-                
-                # Apply the crucial USB delay fix only to the device named 'crypt_home'
-                if [[ "$MAPPER_NAME" == "crypt_home" ]]; then
-                    OPTIONS="none luks,x-systemd.device-timeout=90s"
-                fi
-
-                local entry="${MAPPER_NAME} UUID=${PART_UUID} ${OPTIONS}"
-                
-                if $first_line ; then
-                    echo "$entry" > /mnt/etc/crypttab # Overwrite for the first device (ROOT)
-                    first_line=false
-                else
-                    echo "$entry" >> /mnt/etc/crypttab # Append for all other devices
-                fi
-            done
+            # NOTE: The second check for 'crypt_home' is now safely removed 
+            # as the array LUKS_DEVICES_TIMEOUT handles this flag.
+    
+            local entry="${MAPPER_NAME} UUID=${PART_UUID} ${OPTIONS}"
             
             if $first_line ; then
-                # Handle case where array was empty but encryption flag was set
-                rm -f /mnt/etc/crypttab || true
+                # Use 'echo >' to create/overwrite the file (instead of 'rm -f' beforehand)
+                echo "$entry" > /mnt/etc/crypttab
+                first_line=false
+            else
+                echo "$entry" >> /mnt/etc/crypttab # Append for all other devices
             fi
+        done
         
-        else
-            # If root isn't encrypted, ensure crypttab is empty/removed
+        if $first_line ; then
+            # Handle case where array was unexpectedly empty but encryption flag was set
             rm -f /mnt/etc/crypttab || true
         fi
+    
+    else
+        # If root isn't encrypted, ensure crypttab is empty/removed
+        rm -f /mnt/etc/crypttab || true
+    fi
     
     ensure_fs_support_for_luks_lvm "$ROOT_IS_ENCRYPTED"     
     
