@@ -1643,7 +1643,7 @@ create_more_disks() {
     local disk_counter=2  # for naming /dataX automatically
 
     while true; do
-        read -rp "Do you want to edit another disk? (Y/Enter for yes, n for no): " answer
+        read -rp "Do you want to edit another disk? (Yy/Nn? Default:no): " answer
         case "$answer" in
             [Yy])
                 echo "→ Editing another disk..."
