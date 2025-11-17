@@ -1532,8 +1532,8 @@ custom_partition_wizard() {
     [[ -b "$DEV" ]] || die "Device $DEV not found."
 
     echo "WARNING: This will erase everything on $DEV"
-    read -rp "Type YES to continue: " CONFIRM
-    [[ "$CONFIRM" == "YES" ]] || die "Aborted."
+    read -rp "Type y/n to continue: " CONFIRM
+    [[ "$CONFIRM" = ^(YES|yes|Y|y)$ ]] || die "Aborted."
 
     safe_disk_cleanup
     echo "→ Creating GPT partition table..."
