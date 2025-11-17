@@ -1498,10 +1498,13 @@ quick_partition() {
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+# ---------------------------
+# Convert size to MiB helper
+# ---------------------------
 convert_to_mib() {
     local SIZE="$1"
-    SIZE="${SIZE,,}"   # lowercase
-    SIZE="${SIZE// /}" # remove spaces
+    SIZE="${SIZE,,}"       # lowercase
+    SIZE="${SIZE// /}"     # remove spaces
 
     if [[ "$SIZE" == "100%" ]]; then
         echo "100%"
@@ -1516,28 +1519,6 @@ convert_to_mib() {
         echo "Invalid size format: $1. Use M, MiB, G, GiB, or 100%" >&2
         return 1
     fi
-}
-# ---------------------------------------------
-# create_more_disks (Custom_Partitioon_wizard)
-# ---------------------------------------------
-create_more_disks(){
-    while true; do
-        read -rp "Do you want to edit another disk? (Y/n): " answer
-        case "$answer" in
-            [Yy]|"")
-                echo "→ Editing another disk..."
-                custom_partition_wizard
-                ;;
-            [Nn])
-                echo "→ No more disks. Continuing..."
-                break
-                ;;
-            *)
-                echo "Please enter Y or n."
-                ;;
-        esac
-    done
-    echo "Continuing with the rest of the script..."
 }
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
@@ -1554,9 +1535,9 @@ custom_partition_wizard() {
     [[ -b "$DEV" ]] || die "Device $DEV not found."
 
     echo "WARNING: This will erase everything on $DEV"
-    read -rp "Type y/n to continue: " CONFIRM
-    if [[ ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
-    die "Aborted."
+    read -rp "Type y/n to continue (Enter for yes): " CONFIRM
+    if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
+        die "Aborted."
     fi
 
     safe_disk_cleanup
@@ -1567,76 +1548,62 @@ custom_partition_wizard() {
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
-    # Initialize PARTITIONS array
-    PARTITIONS=()
-
-    # START is the start position (in MiB) for the next non-reserved partition
-    # Initialize to 1MiB by default (parted alignment safe)
+    # ---------------------------
+    # Local per-disk partitions
+    # ---------------------------
+    local NEW_PARTS=()
     local START=1
-
-    # Keep track how many partition slots we've reserved (so the user partitions start at the right number)
     local RESERVED_PARTS=0
 
-# ---------------------------
-# BIOS Boot Partition Handling
-# ---------------------------
-if [[ "$MODE" == "BIOS" ]]; then
-    echo ""
-    echo "BIOS mode detected."
-    echo "A BIOS Boot Partition (1 MiB, unformatted, bios_grub flag) is REQUIRED for GRUB on GPT disks."
-    read -rp "Create BIOS Boot Partition automatically? (YES/no): " bios_auto
+    # ---------------------------
+    # BIOS Boot Partition Handling
+    # ---------------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo ""
+        echo "BIOS mode detected."
+        echo "A BIOS Boot Partition (1 MiB, unformatted, bios_grub flag) is REQUIRED for GRUB on GPT disks."
+        read -rp "Create BIOS Boot Partition automatically? (YES/Enter for yes, no for skip): " bios_auto
 
-    # Accept ENTER as YES
-    if [[ -z "$bios_auto" || "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
-        echo "→ Creating BIOS Boot Partition (1MiB - 2MiB)..."
-        parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create bios_grub partition."
-        parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag."
-
-        BIOS_BOOT_PART="${DEV}${ps}1"
-        PARTITIONS+=("$BIOS_BOOT_PART:none:none:bios_grub")
-
-        RESERVED_PARTS=$((RESERVED_PARTS + 1))
-        START=2
-        echo "✔ BIOS Boot Partition created at $BIOS_BOOT_PART"
-    else
-        echo "⚠ WARNING: No BIOS Boot Partition created."
-        echo "GRUB BIOS install WILL FAIL unless you create one manually."
-        echo "Continuing..."
+        if [[ -z "$bios_auto" || "$bios_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+            echo "→ Creating BIOS Boot Partition (1MiB - 2MiB)..."
+            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create bios_grub partition."
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag."
+            local BIOS_BOOT_PART="${DEV}${ps}1"
+            NEW_PARTS+=("$BIOS_BOOT_PART:none:none:bios_grub")
+            RESERVED_PARTS=$((RESERVED_PARTS + 1))
+            START=2
+            echo "✔ BIOS Boot Partition created at $BIOS_BOOT_PART"
+        else
+            echo "⚠ WARNING: No BIOS Boot Partition created. GRUB BIOS install will fail unless created manually."
+        fi
     fi
-fi
-
-# ---------------------------
-# UEFI ESP auto creation
-# ---------------------------
-if [[ "$MODE" == "UEFI" ]]; then
-    echo ""
-    echo "UEFI mode detected."
-    echo "An EFI System Partition (ESP) is REQUIRED for UEFI boot."
-    read -rp "Automatically create a 1024MiB EFI System Partition? (YES/no): " esp_auto
-
-    # Accept ENTER as YES
-    if [[ -z "$esp_auto" || "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
-        echo "→ Creating EFI System Partition (ESP) (1MiB - 1025MiB)..."
-        parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP."
-        parted -s "$DEV" set 1 esp on || die "Failed to set esp flag."
-        parted -s "$DEV" set 1 boot on || true
-
-        ESP_PART="${DEV}${ps}1"
-        PARTITIONS+=("$ESP_PART:/boot/efi:fat32:EFI")
-
-        RESERVED_PARTS=$((RESERVED_PARTS + 1))
-        START=1025
-        echo "✔ EFI System Partition created at $ESP_PART (1024MiB)"
-    else
-        echo "⚠ WARNING: No ESP created."
-        echo "GRUB UEFI install WILL FAIL unless you create one manually."
-        echo "Continuing..."
-    fi
-fi
-
 
     # ---------------------------
-    # Disk size in MiB (for convenience)
+    # UEFI ESP auto creation
+    # ---------------------------
+    if [[ "$MODE" == "UEFI" ]]; then
+        echo ""
+        echo "UEFI mode detected."
+        echo "An EFI System Partition (ESP) is REQUIRED for UEFI boot."
+        read -rp "Automatically create a 1024MiB EFI System Partition? (YES/Enter for yes, no to skip): " esp_auto
+
+        if [[ -z "$esp_auto" || "$esp_auto" =~ ^(YES|yes|Y|y)$ ]]; then
+            echo "→ Creating EFI System Partition (ESP) (1MiB - 1025MiB)..."
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP."
+            parted -s "$DEV" set 1 esp on || die "Failed to set esp flag."
+            parted -s "$DEV" set 1 boot on || true
+            local ESP_PART="${DEV}${ps}1"
+            NEW_PARTS+=("$ESP_PART:/boot/efi:fat32:EFI")
+            RESERVED_PARTS=$((RESERVED_PARTS + 1))
+            START=1025
+            echo "✔ EFI System Partition created at $ESP_PART (1024MiB)"
+        else
+            echo "⚠ WARNING: No ESP created. GRUB UEFI install will fail unless created manually."
+        fi
+    fi
+
+    # ---------------------------
+    # Disk size info
     # ---------------------------
     local disk_bytes disk_mib disk_gib_float
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
@@ -1644,30 +1611,26 @@ fi
     disk_gib_float=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     echo "Disk size: ${disk_gib_float} GiB"
 
-    # Ask how many user-defined partitions to create
-    read -rp "How many partitions would you like to create? " COUNT
+    # ---------------------------
+    # User-defined partitions
+    # ---------------------------
+    read -rp "How many partitions would you like to create on $DEV? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
+    echo "→ Reserved partitions: $RESERVED_PARTS. First custom partition will be $((RESERVED_PARTS + 1))."
 
-    echo ""
-    echo "→ Note: Reserved partitions: $RESERVED_PARTS. Your first custom partition will be number $(( RESERVED_PARTS + 1 ))."
-    echo ""
-
-    # For loop: create COUNT partitions, but assign them partition numbers after reserved ones.
-    # We'll iterate j from 1..COUNT and compute actual partition index i = j + RESERVED_PARTS
     for ((j=1; j<=COUNT; j++)); do
-        i=$(( j + RESERVED_PARTS ))   # actual partition number on disk
+        i=$(( j + RESERVED_PARTS ))
         echo ""
         echo "--- Partition $j (will be $DEV${ps}${i}) ---"
         parted -s "$DEV" unit MiB print
 
-        # Read size
+        # Size
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last): " SIZE
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
             break
         done
 
-        # Calculate partition end (use START in MiB)
         if [[ "$SIZE_MI" != "100%" ]]; then
             END=$(( START + SIZE_MI ))
             PART_SIZE="${START}MiB ${END}MiB"
@@ -1696,139 +1659,149 @@ fi
 
         read -rp "Label (optional): " LABEL
 
-        # Use parted to create the partition at the requested START..END
-        echo "→ Creating partition ${DEV}${ps}${i} -> $PART_SIZE"
-        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "parted failed creating partition $i"
+        echo "→ Creating partition $DEV${ps}${i} -> $PART_SIZE"
+        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
 
-        # Construct partition node string for later formatting/mounting
         PART="${DEV}${ps}${i}"
-        PARTITIONS+=("$PART:$MNT:$FS:$LABEL")
-
-        echo "Created $PART -> mount=$MNT fs=$FS label=${LABEL:-<none>}"
-
-        # Update start for next partition (skip if last uses 100%)
+        NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
         [[ "$END" != "100%" ]] && START=$END
-
-        # Show remaining disk
-        LAST_END=$(parted -s "$DEV" unit MiB print | awk '/^[ ]*[0-9]+/ {end=$3} END{print end}' | tr -d 'MiB')
-        REMAINING=$(( disk_mib - LAST_END ))
-        echo "→ Remaining disk: ${REMAINING}MiB"
     done
 
+    # Merge per-disk NEW_PARTS into global PARTITIONS
+    PARTITIONS+=("${NEW_PARTS[@]}")
+
     echo ""
-    echo "=== Partition layout created ==="
-    printf "%s\n" "${PARTITIONS[@]}"
+    echo "=== Partition layout created for $DEV ==="
+    printf "%s\n" "${NEW_PARTS[@]}"
     parted -s "$DEV" unit MiB print
+}
+
+# ---------------------------------------------
+# Multi-disk editing
+# ---------------------------------------------
+create_more_disks() {
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/Enter for yes, n for no): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                custom_partition_wizard
+                ;;
+            [Nn])
+                echo "→ No more disks. Continuing..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
 }
 
 #=========================================================================================================================================#
 #  Format AND Mount Custom - UPDATED (Skips bios_grub specially)
 #=========================================================================================================================================#
+#=========================================================================================================================================#
+#  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
+#=========================================================================================================================================#
 format_and_mount_custom() {
     echo "→ Formatting and mounting custom partitions..."
-
     mkdir -p /mnt
 
+    if [[ ${#PARTITIONS[@]} -eq 0 ]]; then
+        die "No partitions to format/mount (PARTITIONS is empty)."
+    fi
+
+    # root (/) first, then others
+    local ordered=() others=()
     for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r p m f l <<< "$entry"
+        if [[ "$m" == "/" ]]; then
+            ordered+=("$entry")
+        else
+            others+=("$entry")
+        fi
+    done
+    ordered+=("${others[@]}")
+
+    for entry in "${ordered[@]}"; do
         IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
-    
-        # wait for kernel to expose new partition
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
         [[ -b "$PART" ]] || die "Partition $PART not available."
 
-        # Skip bios_grub reserved partition entirely (never format or mount)
-        if [[ "$LABEL" == "bios_grub" ]]; then
-            echo ">>> Skipping BIOS boot partition $PART (label=bios_grub)"
-            continue
-        fi
+        [[ "$LABEL" == "bios_grub" ]] && { echo ">>> Skipping BIOS boot partition $PART"; continue; }
 
-        echo ">>> $PART ($FS) mount as $MOUNT"
-
-        # Format partition
+        # Format
         case "$FS" in
-            ext4)  mkfs.ext4 -F "$PART" ;;
+            ext4) mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
-            xfs)   mkfs.xfs -f "$PART" ;;
-            f2fs)  mkfs.f2fs -f "$PART" ;;
+            xfs) mkfs.xfs -f "$PART" ;;
+            f2fs) mkfs.f2fs -f "$PART" ;;
             fat32|vfat) mkfs.fat -F32 "$PART" ;;
-            swap)  mkswap "$PART"; swapon "$PART"; continue ;;
-            none)  continue ;;
+            swap) mkswap "$PART"; swapon "$PART"; continue ;;
+            none) continue ;;
             *) die "Unsupported filesystem: $FS" ;;
         esac
 
-        # Apply label if provided
-        [[ -n "$LABEL" ]] && {
-            case "$FS" in
-                ext4) e2label "$PART" "$LABEL" ;;
-                btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-                xfs)  xfs_admin -L "$LABEL" "$PART" ;;
-                f2fs) f2fslabel "$PART" "$LABEL" ;;
-                fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-                swap) mkswap -L "$LABEL" "$PART" ;;
-            esac
-        }
+        # Label
+        [[ -n "$LABEL" ]] && case "$FS" in
+            ext4) e2label "$PART" "$LABEL" ;;
+            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+            xfs) xfs_admin -L "$LABEL" "$PART" ;;
+            f2fs) f2fslabel "$PART" "$LABEL" ;;
+            fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+            swap) mkswap -L "$LABEL" "$PART" ;;
+        esac
 
-        # Mount according to mountpoint
+        # Mount
         case "$MOUNT" in
             "/")
                 if [[ "$FS" == "btrfs" ]]; then
                     mount "$PART" /mnt
-                    btrfs subvolume create /mnt/@
-                    umount /mnt
+                    mountpoint -q /mnt && btrfs subvolume create /mnt/@ || true
+                    umount /mnt || true
                     mount -o subvol=@,compress=zstd "$PART" /mnt
                 else
-                    mount "$PART" /mnt
+                    mount "$PART" /mnt || die "Failed to mount root $PART on /mnt"
                 fi
                 ;;
-            /home)
-                mkdir -p /mnt/home
-                mount "$PART" /mnt/home
-                ;;
-            /boot)
-                mkdir -p /mnt/boot
-                mount "$PART" /mnt/boot
-                ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi
-                mount "$PART" /mnt/boot/efi
-                ;;
-            /data1)
-                mkdir -p /mnt/data1
-                mount "$PART" /mnt/data1
-                ;;
-            /data2)
-                mkdir -p /mnt/data2
-                mount "$PART" /mnt/data2
-                ;;
-            *)
-                mkdir -p "/mnt$MOUNT"
-                mount "$PART" "/mnt$MOUNT"
-                ;;
+            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
+            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
+            /efi|/boot/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
+            /data1) mkdir -p /mnt/data1; mount "$PART" /mnt/data1 ;;
+            /data2) mkdir -p /mnt/data2; mount "$PART" /mnt/data2 ;;
+            *) mkdir -p "/mnt$MOUNT"; mount "$PART" "/mnt$MOUNT" ;;
         esac
     done
+
+    mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
 
     echo "✅ All custom partitions formatted and mounted correctly."
 
     echo "Generating /etc/fstab..."
-    
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-    echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
 #============================================================================================================================#
-#ENSURE FS SUPPORT FOR CUSTOM PARTITIO SCHEME
+# ENSURE FS SUPPORT FOR CUSTOM PARTITION SCHEME (Robust for multiple disks / reserved partitions)
 #============================================================================================================================#
 ensure_fs_support_for_custom() {
     echo "→ Running ensure_fs_support_for_custom()"
 
-    # Detect requested FS types (prefer PARTITIONS array)
+    # Initialize FS detection flags
     local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
+
+    # Detect requested FS types from PARTITIONS array
     if [[ ${#PARTITIONS[@]} -gt 0 ]]; then
-        for e in "${PARTITIONS[@]}"; do
-            IFS=':' read -r p m f l <<< "$e"
-            case "$f" in
+        for entry in "${PARTITIONS[@]}"; do
+            IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+
+            # Skip reserved partitions (e.g., BIOS boot, ESP, none)
+            [[ "$FS" == "none" || "$LABEL" == "bios_grub" || "$MOUNT" == "/boot/efi" ]] && continue
+
+            case "$FS" in
                 xfs)   want_xfs=1 ;;
                 f2fs)  want_f2fs=1 ;;
                 btrfs) want_btrfs=1 ;;
@@ -1844,7 +1817,6 @@ ensure_fs_support_for_custom() {
                     f2fs) want_f2fs=1 ;;
                     btrfs)want_btrfs=1 ;;
                     ext4) want_ext4=1 ;;
-                    *) ;; # ignore other lines
                 esac
             done < /mnt/etc/fstab
         fi
@@ -1876,19 +1848,15 @@ MKCONF="/etc/mkinitcpio.conf"
 
 echo "→ (chroot) Patching ${MKCONF}..."
 
-# Ensure HOOKS contains 'block' before 'filesystems'. If HOOKS exists, try to ensure order.
+# Ensure HOOKS contains 'block' before 'filesystems'
 if grep -q '^HOOKS=' "$MKCONF"; then
-    # Extract current hooks (naive)
     current_hooks=$(sed -n 's/^HOOKS=(\(.*\))/\1/p' "$MKCONF" || echo "")
-    # Build a desired base sequence and then append any existing hooks not duplicate
     base="base udev autodetect modconf block filesystems"
-    # Append any tokens from current_hooks that aren't already in base
     for tok in $current_hooks; do
         if ! echo " $base " | grep -q " $tok "; then
             base="$base $tok"
         fi
     done
-    # Replace HOOKS line
     sed -i "s|^HOOKS=(.*)|HOOKS=($base)|" "$MKCONF" 2>/dev/null || sed -i "s|^HOOKS=.*|HOOKS=($base)|" "$MKCONF" || true
 else
     echo 'HOOKS=(base udev autodetect modconf block filesystems)' >> "$MKCONF"
@@ -1901,30 +1869,23 @@ command -v mkfs.f2fs >/dev/null 2>&1 && desired_modules+=(f2fs)
 command -v mkfs.btrfs >/dev/null 2>&1 && desired_modules+=(btrfs)
 command -v mkfs.ext4 >/dev/null 2>&1 && desired_modules+=(ext4)
 
-# If MODULES exists, append missing modules; otherwise create it.
 if grep -q '^MODULES=' "$MKCONF"; then
     existing=$(sed -n 's/^MODULES=(\(.*\))/\1/p' "$MKCONF" || echo "")
     for m in "${desired_modules[@]}"; do
         if ! echo " $existing " | grep -q " $m "; then
-            # append module
             sed -i -E "s/^MODULES=\((.*)\)/MODULES=(\1 $m)/" "$MKCONF" || true
         fi
     done
 else
-    if (( ${#desired_modules[@]} > 0 )); then
-        echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
-    fi
+    (( ${#desired_modules[@]} > 0 )) && echo "MODULES=(${desired_modules[*]})" >> "$MKCONF"
 fi
 
-# If no fsck helpers found for the installed filesystems, remove fsck hook to avoid mkinitcpio warning
+# Remove fsck hook if no helpers are installed
 has_fsck=0
 command -v fsck.ext4 >/dev/null 2>&1 && has_fsck=1
 command -v fsck.f2fs >/dev/null 2>&1 && has_fsck=1
 command -v xfs_repair >/dev/null 2>&1 && has_fsck=1
-
-if [[ $has_fsck -eq 0 ]]; then
-    sed -i '/fsck/d' "$MKCONF" || true
-fi
+(( has_fsck == 0 )) && sed -i '/fsck/d' "$MKCONF" || true
 
 echo "→ (chroot) mkinitcpio.conf patch complete."
 CHROOT_EOF
@@ -1932,17 +1893,15 @@ CHROOT_EOF
     echo "→ ensure_fs_support_for_custom() finished."
 }
 #=========================================================================================================================================#
-# CUSTOM PARTITION ROADMAP // CODE RUNNER // ENGINE !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!#
+# Multi-disk Custom Partition Flow
 #=========================================================================================================================================#
-custom_partition(){
-    custom_partition_wizard
-    create_more_disks
-    format_and_mount_custom
+custom_partition() {
+    custom_partition_wizard     # first disk
+    create_more_disks           # optional extra disks
+    format_and_mount_custom     # format & mount all accumulated partitions
+
     install_base_system
-
-    # If we ran custom partitioning, ensure the target has needed fs tools
     ensure_fs_support_for_custom
-
     configure_system
     install_grub
     network_mirror_selection
