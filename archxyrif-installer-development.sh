@@ -97,6 +97,14 @@ P_BOOT=""
 P_SWAP=""
 P_ROOT=""
 P_HOME=""
+# === GLOBAL ROOT/LUKS BOOT VARIABLES ===
+# Variables to store the root filesystem location, set ONLY once.
+declare -g ROOT_LV_NAME=""
+declare -g ROOT_VG_NAME=""
+declare -g ROOT_LUKS_MAPPER_NAME=""
+declare -g ROOT_LUKS_PART_UUID=""
+declare -g ROOT_IS_ENCRYPTED=0
+# =======================================
 #=========================================================================================================================================#
 # Helpers
 #=========================================================================================================================================#
@@ -2142,28 +2150,6 @@ ensure_fs_support_for_luks_lvm()
     echo "→ ensure_fs_support_for_luks_lvm() finished."
 } # End of function
 
-# ---------------------------------------------
-# create_more_Luks&LVM (Luks+LVM-Route)
-# ---------------------------------------------
-create_more_lvm(){
-    while true; do
-        read -rp "Do you want to edit another disk? (Y/n): " answer
-        case "$answer" in
-            [Yy]|"")
-                echo "→ Editing another disk..."
-                luks_lvm_route
-                ;;
-            [Nn])
-                echo "→ No more disks. Continuing..."
-                break
-                ;;
-            *)
-                echo "Please enter Y or n."
-                ;;
-        esac
-    done
-    echo "Continuing with the rest of the script..."
-}
 wait_for_lv() {
     local dev="$1"
     local timeout=10
@@ -2259,9 +2245,6 @@ elif [[ "$MODE" == "UEFI" ]]; then
       PART="${DEV}${ps}2"
 fi
 
-
-
-
     # Ask about encryption
     read -rp "Encrypt this partition with LUKS? [Y/n]: " do_encrypt
     do_encrypt="${do_encrypt:-Y}"
@@ -2355,8 +2338,15 @@ fi
         read -rp "Mountpoint for $lvname (/, /home, swap, /data, none): " lvmnt
         lvmnt="${lvmnt:-none}"
 
-        if [[ "$lvmnt" == "/" ]]; then
-        LVM_ROOT_LV_NAME="$lvname"
+             if [[ "$lvmnt" == "/" ]]; then
+            # CRITICAL: Store root device details in global variables, only if not set.
+            if [[ -z "$ROOT_LV_NAME" ]]; then
+                ROOT_LV_NAME="$lvname"
+                ROOT_VG_NAME="$VGNAME"
+                ROOT_LUKS_MAPPER_NAME="$LUKS_MAPPER_NAME"
+                ROOT_LUKS_PART_UUID="$LUKS_PART_UUID"
+                ROOT_IS_ENCRYPTED="$ENCRYPTION_ENABLED"
+            fi
         fi
         
         # Filesystem choice (skip if swap)
@@ -2394,8 +2384,6 @@ fi
             lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate $name failed"
         fi
     done
-    
-
 
     # Compose LV device paths and format/mount them
     echo "→ Formatting and mounting LVs..."
@@ -2486,78 +2474,121 @@ fi
             mount "$PART_BOOT" /mnt/boot || die "Failed to mount boot partition $PART_BOOT"
             P_BOOT_PART="$PART_BOOT" # Store BIOS boot partition path
         fi
-    
-        create_more_lvm
-    
-        # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
-        mkdir -p /mnt/etc/lvm # Ensure directory exists
-        cp /etc/lvm/lvm.conf /mnt/etc/lvm/
-    
-        install_base_system
-    
-        # Continue with common installer flow
-        
-         # Create crypttab so system can map the LUKS container at boot
-        if [[ "$do_encrypt" =~ ^[Yy]$ ]]; then
-          UUID=$(blkid -s UUID -o value "$PART")
-          echo "${cryptname} UUID=${UUID} none luks" > /mnt/etc/crypttab
-        fi
-        
-        # Generate fstab after pacstrap
-        genfstab -U /mnt > /mnt/etc/fstab
-        echo "→ Generated /mnt/etc/fstab:"
-        cat /mnt/etc/fstab
-
-        # 🛑 CRITICAL FIX: Set the kernel command line parameters for LUKS/LVM
-            if [[ "$ENCRYPTION_ENABLED" -eq 1 && -n "$LVM_ROOT_LV_NAME" ]]; then
-                
-                # 1. Construct the boot parameters
-                BOOT_PARAMS="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME} quiet"
-            
-                echo "→ Patching /etc/default/grub with LUKS/LVM boot parameters..."
-                
-                # 2. Patch GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
-                # This replaces the line, ensuring a clean parameter set.
-                arch-chroot /mnt sed -i \
-                    "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${BOOT_PARAMS}\"|" \
-                    /etc/default/grub || die "Failed to set GRUB_CMDLINE_LINUX_DEFAULT"
-                
-                # 3. Add the LVM hook to grub.cfg generation (needed for LVM systems)
-                arch-chroot /mnt sed -i 's/^GRUB_DISABLE_LINUX_UUID=true/#GRUB_DISABLE_LINUX_UUID=true/' /etc/default/grub
-                arch-chroot /mnt sed -i '/GRUB_PRELOAD_MODULES/a GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub
-            fi
-    
-        ensure_fs_support_for_luks_lvm "$ENCRYPTION_ENABLED"    
-        
-        configure_system
-        
-            # 🛑 CRITICAL FIX for separate /boot partition
-            # Ensure GRUB loads ext2 to read the /boot partition (/dev/sda2)
-            echo "→ Patching /etc/default/grub to preload ext2 module..."
-            
-            # FIX: Use sed backreference (\1) to capture existing content and append ' ext2'
-            arch-chroot /mnt sed -i \
-                's|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"\1 ext2\"|' \
-                /etc/default/grub || true
-                        
-            # If the line doesn't exist, append it
-            if ! grep -q "GRUB_PRELOAD_MODULES" /mnt/etc/default/grub; then
-                echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
-            fi
-        
-        install_grub
-        network_mirror_selection
-        gpu_driver
-        window_manager
-        lm_dm
-        extra_pacman_pkg
-        optional_aur
-        hyprland_optional
-        cleanup
-    
-        echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
 }
+# =====================================================================================================#
+# === LUKS LVM Post-Install Steps (Runs only once) ===
+# =====================================================================================================#
+luks_lvm_post_install_steps()
+{
+    echo "→ Starting post-installation configuration..."
+    
+    # -------------------------------------------------------------
+    # 1. Mount the previously created Boot/EFI partition (using P_EFI/P_BOOT_PART set globally)
+    # -------------------------------------------------------------
+    echo "→ Mounting boot partition..."
+    
+    # Check the actual outcome of the partitioning (determined by the earlier 'if' in luks_lvm_route)
+    if [[ "$MODE" == "UEFI" && "$BOOTMODE" =~ ^[Yy]$ ]]; then
+        # Use the global path set during partitioning of the first disk
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition $P_EFI"
+    elif [[ "$BOOTMODE" =~ ^[Yy]$ ]]; then
+        # This covers the BIOS case (when BOOTMODE='Y' but MODE='BIOS')
+        mkdir -p /mnt/boot
+        mount "$P_BOOT_PART" /mnt/boot || die "Failed to mount boot partition $P_BOOT_PART"
+    fi
+    
+    # ⚠️ CRITICAL for Multi-Disk LVM (vg0, vg1) 
+    mkdir -p /mnt/etc/lvm # Ensure directory exists
+    cp /etc/lvm/lvm.conf /mnt/etc/lvm/
+    
+    install_base_system
+    
+    # -------------------------------------------------------------
+    # 2. Configure LUKS/LVM for boot
+    # -------------------------------------------------------------
+    # Create crypttab so system can map the LUKS container at boot
+    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 ]]; then # Use the global root flag
+      # Use the global variables set during the partitioning of the root disk
+      echo "${ROOT_LUKS_MAPPER_NAME} UUID=${ROOT_LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
+    fi
+    
+    # Generate fstab after pacstrap
+    genfstab -U /mnt > /mnt/etc/fstab
+    echo "→ Generated /mnt/etc/fstab:"
+    cat /mnt/etc/fstab
 
+    # 🛑 CRITICAL FIX: Set the kernel command line parameters for LUKS/LVM
+    if [[ "$ROOT_IS_ENCRYPTED" -eq 1 && -n "$ROOT_LV_NAME" ]]; then
+        # 1. Construct the boot parameters using the correct ROOT_ variables
+        local BOOT_PARAMS="cryptdevice=UUID=${ROOT_LUKS_PART_UUID}:${ROOT_LUKS_MAPPER_NAME} root=/dev/mapper/${ROOT_VG_NAME}-${ROOT_LV_NAME} quiet"
+        
+        echo "→ Patching /etc/default/grub with LUKS/LVM boot parameters..."
+        
+        # 2. Patch GRUB_CMDLINE_LINUX_DEFAULT in /etc/default/grub
+        arch-chroot /mnt sed -i \
+            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"${BOOT_PARAMS}\"|" \
+            /etc/default/grub || die "Failed to set GRUB_CMDLINE_LINUX_DEFAULT"
+        
+        # 3. Add the LVM hook to grub.cfg generation
+        arch-chroot /mnt sed -i 's/^GRUB_DISABLE_LINUX_UUID=true/#GRUB_DISABLE_LINUX_UUID=true/' /etc/default/grub
+        arch-chroot /mnt sed -i '/GRUB_PRELOAD_MODULES/a GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub
+    fi
+    
+    ensure_fs_support_for_luks_lvm "$ROOT_IS_ENCRYPTED"     
+    
+    configure_system
+    
+    # 🛑 CRITICAL FIX for separate /boot partition
+    echo "→ Patching /etc/default/grub to preload ext2 module..."
+    # FIX: Use sed backreference (\1) to capture existing content and append ' ext2'
+    arch-chroot /mnt sed -i \
+        's|^GRUB_PRELOAD_MODULES=\"\(.*\)\"|GRUB_PRELOAD_MODULES=\"\1 ext2\"|' \
+        /etc/default/grub || true
+                
+    if ! grep -q "GRUB_PRELOAD_MODULES" /mnt/etc/default/grub; then
+        echo "GRUB_PRELOAD_MODULES=\"ext2\"" >> /mnt/etc/default/grub
+    fi
+    
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    cleanup
+    
+    echo -e "${GREEN}✅ LUKS+LVM install route complete.${RESET}"
+}
+# =====================================================================================================#
+# === LUKS LVM Master Installation Flow (Call this from menu option 3) ===
+# =====================================================================================================#
+luks_lvm_master_flow()
+{
+    luks_lvm_route # Handle the first disk (required for the boot partition to be available for mounting)
+    
+    # Handle subsequent disks
+    while true; do
+        read -rp "Do you want to edit another disk? (Y/n): " answer
+        case "$answer" in
+            [Yy]|"")
+                echo "→ Editing another disk..."
+                luks_lvm_route # Call the partitioning function for the next disk
+                ;;
+            [Nn])
+                echo "→ All disks partitioned. Proceeding to system setup..."
+                break
+                ;;
+            *)
+                echo "Please enter Y or n."
+                ;;
+        esac
+    done
+
+    luks_lvm_post_install_steps # Run all the critical setup steps ONCE
+}
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
@@ -2579,7 +2610,7 @@ logo
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
-                3) luks_lvm_route ;;
+                3) luks_lvm_post_install_flow ;;
                 4) echo "Exiting..."; exit 0 ;;
                 *) echo "Invalid choice"; menu ;;
             esac
