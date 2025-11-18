@@ -1136,145 +1136,242 @@ gpu_driver()
 #=========================================================================================================================================#
 # Window Manager Selection Menu
 #=========================================================================================================================================#
-window_manager()
-{
+# ---------- WM/DE Selection ----------
+window_manager() {
     sleep 1
     clear
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "${CYAN}# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #${RESET}"
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
     echo
-    echo "#===================================================================================================#"
-    echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
-    echo "#===================================================================================================#"
-    echo
-    
-    echo
-    echo "#========================================================#"
-    echo "Windof Manager / Desktop Selection"
-    echo "#========================================================#"
-        echo "1) Hyprland (Wayland)"
-        echo "2) KDE Plasma (X11/Wayland)"
-        echo "3) GNOME (X11/Wayland)"
-        echo "4) XFCE (X11)"
-        echo "5) Sway (Wayland)"
-        echo "6) Skip WM/DE installation"
-        read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-        WM_CHOICE="${WM_CHOICE:-6}"
-        
-        WM_PKGS=()
-        WM_AUR_PKGS=()
-        
-        case "$WM_CHOICE" in
-            1)
-                echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
-                WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            2)
-                echo "→ Selected: KDE Plasma"
-                WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            3)
-                echo "→ Selected: GNOME"
-                WM_PKGS=(gnome gdm gnome-tweaks)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
+    echo "1) Hyprland (Wayland)"
+    echo "2) KDE Plasma (X11/Wayland)"
+    echo "3) GNOME (X11/Wayland)"
+    echo "4) XFCE (X11)"
+    echo "5) Niri"
+    echo "6) Cinnamon"
+    echo "7) Mate"
+    echo "8) Sway (Wayland)"
+    echo "9) Skip selection"
 
-            4)
-                echo "→ Selected: XFCE"
-                WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            5)
-                echo "→ Selected: Sway (Wayland)"
-                WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-wayland wmenu slurp pavucontrol grim foot brightnessctl)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            6|*)
-                echo "Skipping window manager installation."
-                WM_PKGS=()
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-        esac
-        
-        # Install WM packages
-        if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-            safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+    read -r -p "Select your preferred WM/DE [1-9, default=6]: " WM_CHOICE
+    WM_CHOICE="${WM_CHOICE:-6}"
+
+    WM_PKGS=()
+    WM_AUR_PKGS=()
+    EXTRA_PKGS=()
+    EXTRA_AUR_PKGS=()
+
+    # ---------- Set WM packages and selected WM ----------
+    case "$WM_CHOICE" in
+        1)
+            SELECTED_WM="hyprland"
+            echo -e "${GREEN}→ Selected: Hyprland${RESET}"
+            WM_PKGS=(hyprland)
+            ;;
+        2)
+            SELECTED_WM="kde"
+            echo -e "${GREEN}→ Selected: KDE Plasma${RESET}"
+            WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
+            ;;
+        3)
+            SELECTED_WM="gnome"
+            echo -e "${GREEN}→ Selected: GNOME${RESET}"
+            WM_PKGS=(gnome gdm gnome-tweaks)
+            ;;
+        4)
+            SELECTED_WM="xfce"
+            echo -e "${GREEN}→ Selected: XFCE${RESET}"
+            WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
+            ;;
+        5)
+            SELECTED_WM="niri"
+            echo -e "${GREEN}→ Selected: Niri${RESET}"
+            WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
+            ;;
+        6)
+            SELECTED_WM="cinnamon"
+            echo -e "${GREEN}→ Selected: Cinnamon${RESET}"
+            WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
+            ;;
+        7)
+            SELECTED_WM="mate"
+            echo -e "${GREEN}→ Selected: Mate${RESET}"
+            WM_PKGS=(mate mate-extra)
+            ;;
+        8)
+            SELECTED_WM="sway"
+            echo -e "${GREEN}→ Selected: Sway${RESET}"
+            WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
+            ;;
+        9|*)
+            SELECTED_WM="none"
+            echo "Skipping window manager installation."
+            ;;
+    esac
+
+    # ---------- Auto-add mandatory dependencies ----------
+    case "$SELECTED_WM" in
+        hyprland)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal-hyprland swayidle swaylock hyprpaper hyprshot waybar)
+            ;;
+        niri)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal-gnome mako swaybg swayidle swaylock waybar)
+            ;;
+        sway)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal wofi slurp foot)
+            ;;
+        kde)
+            WM_PKGS+=(qt6-wayland)
+            ;;
+    esac
+
+    # ---------- Optional extra packages ----------
+    if [[ "$SELECTED_WM" != "none" ]]; then
+        echo
+        read -r -p "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: " EXTRA_CHOICE
+        EXTRA_CHOICE="${EXTRA_CHOICE,,}"
+        if [[ "$EXTRA_CHOICE" == "y" ]]; then
+            read -r -p "Enter extra pacman packages (space-separated): " EXTRA_PKGS_INPUT
+            read -r -p "Enter extra AUR packages (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
+            IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
+            IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
         fi
-        # Install AUR packages (safe, conflict-handling)
+    fi
+
+    # ---------- Install WM/DE packages ----------
+    if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+    fi
+    if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
+    fi
+
+    # ---------- Install extra packages ----------
+    if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
+    fi
+    if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
+    fi
 }
-#=========================================================================================================================================#
-# Login Manager & Display Manager Menu
-#=========================================================================================================================================#
-lm_dm()
-{
+
+# ---------- DM Selection ----------
+lm_dm() {
     sleep 1
     clear
-    echo
-    echo "#===================================================================================================#"
-    echo "# 8C) LM/DM                                                                                         #"
-    echo "#===================================================================================================#"
-    echo
-    
-    echo
-    echo "#========================================================#"
-    echo " Login Manager / Display Manager Selection"
-    echo "#========================================================#"
-            echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
-            echo "2) SDDM - If you installed: KDE, XFCE" 
-            echo "3) LightDM - XFCE"
-            echo "4) Ly (AUR) - Sway, Hyprland"
-            echo "5) LXDM - XFCE"
-            echo "6) Skip Display Manager"
-            read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
-            DM_CHOICE="${DM_CHOICE:-6}"
-            
-            DM_PKGS=()
-            DM_AUR_PKGS=()
-            DM_SERVICE=""
-            
-            case "$DM_CHOICE" in
-                1)
-                    DM_PKGS=(gdm)
-                    DM_SERVICE="gdm.service"
-                    ;;
-                2)
-                    DM_PKGS=(sddm)
-                    DM_SERVICE="sddm.service"
-                    ;;
-                3)
-                    DM_PKGS=(lightdm lightdm-gtk-greeter)
-                    DM_SERVICE="lightdm.service"
-                    ;;
-                4)
-                    DM_PKGS=(ly)
-                    DM_AUR_PKGS=(ly-themes-git)
-                    DM_SERVICE="ly.service"
-                    ;;
-                5)
-                    DM_PKGS=(lxdm)
-                    DM_SERVICE="lxdm.service"
-                    ;;
-                6|*)
-                    echo "Skipping display manager installation."
-                    DM_PKGS=()
-                    ;;
-            esac
-            
-            # Install display manager packages
-            if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-                safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
-            fi
-            
-            # Install AUR display manager packages (safe)
-            safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
-            
-            # Enable chosen service
-            if [[ -n "$DM_SERVICE" ]]; then
-                "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-                echo "✅ Display manager service enabled: $DM_SERVICE"
-            fi
-}        
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "${CYAN}# 8C) Display Manager Selection                                                                     #${RESET}"
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
+
+    DM_MENU=()
+    DM_DEFAULT="6"
+
+    # ---------- Filtered DM options ----------
+    case "$SELECTED_WM" in
+        gnome)
+            DM_MENU=("1) GDM (required for GNOME Wayland)")
+            DM_DEFAULT="1"
+            ;;
+        kde)
+            DM_MENU=("2) SDDM (recommended for KDE)" "1) GDM (works but not ideal)")
+            DM_DEFAULT="2"
+            ;;
+        niri)
+            DM_MENU=("1) GDM (recommended)" "2) SDDM (works but sometimes session missing)" "4) Ly (TUI, always works)")
+            DM_DEFAULT="1"
+            ;;
+        hyprland|sway)
+            DM_MENU=("2) SDDM" "1) GDM" "4) Ly (TUI)")
+            DM_DEFAULT="2"
+            ;;
+        xfce)
+            DM_MENU=("3) LightDM (recommended)" "1) GDM" "2) SDDM" "5) LXDM")
+            DM_DEFAULT="3"
+            ;;
+        cinnamon|mate)
+            DM_MENU=("3) LightDM (recommended)" "1) GDM" "5) LXDM")
+            DM_DEFAULT="3"
+            ;;
+        none)
+            DM_MENU=("6) Skip Display Manager")
+            DM_DEFAULT="6"
+            ;;
+        *)
+            DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
+            DM_DEFAULT="6"
+            ;;
+    esac
+
+    # ---------- Show menu ----------
+    for entry in "${DM_MENU[@]}"; do
+        echo -e "$entry"
+    done
+    echo "6) Skip Display Manager"
+
+    read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
+    DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
+
+    DM_PKGS=()
+    DM_AUR_PKGS=()
+    DM_SERVICE=""
+
+    case "$DM_CHOICE" in
+        1)
+            DM_PKGS=(gdm)
+            DM_SERVICE="gdm.service"
+            ;;
+        2)
+            DM_PKGS=(sddm)
+            DM_SERVICE="sddm.service"
+            ;;
+        3)
+            DM_PKGS=(lightdm lightdm-gtk-greeter)
+            DM_SERVICE="lightdm.service"
+            ;;
+        4)
+            DM_PKGS=(ly)
+            DM_AUR_PKGS=(ly-themes-git)
+            DM_SERVICE="ly.service"
+            ;;
+        5)
+            DM_PKGS=(lxdm)
+            DM_SERVICE="lxdm.service"
+            ;;
+        6|*)
+            echo "Skipping display manager installation."
+            return
+            ;;
+    esac
+
+    # ---------- Install DM packages ----------
+    if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+    fi
+    if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
+    fi
+
+    # ---------- Enable DM service ----------
+    if [[ -n "$DM_SERVICE" ]]; then
+        "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+        echo -e "${GREEN}✅ Display manager service enabled: $DM_SERVICE${RESET}"
+    fi
+
+    # ---------- Ly autologin ----------
+    if [[ "$DM_SERVICE" == "ly.service" ]]; then
+        if [[ -n "$USER_NAME" ]]; then
+            echo "Setting up Ly autologin for $USER_NAME..."
+            sudo mkdir -p /etc/systemd/system/ly.service.d
+            cat <<EOF | sudo tee /etc/systemd/system/ly.service.d/override.conf
+[Service]
+ExecStart=
+ExecStart=/usr/bin/ly -a $USER_NAME
+EOF
+            sudo systemctl daemon-reload
+        fi
+    fi
+}
 #=========================================================================================================================================#
 # Extra Pacman Package Installer
 #=========================================================================================================================================#
