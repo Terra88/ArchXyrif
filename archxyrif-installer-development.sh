@@ -1285,7 +1285,6 @@ echo -e "#======================================================================
 
     DM_MENU=()
     DM_DEFAULT="6"
-    subsection(){
     # ---------- Filtered DM options ----------
     case "$SELECTED_WM" in
         gnome)
@@ -1320,7 +1319,7 @@ echo -e "#======================================================================
             DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
             DM_DEFAULT="6"
             ;;
-            }
+            
     esac
     subsection(){
     # ---------- Show menu ----------
