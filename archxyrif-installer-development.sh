@@ -1168,7 +1168,8 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "${CYAN}→ Selected: Hyprland${RESET}"
-            WM_PKGS=(hyprland)
+            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
+            WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
             ;;
         2)
             SELECTED_WM="kde"
