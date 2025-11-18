@@ -1107,12 +1107,12 @@ gpu_driver()
      echo -e "#========================================================#"
      echo -e "🎮 GPU DRIVER INSTALLATION                                #"
      echo -e "#========================================================#"
-     subsection(){
+
      echo "1) Intel"
      echo "2) NVIDIA"
      echo "3) AMD"
      echo "4) All compatible drivers (default)"
-     echo "5) Skip"}
+     echo "5) Skip"
      read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
      GPU_CHOICE="${GPU_CHOICE:-4}"
      
