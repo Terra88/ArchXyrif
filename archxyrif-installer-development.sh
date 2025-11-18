@@ -1151,10 +1151,10 @@ window_manager()
     echo "Windof Manager / Desktop Selection"
     echo "#========================================================#"
         echo "1) Hyprland (Wayland)"
-        echo "2) Sway (Wayland)"
-        echo "3) XFCE (X11)"
-        echo "4) KDE Plasma (X11/Wayland)"
-        echo "5) GNOME (X11/Wayland)"
+        echo "2) KDE Plasma (X11/Wayland)"
+        echo "3) GNOME (X11/Wayland)"
+        echo "4) XFCE (X11)"
+        echo "5) Sway (Wayland)"
         echo "6) Skip WM/DE installation"
         read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
         WM_CHOICE="${WM_CHOICE:-6}"
@@ -1165,27 +1165,28 @@ window_manager()
         case "$WM_CHOICE" in
             1)
                 echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty kvantum dolphin dolphin-plugins rofi discover nwg-displays nwg-look breeze breeze-icons blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark qview)
+                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
                 WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             2)
-                echo "→ Selected: Sway (Wayland)"
-                WM_PKGS=(sway swaybg swaylock waybar wofi)
+                echo "→ Selected: KDE Plasma"
+                WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             3)
-                echo "→ Selected: XFCE"
-                WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
+                echo "→ Selected: GNOME"
+                WM_PKGS=(gnome gdm gnome-tweaks)
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
+
             4)
-                echo "→ Selected: KDE Plasma"
-                WM_PKGS=(plasma-desktop kde-applications sddm)
+                echo "→ Selected: XFCE"
+                WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             5)
-                echo "→ Selected: GNOME"
-                WM_PKGS=(gnome gdm)
+                echo "→ Selected: Sway (Wayland)"
+                WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-wayland wmenu slurp pavucontrol grim foot brightnessctl)
                 WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
                 ;;
             6|*)
