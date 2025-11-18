@@ -20,42 +20,42 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 # Arch logo: Edited manually by Terra88
 #=========================================================================================================================================#
 logo(){
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}| The Great Monolith of Installing Arch Linux!                                                      |${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}|                                                                                                   |${RESET}"
-echo -e "${CYAN}|        d8888                 888      Y88b   d88P                  d8b  .d888                     |${RESET}"
-echo -e "${CYAN}|       d88888                 888       Y88b d88P                   Y8P d88P                       |${RESET}"
-echo -e "${CYAN}|      d88P888                 888        Y88o88P                        888                        |${RESET}"
-echo -e "${CYAN}|     d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888                     |${RESET}"
-echo -e "${CYAN}|    d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888                        |${RESET}"
-echo -e "${CYAN}|   d88P   888 888    888      888  888   d88888b   888  888 888     888 888                        |${RESET}"
-echo -e "${CYAN}|  d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888                        |${RESET}"
-echo -e "${CYAN}| d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888                        |${RESET}"
-echo -e "${CYAN}|                                                        888                                        |${RESET}"
-echo -e "${CYAN}|                                                  Y8b d88P                                         |${RESET}"
-echo -e "${CYAN}|                                                     Y88P                                          |${RESET}"
-echo -e "${CYAN}|         Semi-Automated / Interactive - Arch Linux Installer                                       |${RESET}"
-echo -e "${CYAN}|                                                                                                   |${RESET}"
-echo -e "${CYAN}|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}|-Table of Contents:                |-0) Disk Format INFO                                           |${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |${RESET}"
-echo -e "${CYAN}|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |${RESET}"
-echo -e "${CYAN}|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |${RESET}"
-echo -e "${CYAN}|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |${RESET}"
-echo -e "${CYAN}|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |${RESET}" 
-echo -e "${CYAN}|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |${RESET}"
-echo -e "${CYAN}|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |${RESET}"
-echo -e "${CYAN}|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |${RESET}"
-echo -e "${CYAN}|-8A)GPU-Guided install             |---------------------------------------------------------------|${RESET}"
-echo -e "${CYAN}|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |${RESET}"
-echo -e "${CYAN}|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |${RESET}"
-echo -e "${CYAN}|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |${RESET}"
-echo -e "${CYAN}|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |${RESET}"
-echo -e "${CYAN}|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "| The Great Monolith of Installing Arch Linux!                                                      |"
+echo -e "#===================================================================================================#"
+echo -e "|                                                                                                   |"
+echo -e "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
+echo -e "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
+echo -e "|      d88P888                 888        Y88o88P                        888                        |"
+echo -e "|     d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888                     |"
+echo -e "|    d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888                        |"
+echo -e "|   d88P   888 888    888      888  888   d88888b   888  888 888     888 888                        |"
+echo -e "|  d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888                        |"
+echo -e "| d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888                        |"
+echo -e "|                                                        888                                        |"
+echo -e "|                                                  Y8b d88P                                         |"
+echo -e "|                                                     Y88P                                          |"
+echo -e "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
+echo -e "|                                                                                                   |"
+echo -e "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
+echo -e "#===================================================================================================#"
+echo -e "|-Table of Contents:                |-0) Disk Format INFO                                           |"
+echo -e "#===================================================================================================#"
+echo -e "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
+echo -e "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
+echo -e "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
+echo -e "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
+echo -e "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
+echo -e "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
+echo -e "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
+echo -e "|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |"
+echo -e "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
+echo -e "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
+echo -e "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
+echo -e "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
+echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
+echo -e "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
+echo -e "#===================================================================================================#"
 }
 #=========================================================================================================================================#
 #!/usr/bin/env bash
@@ -111,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${CYAN}${YELLOW}ERROR: $*" >&2
+    echo -e "${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -123,7 +123,7 @@ part_suffix() {
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
 prepare_chroot() {
-    echo -e "${CYAN}\n🔧 Preparing pseudo-filesystems for chroot..."
+    echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
     mkdir -p /mnt
     for fs in proc sys dev run; do
         mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
@@ -135,7 +135,7 @@ prepare_chroot() {
 # Cleanup
 #=========================================================================================================================================#
 cleanup() {
-    echo -e "${CYAN}\n🧹 Running cleanup..."
+    echo -e "\n🧹 Running cleanup..."
     swapoff -a 2>/dev/null || true
     if mountpoint -q /mnt; then
         umount -R /mnt 2>/dev/null || true
@@ -150,9 +150,9 @@ trap cleanup EXIT INT TERM
 safe_disk_cleanup() {
     [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
     echo
-    echo -e "${CYAN}#===================================================================================================#"
-    echo -e "${CYAN}# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #"
-    echo -e "${CYAN}#===================================================================================================#"
+    echo -e "#===================================================================================================#"
+    echo -e "# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #"
+    echo -e "#===================================================================================================#"
 
     # 1) Protect the live ISO device
     local iso_dev
@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI detected."
+        echo -e "UEFI detected."
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS detected."
+        echo -e "Legacy BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -385,15 +385,15 @@ select_filesystem()
 {
   
     clear
-    echo -e "${CYAN}#===============================================================================#${RESET}"
-    echo -e "${CYAN}|  Filesystem Selection Options                                                 |${RESET}"
-    echo -e "${CYAN}#===============================================================================#${RESET}"
-    echo -e "${CYAN}| 1) EXT4 (root + home)                                                         |${RESET}"
-    echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
-    echo -e "${CYAN}| 2) BTRFS (root + home)                                                        |${RESET}"
-    echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
-    echo -e "${CYAN}| 3) BTRFS root + EXT4 home                                                     |${RESET}"
-    echo -e "${CYAN}#===============================================================================#${RESET}"
+    echo -e "#===============================================================================#"
+    echo -e "|  Filesystem Selection Options                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) EXT4 (root + home)                                                         |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) BTRFS (root + home)                                                        |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
+    echo -e "#===============================================================================#"
     read -rp "Select filesystem [default=1]: " FS_CHOICE
     FS_CHOICE="${FS_CHOICE:-1}"
     case "$FS_CHOICE" in
@@ -410,15 +410,15 @@ select_swap()
 {
   
    clear
-    echo -e "${CYAN}#===============================================================================#${RESET}"
-    echo -e "${CYAN}| Swap On / Off                                                                 |${RESET}"
-    echo -e "${CYAN}#===============================================================================#${RESET}"
-    echo -e "${CYAN}| 1) Swap On                                                                    |${RESET}"
-    echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
-    echo -e "${CYAN}| 2) Swap Off                                                                   |${RESET}"
-    echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
-    echo -e "${CYAN}| 3) exit                                                                       |${RESET}"
-    echo -e "${CYAN}#===============================================================================#${RESET}"
+    echo -e "#===============================================================================#"
+    echo -e "| Swap On / Off                                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) Swap On                                                                    |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) Swap Off                                                                   |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) exit                                                                       |"
+    echo -e "#===============================================================================#"
      read -rp "Select option [default=1]: " SWAP_ON
     SWAP_ON="${SWAP_ON:-1}"
     case "$SWAP_ON" in
@@ -671,9 +671,9 @@ install_base_system() {
 
 sleep 1
 clear
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}# - Installing base system - Pacstrap!                                                              #${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "# - Installing base system - Pacstrap!                                                              #"
+echo -e "#===================================================================================================#"
 echo
 # You can modify the package list below as needed.
 PKGS=(
@@ -713,9 +713,9 @@ configure_system() {
 
 sleep 1
 clear
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}# -  Setting Basic variables for chroot (defaults provided)                                         #${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+echo -e "#===================================================================================================#"
 echo
 # -------------------------------
 # Prompt for timezone, locale, hostname, and username
@@ -1039,18 +1039,18 @@ network_mirror_selection()
 sleep 1
 clear
 echo
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #"
+echo -e "#===================================================================================================#"
 echo
 # Ensure reflector is installed in chroot
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
     }
 
-echo -e "${CYAN}#========================================================#${RESET}"
-echo -e "${CYAN}#                   MIRROR SELECTION                     #${RESET}" 
-echo -e "${CYAN}#========================================================#${RESET}"
+echo -e "#========================================================#"
+echo -e "#                   MIRROR SELECTION                     #" 
+echo -e "#========================================================#"
 echo
 
 echo "Available mirror regions:"
@@ -1097,15 +1097,15 @@ gpu_driver()
      sleep 1
      clear
      echo
-     echo -e "${CYAN}#===================================================================================================#${RESET}"
-     echo -e "${CYAN}# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #${RESET}"
-     echo -e "${CYAN}#===================================================================================================#${RESET}"
+     echo -e "#===================================================================================================#"
+     echo -e "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
+     echo -e "#===================================================================================================#"
      echo
      
      echo
-     echo -e "${CYAN}#========================================================#${RESET}"
-     echo -e "${CYAN}🎮 GPU DRIVER INSTALLATION                                #${RESET}"
-     echo -e "${CYAN}#========================================================#${RESET}"
+     echo -e "#========================================================#"
+     echo -e "🎮 GPU DRIVER INSTALLATION                                #"
+     echo -e "#========================================================#"
 
      echo "1) Intel"
      echo "2) NVIDIA"
@@ -1132,7 +1132,7 @@ gpu_driver()
          echo "🔧 Ensuring multilib repository is enabled..."
          "${CHROOT_CMD[@]}" bash -c '
              if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-                 echo -e "${CYAN}\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+                 echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
              fi
              pacman -Sy --noconfirm
          '
@@ -1147,9 +1147,9 @@ window_manager() {
    
     sleep 1
     clear
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "#===================================================================================================#"
+    echo -e "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
+    echo -e "#===================================================================================================#"
     echo
   
     echo "1) Hyprland (Wayland)"
@@ -1174,7 +1174,7 @@ window_manager() {
     case "$WM_CHOICE" in
         1)
             SELECTED_WM="hyprland"
-            echo -e "${CYAN}→ Selected: Hyprland"
+            echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
             EXTRA_PKGS=()
@@ -1182,37 +1182,37 @@ window_manager() {
             ;;
         2)
             SELECTED_WM="kde"
-            echo -e "${CYAN}→ Selected: KDE Plasma"
+            echo -e "→ Selected: KDE Plasma"
             WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
             ;;
         3)
             SELECTED_WM="gnome"
-            echo -e "${CYAN}→ Selected: GNOME"
+            echo -e "→ Selected: GNOME"
             WM_PKGS=(gnome gdm gnome-tweaks)
             ;;
         4)
             SELECTED_WM="xfce"
-            echo -e "${CYAN}→ Selected: XFCE"
+            echo -e "→ Selected: XFCE"
             WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
             ;;
         5)
             SELECTED_WM="niri"
-            echo -e "${CYAN}→ Selected: Niri"
+            echo -e "→ Selected: Niri"
             WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
             ;;
         6)
             SELECTED_WM="cinnamon"
-            echo -e "${CYAN}→ Selected: Cinnamon"
+            echo -e "→ Selected: Cinnamon"
             WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
             ;;
         7)
             SELECTED_WM="mate"
-            echo -e "${CYAN}→ Selected: Mate"
+            echo -e "→ Selected: Mate"
             WM_PKGS=(mate mate-extra)
             ;;
         8)
             SELECTED_WM="sway"
-            echo -e "${CYAN}→ Selected: Sway"
+            echo -e "→ Selected: Sway"
             WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
             ;;
         9|*)
@@ -1272,9 +1272,9 @@ lm_dm() {
 
 sleep 1
 clear
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}# 8C) Display Manager Selection                                                                     #${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "# 8C) Display Manager Selection                                                                     #"
+echo -e "#===================================================================================================#"
 
     DM_MENU=()
     DM_DEFAULT="6"
@@ -1317,7 +1317,7 @@ echo -e "${CYAN}#===============================================================
     
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
-        echo -e "${CYAN}$entry"
+        echo -e "$entry"
     done
     echo "6) Skip Display Manager"
 
@@ -1368,7 +1368,7 @@ echo -e "${CYAN}#===============================================================
     # ---------- Enable DM service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-        echo -e "${CYAN}✅ Display manager service enabled: $DM_SERVICE"
+        echo -e "✅ Display manager service enabled: $DM_SERVICE"
     fi
 
     # ---------- Ly autologin ----------
@@ -1397,9 +1397,9 @@ extra_pacman_pkg()
     sleep 1
     clear
     echo
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "#===================================================================================================#"
+    echo -e "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
+    echo -e "#===================================================================================================#"
     echo
     
                 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
@@ -1443,9 +1443,9 @@ optional_aur()
      sleep 1
      clear
      echo
-     echo -e "${CYAN}#===================================================================================================#${RESET}"
-     echo -e "${CYAN}# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #${RESET}"
-     echo -e "${CYAN}#===================================================================================================#${RESET}"
+     echo -e "#===================================================================================================#"
+     echo -e "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
+     echo -e "#===================================================================================================#"
      echo
      
                      read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
@@ -1483,9 +1483,9 @@ hyprland_optional()
       sleep 1
       clear
       echo
-      echo -e "${CYAN}#===================================================================================================#${RESET}"
-      echo -e "${CYAN}# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #${RESET}"
-      echo -e "${CYAN}#===================================================================================================#${RESET}"
+      echo -e "#===================================================================================================#"
+      echo -e "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
+      echo -e "#===================================================================================================#"
       echo
       sleep 1
      
@@ -1595,7 +1595,7 @@ quick_partition() {
     hyprland_optional
     
 
-    echo -e "${CYAN}✅ Arch Linux installation complete."
+    echo -e "✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -2577,17 +2577,17 @@ luks_lvm_post_install_steps() {
 menu() {
 clear
 logo
-            echo -e "${CYAN}#==================================================#${RESET}"
-            echo -e "${CYAN}#     Select partitioning method for $DEV:         #${RESET}"
-            echo -e "${CYAN}#==================================================#${RESET}"
-            echo -e "${CYAN}|-1) Quick Partitioning  (automated, ext4, btrfs)  |${RESET}"
-            echo -e "${CYAN}|--------------------------------------------------|${RESET}"
-            echo -e "${CYAN}|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |${RESET}"
-            echo -e "${CYAN}|--------------------------------------------------|${RESET}"
-            echo -e "${CYAN}|-3) Lvm & Luks Partitioning                       |${RESET}"
-            echo -e "${CYAN}|--------------------------------------------------|${RESET}"
-            echo -e "${CYAN}|-4) Return back to start                          |${RESET}"
-            echo -e "${CYAN}#==================================================#${RESET}"
+            echo -e "#==================================================#"
+            echo -e "#     Select partitioning method for $DEV:         #"
+            echo -e "#==================================================#"
+            echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-3) Lvm & Luks Partitioning                       |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-4) Return back to start                          |"
+            echo -e "#==================================================#"
             read -rp "Enter choice [1-3]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
@@ -2605,33 +2605,33 @@ menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 sleep 1
 clear
 echo
-echo -e "${CYAN}#===================================================================================================#${RESET}"
-echo -e "${CYAN}# 11 Cleanup postinstall script & Final Messages & Instructions                                     #${RESET}"
-echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "#===================================================================================================#"
+echo -e "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
+echo -e "#===================================================================================================#"
 echo
 echo 
-echo -e "${GREEN}Custom package installation phase complete.${RESET}"
-echo -e "${GREEN}You can later add more software manually or extend these lists:${RESET}"
-echo -e "${GREEN}  - EXTRA_PKGS[] for pacman packages${RESET}"
-echo -e "${GREEN}  - AUR_PKGS[] for AUR software${RESET}"
-echo -e "${GREEN} ----------------------------------------------------------------------------------------------------${RESET}"
-echo -e "${GREEN}You can now unmount and reboot:${RESET}"
-echo -e "${GREEN}  umount -R /mnt${RESET}"
-echo -e "${GREEN}  swapoff ${P_SWAP} || true${RESET}" # Changed from P3 to P_SWAP for consistency
-echo -e "${GREEN}  reboot${RESET}"
+echo -e "${GREEN}Custom package installation phase complete."
+echo -e "${GREEN}You can later add more software manually or extend these lists:"
+echo -e "${GREEN}  - EXTRA_PKGS[] for pacman packages"
+echo -e "${GREEN}  - AUR_PKGS[] for AUR software"
+echo -e "${GREEN} ----------------------------------------------------------------------------------------------------"
+echo -e "${GREEN}You can now unmount and reboot:"
+echo -e "${GREEN}  umount -R /mnt"
+echo -e "${GREEN}  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "${GREEN}  reboot"
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
 #Final messages & instructions
 echo
-echo -e "${GREEN}Installation base and basic configuration finished.${RESET}"
-echo -e "${GREEN}To reboot into your new system:${RESET}"
-echo -e "${GREEN}  umount -R /mnt${RESET}"
-echo -e "${GREEN}  swapoff ${P_SWAP} || true${RESET}" # Changed from P3 to P_SWAP for consistency
-echo -e "${GREEN}  reboot${RESET}"
+echo -e "${GREEN}Installation base and basic configuration finished."
+echo -e "${GREEN}To reboot into your new system:"
+echo -e "${GREEN}  umount -R /mnt"
+echo -e "${GREEN}  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "${GREEN}  reboot"
 echo
-echo -e "${GREEN}Done.${RESET}"
-echo -e "${CYAN}#===========================================================================#${RESET}"
-echo -e "${CYAN}# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #${RESET}"
-echo -e "${CYAN}# -Author  : Terra88                                                        #${RESET}"
-echo -e "${CYAN}# -GitHub  : http://github.com/Terra88                                      #${RESET}"
-echo -e "${CYAN}#===========================================================================#${RESET}"
+echo -e "${GREEN}Done."
+echo -e "#===========================================================================#"
+echo -e "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
+echo -e "# -Author  : Terra88                                                        #"
+echo -e "# -GitHub  : http://github.com/Terra88                                      #"
+echo -e "#===========================================================================#"
