@@ -386,7 +386,7 @@ select_filesystem()
   
     clear
     echo -e "#===============================================================================#"
-    echo -e "| 1.2) Filesystem Selection Options                                             |"
+    echo -e "|  Filesystem Selection Options                                                 |"
     echo -e "#===============================================================================#"
     echo -e "| 1) EXT4 (root + home)                                                         |"
     echo -e "|-------------------------------------------------------------------------------|"
@@ -2588,7 +2588,7 @@ logo
             echo -e "|--------------------------------------------------|"
             echo -e "|-4) Return back to start                          |"
             echo -e "#==================================================#"
-            read -rp "Enter choice [1-2]: " INSTALL_MODE
+            read -rp "Enter choice [1-3]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
