@@ -13,48 +13,49 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
+
 #=========================================================================================================================================#
 # Preparation
 #=========================================================================================================================================#
 # Arch logo: Edited manually by Terra88
 #=========================================================================================================================================#
 logo(){
-echo "#===================================================================================================#"
-echo "| The Great Monolith of Installing Arch Linux!                                                      |"
-echo "#===================================================================================================#"
-echo "|                                                                                                   |"
-echo "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
-echo "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
-echo "|      d88P888                 888        Y88o88P                        888                        |"
-echo "|     d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888                     |"
-echo "|    d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888                        |"
-echo "|   d88P   888 888    888      888  888   d88888b   888  888 888     888 888                        |"
-echo "|  d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888                        |"
-echo "| d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888                        |"
-echo "|                                                        888                                        |"
-echo "|                                                   Y8b d88P                                        |"
-echo "|                                                     Y88P                                          |"
-echo "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
-echo "|                                                                                                   |"
-echo "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
-echo "#===================================================================================================#"
-echo "|-Table of Contents:                |-0) Disk Format INFO                                           |"
-echo "#===================================================================================================#"
-echo "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
-echo "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
-echo "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
-echo "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
-echo "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
-echo "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
-echo "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
-echo "|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |"
-echo "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
-echo "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
-echo "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
-echo "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
-echo "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
-echo "#===================================================================================================#"
+echo -e "#===================================================================================================#"
+echo -e "| The Great Monolith of Installing Arch Linux!                                                      |"
+echo -e "#===================================================================================================#"
+echo -e "|                                                                                                   |"
+echo -e "|        d8888                 888      Y88b   d88P                  d8b  .d888                     |"
+echo -e "|       d88888                 888       Y88b d88P                   Y8P d88P                       |"
+echo -e "|      d88P888                 888        Y88o88P                        888                        |"
+echo -e "|     d88P 888 888d888 .d8888b 88888b.     Y888P    888  888 888d888 888 888888                     |"
+echo -e "|    d88P  888 888P.  d88P.    888 .88b    d888b    888  888 888P.   888 888                        |"
+echo -e "|   d88P   888 888    888      888  888   d88888b   888  888 888     888 888                        |"
+echo -e "|  d8888888888 888    Y88b.    888  888  d88P Y88b  Y88b 888 888     888 888                        |"
+echo -e "| d88P     888 888     .Y8888P 888  888 d88P   Y88b  .Y88888 888     888 888                        |"
+echo -e "|                                                        888                                        |"
+echo -e "|                                                  Y8b d88P                                         |"
+echo -e "|                                                     Y88P                                          |"
+echo -e "|         Semi-Automated / Interactive - Arch Linux Installer                                       |"
+echo -e "|                                                                                                   |"
+echo -e "|        GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88(Tero.H)                       |"
+echo -e "#===================================================================================================#"
+echo -e "|-Table of Contents:                |-0) Disk Format INFO                                           |"
+echo -e "#===================================================================================================#"
+echo -e "|-1)Disk Selection & Format         |- UEFI & BIOS(LEGACY) SUPPORT                                  |"
+echo -e "|-2)Pacstrap:Installing Base system |- wipes old signatures                                         |"
+echo -e "|-3)Generating fstab                |- Partitions: BOOT/EFI(1024MiB)(/ROOT)(/HOME)(SWAP)            |"
+echo -e "|-4)Setting Basic variables         |- 1) Quick Partition: Root/Home & Swap on or off options       |"
+echo -e "|-5)Installing GRUB for UEFI        |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |" 
+echo -e "|-6)Setting configs/enabling.srv    |- Filesystems: FAT32 on Boot/EFI, EXT4 or BTRFS                |"
+echo -e "|-7)Setting Pacman Mirror           |- 2) Custom Partition/Format Route for ext4,btrfs,xfs,f2fs     |"
+echo -e "|-Optional:                         |- 3) LV & LUKS Coming soon.                                    |"
+echo -e "|-8A)GPU-Guided install             |---------------------------------------------------------------|"
+echo -e "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
+echo -e "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
+echo -e "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
+echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
+echo -e "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
+echo -e "#===================================================================================================#"
 }
 #=========================================================================================================================================#
 #!/usr/bin/env bash
@@ -110,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${YELLOW}ERROR:${RESET} $*" >&2
+    echo -e "${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -148,11 +149,10 @@ trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
 safe_disk_cleanup() {
     [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
-
     echo
-    echo "#===================================================================================================#"
-    echo "# 0) PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                    #"
-    echo "#===================================================================================================#"
+    echo -e "#===================================================================================================#"
+    echo -e "# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #"
+    echo -e "#===================================================================================================#"
 
     # 1) Protect the live ISO device
     local iso_dev
@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI${RESET} detected."
+        echo -e "${CYAN}UEFI detected.${RESET}"
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS${RESET} detected."
+        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
 #=========================================================================================================================================#
@@ -383,16 +383,17 @@ calculate_swap_quick() {
 #=========================================================================================================================================#
 select_filesystem() 
 {
+  
     clear
-    echo "#===============================================================================#"
-    echo "| 1.2) Filesystem Selection Options                                             |"
-    echo "#===============================================================================#"
-    echo "| 1) EXT4 (root + home)                                                         |"
-    echo "|-------------------------------------------------------------------------------|"
-    echo "| 2) BTRFS (root + home)                                                        |"
-    echo "|-------------------------------------------------------------------------------|"
-    echo "| 3) BTRFS root + EXT4 home                                                     |"
-    echo "#===============================================================================#"
+    echo -e "#===============================================================================#"
+    echo -e "|  Filesystem Selection Options                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) EXT4 (root + home)                                                         |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) BTRFS (root + home)                                                        |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
+    echo -e "#===============================================================================#"
     read -rp "Select filesystem [default=1]: " FS_CHOICE
     FS_CHOICE="${FS_CHOICE:-1}"
     case "$FS_CHOICE" in
@@ -407,17 +408,17 @@ select_filesystem()
 #=========================================================================================================================================#
 select_swap()
 {
-
+  
    clear
-    echo "#===============================================================================#"
-    echo "| Swap On / Off                                                                 |"
-    echo "#===============================================================================#"
-    echo "| 1) Swap On                                                                    |"
-    echo "|-------------------------------------------------------------------------------|"
-    echo "| 2) Swap Off                                                                   |"
-    echo "|-------------------------------------------------------------------------------|"
-    echo "| 3) exit                                                                       |"
-    echo "#===============================================================================#"
+    echo -e "#===============================================================================#"
+    echo -e "| Swap On / Off                                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) Swap On                                                                    |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) Swap Off                                                                   |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) exit                                                                       |"
+    echo -e "#===============================================================================#"
      read -rp "Select option [default=1]: " SWAP_ON
     SWAP_ON="${SWAP_ON:-1}"
     case "$SWAP_ON" in
@@ -667,12 +668,12 @@ format_and_mount() {
 # Install base system
 #=========================================================================================================================================#
 install_base_system() {
+
 sleep 1
 clear
-echo
-echo "#===================================================================================================#"
-echo "# 2) Pacstrap: Installing Base system + recommended packages for basic use                          #"
-echo "#===================================================================================================#"
+echo -e "#===================================================================================================#"
+echo -e "# - Installing base system - Pacstrap!                                                              #"
+echo -e "#===================================================================================================#"
 echo
 # You can modify the package list below as needed.
 PKGS=(
@@ -709,11 +710,12 @@ pacstrap /mnt "${PKGS[@]}"
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
+
 sleep 1
 clear
-echo "#===================================================================================================#"
-echo "# 4) Setting Basic variables for chroot (defaults provided)                                         #"
-echo "#===================================================================================================#"
+echo -e "#===================================================================================================#"
+echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+echo -e "#===================================================================================================#"
 echo
 # -------------------------------
 # Prompt for timezone, locale, hostname, and username
@@ -1033,21 +1035,24 @@ fi
 #=========================================================================================================================================#
 network_mirror_selection()
 {
+
 sleep 1
 clear
 echo
-echo "#===================================================================================================#"
-echo "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #"
-echo "#===================================================================================================#"
+echo -e "#===================================================================================================#"
+echo -e "# - INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                     #"
+echo -e "#===================================================================================================#"
 echo
 # Ensure reflector is installed in chroot
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
     }
-echo "#========================================================#"
-echo "#                   MIRROR SELECTION                     #" 
-echo "#========================================================#"
+
+echo -e "#========================================================#"
+echo -e "#                   MIRROR SELECTION                     #" 
+echo -e "#========================================================#"
 echo
+
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -1088,19 +1093,15 @@ fi
 # Graphics Driver Selection Menu
 #=========================================================================================================================================#
 gpu_driver()
-{
+{    
      sleep 1
      clear
      echo
-     echo "#===================================================================================================#"
-     echo "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
-     echo "#===================================================================================================#"
+     echo -e "#===================================================================================================#"
+     echo -e "# - GPU DRIVER INSTALLATION & MULTILIB                                                              #"
+     echo -e "#===================================================================================================#"
      echo
-     
-     echo
-     echo "#========================================================#"
-     echo "🎮 GPU DRIVER INSTALLATION"
-     echo "#========================================================#"
+
      echo "1) Intel"
      echo "2) NVIDIA"
      echo "3) AMD"
@@ -1136,155 +1137,264 @@ gpu_driver()
 #=========================================================================================================================================#
 # Window Manager Selection Menu
 #=========================================================================================================================================#
-window_manager()
-{
+# ---------- WM/DE Selection ----------
+window_manager() {
+   
     sleep 1
     clear
+    echo -e "#===================================================================================================#"
+    echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
+    echo -e "#===================================================================================================#"
     echo
-    echo "#===================================================================================================#"
-    echo "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
-    echo "#===================================================================================================#"
-    echo
-    
-    echo
-    echo "#========================================================#"
-    echo "Windof Manager / Desktop Selection"
-    echo "#========================================================#"
-        echo "1) Hyprland (Wayland)"
-        echo "2) Sway (Wayland)"
-        echo "3) XFCE (X11)"
-        echo "4) KDE Plasma (X11/Wayland)"
-        echo "5) GNOME (X11/Wayland)"
-        echo "6) Skip WM/DE installation"
-        read -r -p "Select your preferred WM/DE [1-6, default=6]: " WM_CHOICE
-        WM_CHOICE="${WM_CHOICE:-6}"
-        
-        WM_PKGS=()
-        WM_AUR_PKGS=()
-        
-        case "$WM_CHOICE" in
-            1)
-                echo "→ Selected: Hyprland (Wayland)"
-                WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty kvantum dolphin dolphin-plugins rofi discover nwg-displays nwg-look breeze breeze-icons blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark qview)
-                WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg) #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            2)
-                echo "→ Selected: Sway (Wayland)"
-                WM_PKGS=(sway swaybg swaylock waybar wofi)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            3)
-                echo "→ Selected: XFCE"
-                WM_PKGS=(xfce4 xfce4-goodies lightdm-gtk-greeter)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            4)
-                echo "→ Selected: KDE Plasma"
-                WM_PKGS=(plasma-desktop kde-applications sddm)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            5)
-                echo "→ Selected: GNOME"
-                WM_PKGS=(gnome gdm)
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-            6|*)
-                echo "Skipping window manager installation."
-                WM_PKGS=()
-                WM_AUR_PKGS=() #Extra AUR PKG CAN BE SET HERE IF WANTED, OR UNDER THE EXTRA_AUR_PKG 
-                ;;
-        esac
-        
-        # Install WM packages
-        if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-            safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+  
+    echo "1) Hyprland (Wayland)"
+    echo "2) KDE Plasma (X11/Wayland)"
+    echo "3) GNOME (X11/Wayland)"
+    echo "4) XFCE (X11)"
+    echo "5) Niri"
+    echo "6) Cinnamon"
+    echo "7) Mate"
+    echo "8) Sway (Wayland)"
+    echo "9) Skip selection"
+
+    read -r -p "Select your preferred WM/DE [1-9, default=9]: " WM_CHOICE
+    WM_CHOICE="${WM_CHOICE:-6}"
+
+    WM_PKGS=()
+    WM_AUR_PKGS=()
+    EXTRA_PKGS=()
+    EXTRA_AUR_PKGS=()
+
+    # ---------- Set WM packages and selected WM ----------
+    case "$WM_CHOICE" in
+        1)
+            SELECTED_WM="hyprland"
+            echo -e "→ Selected: Hyprland"
+            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
+            WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+            EXTRA_PKGS=()
+            EXTRA_AUR_PKGS=()
+            ;;
+        2)
+            SELECTED_WM="kde"
+            echo -e "→ Selected: KDE Plasma"
+            WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
+            ;;
+        3)
+            SELECTED_WM="gnome"
+            echo -e "→ Selected: GNOME"
+            WM_PKGS=(gnome gdm gnome-tweaks)
+            ;;
+        4)
+            SELECTED_WM="xfce"
+            echo -e "→ Selected: XFCE"
+            WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
+            ;;
+        5)
+            SELECTED_WM="niri"
+            echo -e "→ Selected: Niri"
+            WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
+            ;;
+        6)
+            SELECTED_WM="cinnamon"
+            echo -e "→ Selected: Cinnamon"
+            WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
+            ;;
+        7)
+            SELECTED_WM="mate"
+            echo -e "→ Selected: Mate"
+            WM_PKGS=(mate mate-extra)
+            ;;
+        8)
+            SELECTED_WM="sway"
+            echo -e "→ Selected: Sway"
+            WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
+            ;;
+        9|*)
+            SELECTED_WM="none"
+            echo "Skipping window manager installation."
+            ;;
+    esac
+
+    # ---------- Auto-add mandatory dependencies ----------
+    case "$SELECTED_WM" in
+        hyprland)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal-hyprland swayidle swaylock hyprpaper hyprshot waybar)
+            ;;
+        niri)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal-gnome mako swaybg swayidle swaylock waybar)
+            ;;
+        sway)
+            WM_PKGS+=(xorg-xwayland qt6-wayland xdg-desktop-portal wofi slurp foot)
+            ;;
+        kde)
+            WM_PKGS+=(qt6-wayland)
+            ;;
+    esac
+
+    # ---------- Optional extra packages ----------
+    if [[ "$SELECTED_WM" != "none" ]]; then
+        echo
+        read -r -p "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: " EXTRA_CHOICE
+        EXTRA_CHOICE="${EXTRA_CHOICE,,}"
+        if [[ "$EXTRA_CHOICE" == "y" ]]; then
+            read -r -p "Enter extra pacman packages (space-separated): " EXTRA_PKGS_INPUT
+            read -r -p "Enter extra AUR packages (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
+            IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
+            IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
         fi
-        # Install AUR packages (safe, conflict-handling)
+    fi
+
+    # ---------- Install WM/DE packages ----------
+    if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+    fi
+    if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
+    fi
+
+    # ---------- Install extra packages ----------
+    if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
+    fi
+    if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
+    fi
 }
-#=========================================================================================================================================#
-# Login Manager & Display Manager Menu
-#=========================================================================================================================================#
-lm_dm()
-{
-    sleep 1
-    clear
-    echo
-    echo "#===================================================================================================#"
-    echo "# 8C) LM/DM                                                                                         #"
-    echo "#===================================================================================================#"
-    echo
+
+# ---------- DM Selection ----------
+lm_dm() {
+
+sleep 1
+clear
+echo -e "#===================================================================================================#"
+echo -e "# -   Display Manager Selection                                                                     #"
+echo -e "#===================================================================================================#"
+
+    DM_MENU=()
+    DM_DEFAULT="6"
+    # ---------- Filtered DM options ----------
+    case "$SELECTED_WM" in
+        gnome)
+            DM_MENU=("1) GDM (required for GNOME Wayland)")
+            DM_DEFAULT="1"
+            ;;
+        kde)
+            DM_MENU=("2) SDDM (recommended for KDE)" "1) GDM (works but not ideal)")
+            DM_DEFAULT="2"
+            ;;
+        niri)
+            DM_MENU=("1) GDM (recommended)" "2) SDDM (works but sometimes session missing)" "4) Ly (TUI, always works)")
+            DM_DEFAULT="1"
+            ;;
+        hyprland|sway)
+            DM_MENU=("2) SDDM" "1) GDM" "4) Ly (TUI)")
+            DM_DEFAULT="2"
+            ;;
+        xfce)
+            DM_MENU=("3) LightDM (recommended)" "1) GDM" "2) SDDM" "5) LXDM")
+            DM_DEFAULT="3"
+            ;;
+        cinnamon|mate)
+            DM_MENU=("3) LightDM (recommended)" "1) GDM" "5) LXDM")
+            DM_DEFAULT="3"
+            ;;
+        none)
+            DM_MENU=("6) Skip Display Manager")
+            DM_DEFAULT="6"
+            ;;
+        *)
+            DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
+            DM_DEFAULT="6"
+            ;;
+            
+    esac
     
-    echo
-    echo "#========================================================#"
-    echo " Login Manager / Display Manager Selection"
-    echo "#========================================================#"
-            echo "1) GDM - If you installed: Gnome, Hyprland, Sway, XFCE"
-            echo "2) SDDM - If you installed: KDE, XFCE" 
-            echo "3) LightDM - XFCE"
-            echo "4) Ly (AUR) - Sway, Hyprland"
-            echo "5) LXDM - XFCE"
-            echo "6) Skip Display Manager"
-            read -r -p "Select your display manager [1-6, default=6]: " DM_CHOICE
-            DM_CHOICE="${DM_CHOICE:-6}"
+    # ---------- Show menu ----------
+    for entry in "${DM_MENU[@]}"; do
+        echo -e "$entry"
+    done
+    echo "6) Skip Display Manager"
+
+    read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
+    DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
+
+    DM_PKGS=()
+    DM_AUR_PKGS=()
+    DM_SERVICE=""
+
+    case "$DM_CHOICE" in
+        1)
+            DM_PKGS=(gdm)
+            DM_SERVICE="gdm.service"
+            ;;
+        2)
+            DM_PKGS=(sddm)
+            DM_SERVICE="sddm.service"
+            ;;
+        3)
+            DM_PKGS=(lightdm lightdm-gtk-greeter)
+            DM_SERVICE="lightdm.service"
+            ;;
+        4)
+            DM_PKGS=(ly)
+            DM_AUR_PKGS=(ly-themes-git)
+            DM_SERVICE="ly.service"
+            ;;
+        5)
+            DM_PKGS=(lxdm)
+            DM_SERVICE="lxdm.service"
+            ;;
+        6|*)
+            echo "Skipping display manager installation."
+            return
+            ;;
             
-            DM_PKGS=()
-            DM_AUR_PKGS=()
-            DM_SERVICE=""
+    esac
+
+    # ---------- Install DM packages ----------
+    if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
+    fi
+    if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
+    fi
+
+    # ---------- Enable DM service ----------
+    if [[ -n "$DM_SERVICE" ]]; then
+        "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
+        echo -e "✅ Display manager service enabled: $DM_SERVICE"
+    fi
+
+    # ---------- Ly autologin ----------
+    if [[ "$DM_SERVICE" == "ly.service" ]]; then
+        if [[ -n "$USER_NAME" ]]; then
+            echo "Setting up Ly autologin for $USER_NAME..."
+            sudo mkdir -p /etc/systemd/system/ly.service.d
+            cat <<'EOF' | sudo tee /etc/systemd/system/ly.service.d/override.conf
             
-            case "$DM_CHOICE" in
-                1)
-                    DM_PKGS=(gdm)
-                    DM_SERVICE="gdm.service"
-                    ;;
-                2)
-                    DM_PKGS=(sddm)
-                    DM_SERVICE="sddm.service"
-                    ;;
-                3)
-                    DM_PKGS=(lightdm lightdm-gtk-greeter)
-                    DM_SERVICE="lightdm.service"
-                    ;;
-                4)
-                    DM_PKGS=(ly)
-                    DM_AUR_PKGS=(ly-themes-git)
-                    DM_SERVICE="ly.service"
-                    ;;
-                5)
-                    DM_PKGS=(lxdm)
-                    DM_SERVICE="lxdm.service"
-                    ;;
-                6|*)
-                    echo "Skipping display manager installation."
-                    DM_PKGS=()
-                    ;;
-            esac
-            
-            # Install display manager packages
-            if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-                safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
-            fi
-            
-            # Install AUR display manager packages (safe)
-            safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
-            
-            # Enable chosen service
-            if [[ -n "$DM_SERVICE" ]]; then
-                "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-                echo "✅ Display manager service enabled: $DM_SERVICE"
-            fi
-}        
+
+[Service]
+ExecStart=
+ExecStart=/usr/bin/ly -a $USER_NAME
+EOF
+            sudo systemctl daemon-reload
+        fi
+    fi
+}
+
 #=========================================================================================================================================#
 # Extra Pacman Package Installer
 #=========================================================================================================================================#
 extra_pacman_pkg()
 {    
+   
     sleep 1
     clear
     echo
-    echo "#===================================================================================================#"
-    echo "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
-    echo "#===================================================================================================#"
+    echo -e "#===================================================================================================#"
+    echo -e "# - EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                            #"
+    echo -e "#===================================================================================================#"
     echo
     
                 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
@@ -1324,12 +1434,13 @@ extra_pacman_pkg()
 #=========================================================================================================================================#
 optional_aur()
 {    
+   
      sleep 1
      clear
      echo
-     echo "#===================================================================================================#"
-     echo "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
-     echo "#===================================================================================================#"
+     echo -e "#===================================================================================================#"
+     echo -e "# - OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                      #"
+     echo -e "#===================================================================================================#"
      echo
      
                      read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
@@ -1363,12 +1474,13 @@ optional_aur()
 #=========================================================================================================================================#
 hyprland_optional()
 {     
+  
       sleep 1
       clear
       echo
-      echo "#===================================================================================================#"
-      echo "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
-      echo "#===================================================================================================#"
+      echo -e "#===================================================================================================#"
+      echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                             #"
+      echo -e "#===================================================================================================#"
       echo
       sleep 1
      
@@ -1478,7 +1590,7 @@ quick_partition() {
     hyprland_optional
     
 
-    echo -e "${GREEN}✅ Arch Linux installation complete.${RESET}"
+    echo -e "✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -2460,18 +2572,18 @@ luks_lvm_post_install_steps() {
 menu() {
 clear
 logo
-            echo "#==================================================#"
-            echo "#     Select partitioning method for $DEV:         #"
-            echo "#==================================================#"
-            echo "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
-            echo "|--------------------------------------------------|"
-            echo "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
-            echo "|--------------------------------------------------|"
-            echo "|-3) Lvm & Luks Partitioning                       |"
-            echo "|--------------------------------------------------|"
-            echo "|-4) Return back to start                          |"
-            echo "#==================================================#"
-            read -rp "Enter choice [1-2]: " INSTALL_MODE
+            echo -e "#==================================================#"
+            echo -e "#     Select partitioning method for $DEV:         #"
+            echo -e "#==================================================#"
+            echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-3) Lvm & Luks Partitioning                       |"
+            echo -e "|--------------------------------------------------|"
+            echo -e "|-4) Exit                                          |"
+            echo -e "#==================================================#"
+            read -rp "Enter choice [1-4]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
@@ -2488,33 +2600,33 @@ menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 sleep 1
 clear
 echo
-echo "#===================================================================================================#"
-echo "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
-echo "#===================================================================================================#"
+echo -e "#===================================================================================================#"
+echo -e "# - Cleanup postinstall script & Final Messages & Instructions                                      #"
+echo -e "#===================================================================================================#"
 echo
 echo 
-echo "Custom package installation phase complete."
-echo "You can later add more software manually or extend these lists:"
-echo "  - EXTRA_PKGS[] for pacman packages"
-echo "  - AUR_PKGS[] for AUR software"
-echo " ----------------------------------------------------------------------------------------------------"
-echo "You can now unmount and reboot:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
+echo -e "Custom package installation phase complete."
+echo -e "You can later add more software manually or extend these lists:"
+echo -e "  - EXTRA_PKGS[] for pacman packages"
+echo -e "  - AUR_PKGS[] for AUR software"
+echo -e " ----------------------------------------------------------------------------------------------------"
+echo -e "You can now unmount and reboot:"
+echo -e "  umount -R /mnt"
+echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "  reboot"
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
 #Final messages & instructions
 echo
-echo "Installation base and basic configuration finished."
-echo "To reboot into your new system:"
-echo "  umount -R /mnt"
-echo "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo "  reboot"
+echo -e "Installation base and basic configuration finished."
+echo -e "To reboot into your new system:"
+echo -e "  umount -R /mnt"
+echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "  reboot"
 echo
-echo "Done."
-echo "#===========================================================================#"
-echo "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
-echo "# -Author  : Terra88                                                        #"
-echo "# -GitHub  : http://github.com/Terra88                                      #"
-echo "#===========================================================================#"
+echo -e "Done."
+echo -e "#===========================================================================#"
+echo -e "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
+echo -e "# -Author  : Terra88                                                        #"
+echo -e "# -GitHub  : http://github.com/Terra88                                      #"
+echo -e "#===========================================================================#"
