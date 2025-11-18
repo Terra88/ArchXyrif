@@ -1321,7 +1321,7 @@ echo -e "#======================================================================
             ;;
             
     esac
-    subsection(){
+    
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
         echo -e "$entry"
@@ -1361,7 +1361,7 @@ echo -e "#======================================================================
             echo "Skipping display manager installation."
             return
             ;;
-            }
+            
     esac
 
     # ---------- Install DM packages ----------
