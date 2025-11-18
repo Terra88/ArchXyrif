@@ -2583,7 +2583,7 @@ logo
             echo -e "|--------------------------------------------------|"
             echo -e "|-4) Exit                                          |"
             echo -e "#==================================================#"
-            read -rp "Enter choice [1-3]: " INSTALL_MODE
+            read -rp "Enter choice [1-4]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
                 2) custom_partition ;;
