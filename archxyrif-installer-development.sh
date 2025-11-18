@@ -14,8 +14,8 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-if [[ -f "~/archxyrif/theme.sh" ]]; then
-    source "~/archxyrif/theme.sh"
+if [[ -f "/root/archxyrif/theme.sh" ]]; then
+    source "/root/archxyrif/theme.sh"
 else
     echo "Warning: theme.sh not found, continuing without theme."
 fi
