@@ -1,27 +1,5 @@
 #!/usr/bin/env bash
 #=========================================================================================================================================#
-#===COLOR-MAPPER===#
-# Color codes
-# Color definitions
-GREEN='\033[0;32m'
-CYAN='\033[0;36m'
-YELLOW='\033[1;33m'
-RED='\033[0;31m'
-RESET='\033[0m'
-#===COLOR-MAPPER===#
-color_cmd() {
-    local color="$1"
-    shift
-    if [ $# -eq 1 ]; then
-        # Single string, just print it
-        echo -e "${color}$1${RESET}"
-    else
-        # Treat as command
-        "$@" | while IFS= read -r line; do
-            echo -e "${color}${line}${RESET}"
-        done
-    fi
-}
 #=========================================================================================================================================#
 # GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88        
 # Author  : Terra88 
@@ -31,7 +9,13 @@ color_cmd() {
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-
+#===COLOR-MAPPER===#
+GREEN='\033[0;32m'
+CYAN='\033[0;36m'
+YELLOW='\033[1;33m'
+RED='\033[0;31m'
+RESET='\033[0m'
+#===COLOR-MAPPER===#
 #=========================================================================================================================================#
 # Preparation
 #=========================================================================================================================================#
@@ -136,6 +120,19 @@ die() {
 part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
+}
+color_cmd() {
+    local color="$1"
+    shift
+    if [ $# -eq 1 ]; then
+        # Single string, just print it
+        echo -e "${color}$1${RESET}"
+    else
+        # Treat as command
+        "$@" | while IFS= read -r line; do
+            echo -e "${color}${line}${RESET}"
+        done
+    fi
 }
 # Helper to color messages safely
 color_echo() {
