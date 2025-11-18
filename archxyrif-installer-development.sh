@@ -782,28 +782,32 @@ configure_system() {
     NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 
     echo -e "${GREEN}→ Preparing chroot environment...${RESET}"
-    prepare_chroot
-
-    # -------------------------------
-    # Create postinstall.sh inside chroot
-    # -------------------------------
-    echo -e "${GREEN}→ Creating postinstall.sh inside chroot...${RESET}"
-    cat > /mnt/root/postinstall.sh <<'EOF'
+ # -------------------------------
+# Prepare chroot (mount pseudo-filesystems etc.)
+# -------------------------------
+prepare_chroot
+# -------------------------------
+# Create postinstall.sh inside chroot
+# -------------------------------
+cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
+#========================================================#
+# Variables injected by main installer
+#========================================================#
 TZ="{{TIMEZONE}}"
 LANG_LOCALE="{{LANG_LOCALE}}"
 KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
-
-#---------------- Timezone & Clock ----------------#
+#========================================================#
+# 1) Timezone & hardware clock
+#========================================================#
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
-echo -e "\e[32m✅ Timezone set to ${TZ}\e[0m"
-
-#---------------- Locale ----------------#
+#========================================================#
+# 2) Locale
+#========================================================#
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
@@ -811,73 +815,75 @@ locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
 export LC_ALL="${LANG_LOCALE}"
-echo -e "\e[32m✅ Locale set to ${LANG_LOCALE}\e[0m"
-
-#---------------- Hostname & /etc/hosts ----------------#
+#========================================================#
+# 3) Hostname & /etc/hosts
+#========================================================#
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
 127.0.0.1   localhost
 ::1         localhost
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
-echo -e "\e[32m✅ Hostname set to ${HOSTNAME}\e[0m"
-
-#---------------- Keyboard layout ----------------#
+#========================================================#
+# 4) Keyboard layout
+#========================================================#
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
-localectl set-keymap "${KEYMAP}"
-localectl set-x11-keymap "${KEYMAP}"
-echo -e "\e[32m✅ Keyboard layout set to ${KEYMAP}\e[0m"
-
-#---------------- Initramfs ----------------#
+localectl set-keymap ${KEYMAP}
+localectl set-x11-keymap ${KEYMAP}
+#========================================================#
+# 5) Initramfs
+#========================================================#
 mkinitcpio -P
-echo -e "\e[32m✅ Initramfs regenerated\e[0m"
-
-#---------------- Users & Passwords ----------------#
-useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
-
+#========================================================#
+#========================================================#
+# 6) Root + user passwords (interactive with retries)
+#========================================================#
+: "${NEWUSER:?NEWUSER is not set}"
+# Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
     local max_tries=3
     local i=1
     while (( i <= max_tries )); do
-        echo -e "\e[33m--------------------------------------------------------\e[0m"
-        echo -e "\e[33mSet password for $target (attempt $i/$max_tries)\e[0m"
-        echo -e "\e[33m--------------------------------------------------------\e[0m"
+        echo "--------------------------------------------------------"
+        echo "Set password for $target (attempt $i/$max_tries)"
+        echo "--------------------------------------------------------"
         if passwd "$target"; then
-            echo -e "\e[32m✅ Password set for $target\e[0m"
+            echo "✅ Password set for $target"
             return 0
         fi
-        echo -e "\e[31m⚠️ Password setup failed — try again.\e[0m"
+        echo "⚠️ Password setup failed — try again."
         ((i++))
     done
-    echo -e "\e[31m❌ Giving up after $max_tries failed attempts for $target\e[0m"
+    echo "❌ Giving up after $max_tries failed attempts for $target"
     return 1
 }
 
+# Create user and set passwords
+useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
-
-#---------------- Sudo privileges ----------------#
+#========================================================#
+# 7) Ensure user has sudo privileges
+#========================================================#
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-echo -e "\e[32m✅ Sudo privileges configured\e[0m"
-
-#---------------- Home directory ----------------#
+#========================================================#
+# 8) Home directory setup
+#========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 mkdir -p "$CONFIG_DIR"
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
-echo -e "\e[32m✅ Home directory prepared for ${NEWUSER}\e[0m"
-
-#---------------- Enable services ----------------#
+#========================================================#
+# 9) Enable basic services
+#========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
-echo -e "\e[32m✅ Basic services enabled\e[0m"
-
+echo "Postinstall inside chroot finished."
 EOF
-
     echo -e "${GREEN}→ Injecting variables into postinstall.sh...${RESET}"
     sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
     sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
