@@ -185,7 +185,7 @@ known bugs: well it's not really a bug, but the unmount process at the start of 
 - More features coming out soon.
 <br><br>
 
-### **Version 1.4.5 - Release!!!**
+### **Version 1.4.6 - Release!!!**
 <br><br>
 
 - Minor tweaks & bug fixes compared to earlier releases<br>
