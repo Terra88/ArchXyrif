@@ -111,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${YELLOW}ERROR: $*" >&2
+    echo -e "${CYAN}${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -123,7 +123,7 @@ part_suffix() {
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
 prepare_chroot() {
-    echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
+    echo -e "${CYAN}\n🔧 Preparing pseudo-filesystems for chroot..."
     mkdir -p /mnt
     for fs in proc sys dev run; do
         mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
@@ -135,7 +135,7 @@ prepare_chroot() {
 # Cleanup
 #=========================================================================================================================================#
 cleanup() {
-    echo -e "\n🧹 Running cleanup..."
+    echo -e "${CYAN}\n🧹 Running cleanup..."
     swapoff -a 2>/dev/null || true
     if mountpoint -q /mnt; then
         umount -R /mnt 2>/dev/null || true
@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI detected.${RESET}"
+        echo -e "${CYAN}UEFI detected."
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
+        echo -e "${CYAN}Legacy BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -1101,6 +1101,11 @@ gpu_driver()
      echo -e "${CYAN}# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #${RESET}"
      echo -e "${CYAN}#===================================================================================================#${RESET}"
      echo
+     
+     echo
+     echo -e "${CYAN}#========================================================#${RESET}"
+     echo -e "${CYAN}🎮 GPU DRIVER INSTALLATION                                #${RESET}"
+     echo -e "${CYAN}#========================================================#${RESET}"
 
      echo "1) Intel"
      echo "2) NVIDIA"
@@ -1393,7 +1398,7 @@ extra_pacman_pkg()
     clear
     echo
     echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}#  EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                             #${RESET}"
+    echo -e "${CYAN}# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #${RESET}"
     echo -e "${CYAN}#===================================================================================================#${RESET}"
     echo
     
@@ -1439,7 +1444,7 @@ optional_aur()
      clear
      echo
      echo -e "${CYAN}#===================================================================================================#${RESET}"
-     echo -e "${CYAN}#  OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                       #${RESET}"
+     echo -e "${CYAN}# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #${RESET}"
      echo -e "${CYAN}#===================================================================================================#${RESET}"
      echo
      
@@ -1479,7 +1484,7 @@ hyprland_optional()
       clear
       echo
       echo -e "${CYAN}#===================================================================================================#${RESET}"
-      echo -e "${CYAN}#  Hyprland Theme Setup (Optional) with .Config Backup                                              #${RESET}"
+      echo -e "${CYAN}# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #${RESET}"
       echo -e "${CYAN}#===================================================================================================#${RESET}"
       echo
       sleep 1
@@ -1590,7 +1595,7 @@ quick_partition() {
     hyprland_optional
     
 
-    echo -e "✅ Arch Linux installation complete."
+    echo -e "${CYAN}✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
