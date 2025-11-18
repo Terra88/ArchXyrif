@@ -4,6 +4,25 @@
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
 #=========================================================================================================================================#
+color_cmd() {
+    local color="$1"
+    shift
+    if [ $# -eq 1 ]; then
+        # Single string, just print it
+        echo -e "${color}$1${RESET}"
+    else
+        # Treat as command
+        "$@" | while IFS= read -r line; do
+            echo -e "${color}${line}${RESET}"
+        done
+    fi
+}
+# Helper to color messages safely
+color_echo() {
+    local color="$1"
+    shift
+    echo -e "${color}$*${RESET}"
+}
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
@@ -118,25 +137,6 @@ die() {
 part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
-}
-color_cmd() {
-    local color="$1"
-    shift
-    if [ $# -eq 1 ]; then
-        # Single string, just print it
-        echo -e "${color}$1${RESET}"
-    else
-        # Treat as command
-        "$@" | while IFS= read -r line; do
-            echo -e "${color}${line}${RESET}"
-        done
-    fi
-}
-# Helper to color messages safely
-color_echo() {
-    local color="$1"
-    shift
-    echo -e "${color}$*${RESET}"
 }
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
