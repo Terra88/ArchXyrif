@@ -2616,7 +2616,7 @@ echo
 section(){
 echo -e "#===================================================================================================#"
 echo -e "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
-echo -e "#===================================================================================================#"}
+echo -e "#===================================================================================================#"
 subsection(){
 echo
 echo 
@@ -2640,7 +2640,6 @@ echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistenc
 echo -e "  reboot"
 echo
 echo -e "Done."}
-section(){
 echo -e "#===========================================================================#"
 echo -e "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
 echo -e "# -Author  : Terra88                                                        #"
