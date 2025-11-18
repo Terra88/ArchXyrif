@@ -1174,6 +1174,8 @@ window_manager() {
             echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+            EXTRA_PKGS=()
+            EXTRA_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
