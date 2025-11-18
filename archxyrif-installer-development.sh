@@ -2409,22 +2409,34 @@ ask_yesno_default() {
     for idx in "${!LV_NAMES[@]}"; do
         name="${LV_NAMES[idx]}"
         size="${LV_SIZES[idx]}"
-
+    
         while true; do
-            if lvcreate -L "$size" "$VGNAME" -n "$name" 2>/tmp/lvcreate.err; then
+    
+            # Detect percentage-based sizes → must use -l (extents)
+            if [[ "$size" =~ % ]]; then
+                LVCREATE_CMD=(lvcreate -l "$size" "$VGNAME" -n "$name")
+            else
+                LVCREATE_CMD=(lvcreate -L "$size" "$VGNAME" -n "$name")
+            fi
+    
+            # Attempt LV creation
+            if "${LVCREATE_CMD[@]}" 2>/tmp/lvcreate.err; then
                 break
             fi
+    
             echo "lvcreate failed for $name (size=$size):"
             sed -n '1,200p' /tmp/lvcreate.err
+    
             read -rp "Retry with new size? (y to retry / n to abort) [y]: " r
             r="${r:-y}"
+    
             case "$r" in
                 [Yy])
                     ask_lv_size "New size for $name: "
                     size="$REPLY"
                     ;;
                 [Nn])
-                    die "User aborted LV creation."
+                    die 'User aborted LV creation.'
                     ;;
                 *)
                     echo "Please answer y or n."
