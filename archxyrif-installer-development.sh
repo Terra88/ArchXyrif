@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "UEFI detected."
+        echo -e "${CYAN}UEFI detected.${RESET}"
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "Legacy BIOS detected."
+        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
 #=========================================================================================================================================#
