@@ -14,8 +14,8 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-if [[ -f "/archxyrif/theme.sh" ]]; then
-    source "/archxyrif/theme.sh"
+if [[ -f "~/archxyrif/theme.sh" ]]; then
+    source "~/archxyrif/theme.sh"
 else
     echo "Warning: theme.sh not found, continuing without theme."
 fi
@@ -2584,7 +2584,6 @@ luks_lvm_post_install_steps() {
 menu() {
 clear
 logo
-            section(){
             echo -e "#==================================================#"
             echo -e "#     Select partitioning method for $DEV:         #"
             echo -e "#==================================================#"
@@ -2595,7 +2594,7 @@ logo
             echo -e "|-3) Lvm & Luks Partitioning                       |"
             echo -e "|--------------------------------------------------|"
             echo -e "|-4) Return back to start                          |"
-            echo -e "#==================================================#"}
+            echo -e "#==================================================#"
             read -rp "Enter choice [1-2]: " INSTALL_MODE
             case "$INSTALL_MODE" in
                 1) quick_partition ;;
