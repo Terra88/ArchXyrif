@@ -2581,7 +2581,7 @@ logo
             echo -e "|--------------------------------------------------|"
             echo -e "|-3) Lvm & Luks Partitioning                       |"
             echo -e "|--------------------------------------------------|"
-            echo -e "|-4) Return back to start                          |"
+            echo -e "|-4) Exit                                          |"
             echo -e "#==================================================#"
             read -rp "Enter choice [1-3]: " INSTALL_MODE
             case "$INSTALL_MODE" in
