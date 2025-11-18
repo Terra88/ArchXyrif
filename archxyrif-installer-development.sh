@@ -1053,7 +1053,7 @@ echo -e "#========================================================#"
 echo -e "#                   MIRROR SELECTION                     #" 
 echo -e "#========================================================#"
 echo
-subsection(){
+
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -1063,7 +1063,7 @@ echo "5) United Kingdom"
 echo "6) Japan"
 echo "7) Australia"
 echo "8) Custom country code (2-letter ISO, e.g., FR)"
-echo "9) Skip (use default mirrors)"}
+echo "9) Skip (use default mirrors)"
 read -r -p "Select your region [1-9, default=1]: " MIRROR_CHOICE
 MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
 
