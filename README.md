@@ -184,3 +184,22 @@ known bugs: well it's not really a bug, but the unmount process at the start of 
 - all the other features are pretty much the same as before.<br>
 - More features coming out soon.
 <br><br>
+
+### **Version 1.4.5 - Release!!!**
+<br><br>
+
+- Minor tweaks & bug fixes compared to earlier releases<br>
+
+- Fixed, logical volume size allocation 100%FREE option, wasn't allocating space correctly, but now it allocates 100% of the disc correctly, if entered.<br><br>
+
+- The program still crashes at the start when you select "LV/LUKS path and if you select you want to encrypt and don't type the YES in capital letters, it's not a bug and it's something that doesn't even appear in the code, to be changed, i'm pretty sure it's programmed into the LV/LUKS environment itself. haven't found a way to fix it, but you need to be precise.<br><br>
+
+- Added more desktop/window manager options to install. Options are now: Hyprland, KDE, Gnome, XFCE, Niri, Cinnamon, Mate, Sway<br><br>
+
+- Tweaked the Login manager/Display manager installer to work so, that it automatically suggests the correct one matching the window manager that the user chooses to install.<br><br>
+
+- it should also install extra packages required if you choose to install hyprland with sddm and enables the service.<br><br>
+
+- Remember that you still need to click the gear icon in gdm or select the desktop environment from the dropdown menu from sddm, at the first login. (for example).<br><br>
+
+-More features coming soon. Like server package environments and more.
