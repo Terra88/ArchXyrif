@@ -2617,7 +2617,6 @@ section(){
 echo -e "#===================================================================================================#"
 echo -e "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
 echo -e "#===================================================================================================#"
-subsection(){
 echo
 echo 
 echo -e "Custom package installation phase complete."
@@ -2639,7 +2638,7 @@ echo -e "  umount -R /mnt"
 echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
 echo -e "  reboot"
 echo
-echo -e "Done."}
+echo -e "Done."
 echo -e "#===========================================================================#"
 echo -e "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
 echo -e "# -Author  : Terra88                                                        #"
