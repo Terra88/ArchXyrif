@@ -1,38 +1,19 @@
+#!/usr/bin/env bash
+#=========================================================================================================================================#
+#===COLOR-MAPPER===#
+# Color codes
+GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
+#===COLOR-MAPPER===#
 #=========================================================================================================================================#
 # GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88        
 # Author  : Terra88 
 # Purpose : Arch Linux custom installer
 # GitHub  : http://github.com/Terra88
 #=========================================================================================================================================#
-color_cmd() {
-    local color="$1"
-    shift
-    if [ $# -eq 1 ]; then
-        # Single string, just print it
-        echo -e "${color}$1${RESET}"
-    else
-        # Treat as command
-        "$@" | while IFS= read -r line; do
-            echo -e "${color}${line}${RESET}"
-        done
-    fi
-}
-# Helper to color messages safely
-color_echo() {
-    local color="$1"
-    shift
-    echo -e "${color}$*${RESET}"
-}
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-#===COLOR-MAPPER===#
-CYAN="\e[36m"
-GREEN="\e[32m"
-YELLOW="\e[33m"
-RED="\e[31m"
-RESET="\e[0m"
-#===COLOR-MAPPER===#
+
 #=========================================================================================================================================#
 # Preparation
 #=========================================================================================================================================#
@@ -130,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${YELLOW}ERROR: $*" >&2
+    echo -e "${CYAN}${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -138,37 +119,30 @@ part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
-#=========================================================================#
-# Helper: Prepare pseudo-filesystems for chroot
-#=========================================================================#
+#=========================================================================================================================================#
+#-------HELPER FOR CHROOT--------------------------------#
+#=========================================================================================================================================#
 prepare_chroot() {
-    echo -e "\n${CYAN}🔧 Preparing pseudo-filesystems for chroot...${RESET}"
+    echo -e "${CYAN}\n🔧 Preparing pseudo-filesystems for chroot..."
     mkdir -p /mnt
     for fs in proc sys dev run; do
         mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
         mount --make-rslave "/mnt/$fs" 2>/dev/null || true
     done
-    echo -e "${GREEN}✅ Pseudo-filesystems mounted into /mnt.${RESET}"
+    echo "✅ Pseudo-filesystems mounted into /mnt."
 }
-
-#=========================================================================#
-# Helper: Cleanup mounts and swap
-#=========================================================================#
+#=========================================================================================================================================#
+# Cleanup
+#=========================================================================================================================================#
 cleanup() {
-    echo -e "\n${CYAN}🧹 Running cleanup...${RESET}"
+    echo -e "${CYAN}\n🧹 Running cleanup..."
     swapoff -a 2>/dev/null || true
-
     if mountpoint -q /mnt; then
         umount -R /mnt 2>/dev/null || true
     fi
-
     sync
-    echo -e "${GREEN}✅ Cleanup done.${RESET}"
+    echo "✅ Cleanup done."
 }
-
-#=========================================================================#
-# Ensure cleanup runs on EXIT, INT, TERM
-#=========================================================================#
 trap cleanup EXIT INT TERM
 #=========================================================================================================================================#
 # SAFE DISK UNMOUNT & CLEANUP BEFORE PARTITIONING
@@ -176,60 +150,60 @@ trap cleanup EXIT INT TERM
 safe_disk_cleanup() {
     [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
     echo
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "${CYAN}#===================================================================================================#"
+    echo -e "${CYAN}# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #"
+    echo -e "${CYAN}#===================================================================================================#"
 
     # 1) Protect the live ISO device
     local iso_dev
     iso_dev=$(findmnt -no SOURCE / 2>/dev/null || true)
     if [[ "$iso_dev" == "$DEV"* ]]; then
-        echo -e "${RED}❌ This disk is being used as the live ISO source. Aborting.${RESET}"
+        echo "❌ This disk is being used as the live ISO source. Aborting."
         return 1
     fi
 
     # 2) Unmount all partitions of $DEV (not anything else!)
-    echo -e "${CYAN}→ Unmounting mounted partitions of $DEV...${RESET}"
+    echo "→ Unmounting mounted partitions of $DEV..."
     for p in $(lsblk -ln -o NAME,MOUNTPOINT "$DEV" | awk '$2!=""{print $1}' | tac); do
         local part="/dev/$p"
-        if mountpoint -q "$part" 2>/dev/null || grep -q "^$part" /proc/mounts; then
-            umount -R "$part" 2>/dev/null && echo -e "  ${GREEN}Unmounted $part${RESET}"
+        if mountpoint -q "/dev/$p" 2>/dev/null || grep -q "^$part" /proc/mounts; then
+            umount -R "$part" 2>/dev/null && echo "  Unmounted $part"
         fi
     done
     swapoff "${DEV}"* 2>/dev/null || true
 
     # 3) Deactivate LVMs on this disk
-    echo -e "${CYAN}→ Deactivating LVM volumes related to $DEV ...${RESET}"
+    echo "→ Deactivating LVM volumes related to $DEV ..."
     vgchange -an || true
     for lv in $(lsblk -rno NAME "$DEV" | grep -E '^.*--.*$' || true); do
-        dmsetup remove "/dev/mapper/$lv" 2>/dev/null && echo -e "  ${GREEN}Removed $lv${RESET}" || true
+        dmsetup remove "/dev/mapper/$lv" 2>/dev/null || true
     done
 
     # 4) Close any LUKS mappings that belong to this disk
-    echo -e "${CYAN}→ Closing any LUKS mappings...${RESET}"
+    echo "→ Closing any LUKS mappings..."
     for map in $(lsblk -rno NAME,TYPE | awk '$2=="crypt"{print $1}'); do
         local backing
         backing=$(cryptsetup status "$map" 2>/dev/null | awk -F': ' '/device:/{print $2}')
-        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo -e "  ${GREEN}Closed $map${RESET}"
+        [[ "$backing" == "$DEV"* ]] && cryptsetup close "$map" && echo "  Closed $map"
     done
 
-    echo -e "${CYAN}→ Removing stray device-mapper entries ...${RESET}"
+    echo "→ Removing stray device-mapper entries ..."
     dmsetup remove_all 2>/dev/null || true
     
     # 5) Remove old BTRFS subvolume mounts (if any)
-    echo -e "${CYAN}→ Cleaning BTRFS subvolumes...${RESET}"
+    echo "→ Cleaning BTRFS subvolumes..."
     for mnt in $(mount | grep "$DEV" | awk '{print $3}' | sort -r); do
         umount -R "$mnt" 2>/dev/null || true
     done
 
     # 6) Optional signature wipe
-    echo -e "${CYAN}→ Wiping old filesystem / partition signatures...${RESET}"
+    echo "→ Wiping old filesystem / partition signatures..."
     for part in $(lsblk -ln -o NAME "$DEV" | tail -n +2); do
         wipefs -af "/dev/$part" 2>/dev/null || true
     done
     wipefs -af "$DEV" 2>/dev/null || true
 
-    echo -e "${GREEN}✅ Disk cleanup complete for $DEV.${RESET}"
+    echo "✅ Disk cleanup complete for $DEV."
 }
 #=========================================================================================================================================#
 # Encryption Helpers
@@ -277,38 +251,36 @@ install_with_retry() {
 
     # sanity check
     if [[ ! -d "/mnt" ]]; then
-        echo -e "${RED}❌ /mnt not found or not a directory — cannot chroot.${RESET}"
+        echo "❌ /mnt not found or not a directory — cannot chroot."
         return 1
     fi
 
     for ((i=1; i<=MAX_RETRIES; i++)); do
         echo
-        echo -e "${CYAN}Attempt $i of $MAX_RETRIES: ${CMD[*]}${RESET}"
+        echo "Attempt $i of $MAX_RETRIES: ${CMD[*]}"
         if "${CHROOT_CMD[@]}" "${CMD[@]}"; then
-            echo -e "${GREEN}✅ Installation succeeded on attempt $i${RESET}"
+            echo "✅ Installation succeeded on attempt $i"
             return 0
         else
-            echo -e "${YELLOW}⚠️ Installation failed on attempt $i${RESET}"
+            echo "⚠️ Installation failed on attempt $i"
             if (( i < MAX_RETRIES )); then
-                echo -e "${MAGENTA}🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s...${RESET}"
+                echo "🔄 Refreshing keys and mirrors, retrying in ${RETRY_DELAY}s..."
                 "${CHROOT_CMD[@]}" bash -c '
                     pacman-key --init
                     pacman-key --populate archlinux
                     pacman -Sy --noconfirm archlinux-keyring
-                ' || echo -e "${YELLOW}⚠️ Keyring refresh failed.${RESET}"
-                
-                if [[ -n "$MIRROR_COUNTRY" ]]; then
-                    "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
-                        --save /etc/pacman.d/mirrorlist || echo -e "${YELLOW}⚠️ Mirror refresh failed.${RESET}"
-                fi
+                ' || echo "⚠️ Keyring refresh failed."
+                [[ -n "$MIRROR_COUNTRY" ]] && \
+                "${CHROOT_CMD[@]}" reflector --country "$MIRROR_COUNTRY" --age 12 --protocol https --sort rate \
+                    --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror refresh failed."
                 sleep "$RETRY_DELAY"
             fi
         fi
     done
 
-    echo -e "${RED}❌ Installation failed after ${MAX_RETRIES} attempts.${RESET}"
+    echo "❌ Installation failed after ${MAX_RETRIES} attempts."
     return 1
-}
+  }
 
 safe_pacman_install() {
     local CHROOT_CMD=("${!1}")
@@ -317,9 +289,9 @@ safe_pacman_install() {
 
     for PKG in "${PKGS[@]}"; do
         install_with_retry CHROOT_CMD[@] pacman -S --needed --noconfirm --overwrite="*" "$PKG" || \
-            echo -e "${YELLOW}⚠️ Skipping $PKG${RESET}"
+            echo "⚠️ Skipping $PKG"
     done
-}
+   }
 #=========================================================================================================================================#
 # Helper Functions - For AUR (Paru)                                                              
 #=========================================================================================================================================#
@@ -388,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI detected.${RESET}"
+        echo -e "${CYAN}UEFI detected."
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
+        echo -e "${CYAN}Legacy BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -409,7 +381,9 @@ calculate_swap_quick() {
 #=========================================================================================================================================#
 # Select Filesystem
 #=========================================================================================================================================#
-select_filesystem() {
+select_filesystem() 
+{
+  
     clear
     echo -e "${CYAN}#===============================================================================#${RESET}"
     echo -e "${CYAN}|  Filesystem Selection Options                                                 |${RESET}"
@@ -420,21 +394,22 @@ select_filesystem() {
     echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
     echo -e "${CYAN}| 3) BTRFS root + EXT4 home                                                     |${RESET}"
     echo -e "${CYAN}#===============================================================================#${RESET}"
-    read -rp "$(echo -e "${CYAN}Select filesystem [default=1]: ${RESET}")" FS_CHOICE
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
     FS_CHOICE="${FS_CHOICE:-1}"
     case "$FS_CHOICE" in
-        1) ROOT_FS="ext4"; HOME_FS="ext4"; echo -e "${GREEN}→ Selected EXT4 for root + home${RESET}" ;;
-        2) ROOT_FS="btrfs"; HOME_FS="btrfs"; echo -e "${GREEN}→ Selected BTRFS for root + home${RESET}" ;;
-        3) ROOT_FS="btrfs"; HOME_FS="ext4"; echo -e "${GREEN}→ Selected BTRFS root + EXT4 home${RESET}" ;;
-        *) echo -e "${YELLOW}⚠️ Invalid choice, defaulting to EXT4${RESET}"; ROOT_FS="ext4"; HOME_FS="ext4" ;;
+        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
+        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
+        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
+        *) echo "Invalid choice"; exit 1 ;;
     esac    
 }
-
 #=========================================================================================================================================#
 # Select Swap
 #=========================================================================================================================================#
-select_swap() {
-    clear
+select_swap()
+{
+  
+   clear
     echo -e "${CYAN}#===============================================================================#${RESET}"
     echo -e "${CYAN}| Swap On / Off                                                                 |${RESET}"
     echo -e "${CYAN}#===============================================================================#${RESET}"
@@ -442,16 +417,17 @@ select_swap() {
     echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
     echo -e "${CYAN}| 2) Swap Off                                                                   |${RESET}"
     echo -e "${CYAN}|-------------------------------------------------------------------------------|${RESET}"
-    echo -e "${CYAN}| 3) Exit                                                                       |${RESET}"
+    echo -e "${CYAN}| 3) exit                                                                       |${RESET}"
     echo -e "${CYAN}#===============================================================================#${RESET}"
-    read -rp "$(echo -e "${CYAN}Select option [default=1]: ${RESET}")" SWAP_ON
+     read -rp "Select option [default=1]: " SWAP_ON
     SWAP_ON="${SWAP_ON:-1}"
     case "$SWAP_ON" in
-        1) SWAP_ON="1"; echo -e "${GREEN}→ Swap enabled${RESET}" ;;
-        2) SWAP_ON="0"; echo -e "${GREEN}→ Swap disabled${RESET}" ;;
-        3) echo -e "${YELLOW}Exiting installer${RESET}"; exit 1 ;;
-        *) echo -e "${YELLOW}⚠️ Invalid choice, defaulting to Swap On${RESET}"; SWAP_ON="1"; ;;
+        1) SWAP_ON="1" ;;
+        2) SWAP_ON="0" ;;
+        3) echo "Exiting"; exit 1 ;;
+        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
     esac
+    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
 }
 #=========================================================================================================================================#
 # Ask partition sizes
@@ -466,7 +442,7 @@ ask_partition_sizes() {
     disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
     disk_gib_int=${disk_gib_val%.*}
 
-    color_echo "$CYAN" "Disk $DEV ≈ ${disk_gib_int} GiB"
+    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
 
     while true; do
         lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
@@ -480,13 +456,12 @@ ask_partition_sizes() {
         fi
 
         local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
-        color_echo "$CYAN" "Enter ROOT size in GiB (max ${max_root_gib}): "
-        read -rp "> " ROOT_SIZE_GIB
+        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
         ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
-        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { color_echo "$YELLOW" "⚠️ Must be numeric"; continue; }
+        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
 
         if (( ROOT_SIZE_GIB > max_root_gib )); then
-            color_echo "$YELLOW" "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
+            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
             ROOT_SIZE_GIB=$max_root_gib
         fi
 
@@ -495,12 +470,11 @@ ask_partition_sizes() {
         # Remaining space for home
         local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
         if (( remaining_home_gib < 1 )); then
-            color_echo "$YELLOW" "⚠️ Not enough space left for /home. Reduce ROOT or SWAP size."
+            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
             continue
         fi
 
-        color_echo "$CYAN" "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): "
-        read -rp "> " HOME_SIZE_GIB_INPUT
+        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
 
         if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
             # Use all remaining space
@@ -508,11 +482,11 @@ ask_partition_sizes() {
             HOME_SIZE_MIB=0      # will handle as 100% in partitioning
             home_end="100%"
         else
-            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { color_echo "$YELLOW" "⚠️ Must be numeric"; continue; }
+            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
 
             # Limit to remaining space
             if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
-                color_echo "$YELLOW" "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
+                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
                 HOME_SIZE_GIB=$remaining_home_gib
             else
                 HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
@@ -522,7 +496,7 @@ ask_partition_sizes() {
             home_end=$(( root_end + HOME_SIZE_MIB ))
         fi
 
-        color_echo "$GREEN" "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
+        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
         break
     done
 }
@@ -531,31 +505,26 @@ ask_partition_sizes() {
 #=========================================================================================================================================#
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
-
-    color_echo "$CYAN" "→ Creating GPT partition table on $DEV..."
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
     local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
 
     if [[ "$MODE" == "BIOS" ]]; then
-        color_echo "$CYAN" "→ Creating BIOS/MBR partitions..."
-
-        # bios_grub partition (tiny, no FS)
+        # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
+        # Create tiny bios_grub partition (no FS)
         parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_GRUB_SIZE_MIB))MiB
         parted -s "$DEV" set 1 bios_grub on
-        color_echo "$GREEN" "→ bios_grub partition created"
-
+        
         # /boot ext4
         boot_start=$((1+BIOS_GRUB_SIZE_MIB))
         boot_end=$((boot_start + BOOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
-        color_echo "$GREEN" "→ /boot partition created (${boot_start}MiB-${boot_end}MiB)"
 
         if [[ "$SWAP_ON" == "1" ]]; then
             swap_start=$boot_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-            color_echo "$GREEN" "→ Swap partition created (${swap_start}MiB-${swap_end}MiB)"
+
             root_start=$swap_end
         else
             root_start=$boot_end
@@ -563,7 +532,6 @@ partition_disk() {
 
         root_end=$((root_start + ROOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-        color_echo "$GREEN" "→ Root partition created (${root_start}MiB-${root_end}MiB)"
 
         home_start=$root_end
         if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
@@ -572,26 +540,19 @@ partition_disk() {
             home_end=$((home_start + HOME_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
         fi
-        color_echo "$GREEN" "→ Home partition created"
-
     else
-        color_echo "$CYAN" "→ Creating UEFI partitions..."
-
-        # EFI FAT32
+        # UEFI — keep existing behavior (EFI FAT32 + root + optional swap + home)
         parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
         parted -s "$DEV" set 1 boot on
-        color_echo "$GREEN" "→ EFI partition created"
 
         root_start=$((1+EFI_SIZE_MIB))
         root_end=$((root_start + ROOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-        color_echo "$GREEN" "→ Root partition created (${root_start}MiB-${root_end}MiB)"
 
         if [[ "$SWAP_ON" == "1" ]]; then
             swap_start=$root_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-            color_echo "$GREEN" "→ Swap partition created (${swap_start}MiB-${swap_end}MiB)"
             home_start=$swap_end
         else
             home_start=$root_end
@@ -603,14 +564,13 @@ partition_disk() {
             home_end=$((home_start + HOME_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
         fi
-        color_echo "$GREEN" "→ Home partition created"
     fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
 
-    color_echo "$GREEN" "✅ Partitioning completed. Verify with lsblk."
+    echo "✅ Partitioning completed. Verify with lsblk."
 }
 #=========================================================================================================================================#
 # Format & mount
@@ -632,7 +592,7 @@ format_and_mount() {
             P_HOME="${DEV}${ps}4"
         fi
 
-        color_echo "$CYAN" "→ Formatting /boot as ext4..."
+        # Format /boot as ext4
         mkfs.ext4 -L boot "$P_BOOT"
     else
         P_EFI="${DEV}${ps}1"
@@ -644,25 +604,24 @@ format_and_mount() {
             P_HOME="${DEV}${ps}3"
         fi
 
-        color_echo "$CYAN" "→ Formatting EFI as FAT32..."
         mkfs.fat -F32 "$P_EFI"
     fi
 
     # Swap handling
     if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
-        color_echo "$CYAN" "→ Setting up swap..."
         mkswap -L swap "$P_SWAP"
         swapon "$P_SWAP"
     else
-        color_echo "$YELLOW" "→ Swap disabled"
+        echo "→ Swap disabled"
     fi
 
     # Root & Home formatting & mounting
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        color_echo "$CYAN" "→ Formatting root as Btrfs..."
         mkfs.btrfs -f -L root "$P_ROOT"
+        # create subvolumes only for btrfs root; handle home separately if not btrfs
         mount "$P_ROOT" /mnt
         btrfs subvolume create /mnt/@
+        # If home is also btrfs, create @home
         if [[ "$HOME_FS" == "btrfs" ]]; then
             btrfs subvolume create /mnt/@home
             umount /mnt
@@ -670,15 +629,15 @@ format_and_mount() {
             mkdir -p /mnt/home
             mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
         else
+            # root btrfs + home ext4
             umount /mnt
             mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-            color_echo "$CYAN" "→ Formatting home as ext4..."
             mkfs.ext4 -L home "$P_HOME"
             mkdir -p /mnt/home
             mount "$P_HOME" /mnt/home
         fi
     else
-        color_echo "$CYAN" "→ Formatting root and home as ext4..."
+        # root is ext4: format root and home as ext4
         mkfs.ext4 -L root "$P_ROOT"
         mkfs.ext4 -L home "$P_HOME"
         mount "$P_ROOT" /mnt
@@ -696,12 +655,13 @@ format_and_mount() {
     fi
 
     mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
-    color_echo "$GREEN" "✅ Partitions formatted and mounted under /mnt."
+    echo "✅ Partitions formatted and mounted under /mnt."
 
-    color_echo "$CYAN" "→ Generating /etc/fstab..."
+    echo "Generating /etc/fstab..."
+    
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-    color_echo "$CYAN" "→ Partition Table and Mountpoints:"
+    echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
@@ -743,7 +703,7 @@ PKGS=(
   cryptsetup
 )
 echo "Installing base system packages: ${PKGS[*]}"
-color_cmd "$GREEN" pacstrap /mnt "${PKGS[@]}"
+pacstrap /mnt "${PKGS[@]}"
 }
 
 #=========================================================================================================================================#
@@ -751,38 +711,35 @@ color_cmd "$GREEN" pacstrap /mnt "${PKGS[@]}"
 #=========================================================================================================================================#
 configure_system() {
 
-    sleep 1
-    clear
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}# -  Setting Basic variables for chroot (defaults provided)                                         #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo
+sleep 1
+clear
+echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "${CYAN}# -  Setting Basic variables for chroot (defaults provided)                                         #${RESET}"
+echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo
+# -------------------------------
+# Prompt for timezone, locale, hostname, and username
+# -------------------------------
+DEFAULT_TZ="Europe/Helsinki"
+read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+TZ="${TZ:-$DEFAULT_TZ}"
 
-    # -------------------------------
-    # Prompt for timezone, locale, hostname, and username
-    # -------------------------------
-    DEFAULT_TZ="Europe/Helsinki"
-    read -rp "$(echo -e "${CYAN}Enter timezone [${DEFAULT_TZ}]: ${RESET}")" TZ
-    TZ="${TZ:-$DEFAULT_TZ}"
+DEFAULT_LOCALE="fi_FI.UTF-8"
+read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
-    DEFAULT_LOCALE="fi_FI.UTF-8"
-    read -rp "$(echo -e "${CYAN}Enter locale (LANG) [${DEFAULT_LOCALE}]: ${RESET}")" LANG_LOCALE
-    LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+DEFAULT_KEYMAP="fi"
+read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
+KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
-    DEFAULT_KEYMAP="fi"
-    read -rp "$(echo -e "${CYAN}Enter keyboard layout [${DEFAULT_KEYMAP}]: ${RESET}")" KEYMAP
-    KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+DEFAULT_HOSTNAME="archbox"
+read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
-    DEFAULT_HOSTNAME="archbox"
-    read -rp "$(echo -e "${CYAN}Enter hostname [${DEFAULT_HOSTNAME}]: ${RESET}")" HOSTNAME
-    HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
-
-    DEFAULT_USER="user"
-    read -rp "$(echo -e "${CYAN}Enter username to create [${DEFAULT_USER}]: ${RESET}")" NEWUSER
-    NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-
-    echo -e "${GREEN}→ Preparing chroot environment...${RESET}"
- # -------------------------------
+DEFAULT_USER="user"
+read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+# -------------------------------
 # Prepare chroot (mount pseudo-filesystems etc.)
 # -------------------------------
 prepare_chroot
@@ -884,18 +841,21 @@ systemctl enable NetworkManager
 systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
-    echo -e "${GREEN}→ Injecting variables into postinstall.sh...${RESET}"
-    sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
-
-    echo -e "${GREEN}→ Running postinstall.sh inside chroot...${RESET}"
-    arch-chroot /mnt /root/postinstall.sh
-
-    rm -f /mnt/root/postinstall.sh
-    echo -e "${GREEN}✅ System configured successfully.${RESET}"
+# -------------------------------
+# Inject actual values into postinstall.sh
+# -------------------------------
+sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
+sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+# -------------------------------
+# Make executable and run inside chroot
+# -------------------------------
+chmod +x /mnt/root/postinstall.sh
+arch-chroot /mnt /root/postinstall.sh
+rm -f /mnt/root/postinstall.sh
+echo "✅ System configured."
 }
 #=========================================================================================================================================#
 # GRUB installation
@@ -903,11 +863,20 @@ EOF
 install_grub() {
     detect_boot_mode
     local ps
+    # 1. Determine the list of disks involved in the installation
+    # This finds all physical disks that have a partition currently mounted in /mnt.
+    # It ensures that all disks contributing to the root or boot filesystem are targeted.
     local TARGET_DISKS=()
+    # Get all physical devices that contain partitions currently mounted in /mnt
+    # Using 'mount' to find all mounted partitions, then 'lsblk' to find their parent disk.
     local MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
     ps=$(part_suffix "$DEV")
+
+    # Start with minimal essential modules
     local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2"
 
+    #--------------------------------------#
+    # Add FS module (idempotent)
     #--------------------------------------#
     add_fs_module() {
         local fs="$1"
@@ -922,176 +891,202 @@ install_grub() {
     }
 
     #--------------------------------------#
-    echo -e "${CYAN}→ Detecting RAID arrays...${RESET}"
+    # Detect RAID (mdadm)
+    #--------------------------------------#
+    echo "→ Detecting RAID arrays..."
     if lsblk -l -o TYPE -nr /mnt | grep -q "raid"; then
-        echo -e "${GREEN}→ Found md RAID.${RESET}"
+        echo "→ Found md RAID."
         GRUB_MODULES+=" mdraid1x"
     fi
 
-    echo -e "${CYAN}→ Detecting LUKS containers...${RESET}"
+    #--------------------------------------#
+    # Detect LUKS (outermost layer)
+    #--------------------------------------#
+    echo "→ Detecting LUKS containers..."
     mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
     for line in "${luks_lines[@]}"; do
-        echo -e "${GREEN}→ LUKS container: $line${RESET}"
+        echo "→ LUKS container: $line"
         [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
     done
 
-    echo -e "${CYAN}→ Detecting LVM volumes...${RESET}"
+    #--------------------------------------#
+    # Detect LVM (next layer)
+    #--------------------------------------#
+    echo "→ Detecting LVM volumes..."
     if lsblk -o TYPE -nr | grep -q "lvm"; then
-        echo -e "${GREEN}→ Found LVM.${RESET}"
+        echo "→ Found LVM."
         [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
     fi
 
-    echo -e "${CYAN}→ Detecting filesystems...${RESET}"
+    #--------------------------------------#
+    # Detect filesystems under /mnt (final layer)
+    #--------------------------------------#
+    echo "→ Detecting filesystems..."
     mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
     for line in "${fs_lines[@]}"; do
         fs=$(awk '{print $2}' <<< "$line")
         [[ -n "$fs" ]] && add_fs_module "$fs"
     done
 
-    echo -e "${CYAN}→ Final GRUB modules: ${GRUB_MODULES}${RESET}"
+    echo "→ Final GRUB modules: $GRUB_MODULES"
 
     for PART in $MOUNTED_PARTS; do
-        local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
-        if [[ -n "$PARENT_DISK" ]]; then
-            local FULL_DISK="/dev/$PARENT_DISK"
-            if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
-                TARGET_DISKS+=("$FULL_DISK")
-            fi
+    # Find the parent device (e.g., /dev/sda for /dev/sda3, or for LVM volumes)
+    local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
+    if [[ -n "$PARENT_DISK" ]]; then
+        local FULL_DISK="/dev/$PARENT_DISK"
+        # Deduplicate the list
+        if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
+            TARGET_DISKS+=("$FULL_DISK")
         fi
-    done
+    fi
+done
 
     if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
-        echo -e "${RED}ERROR: Could not find any physical disk devices mounted under /mnt.${RESET}"
+        echo "ERROR: Could not find any physical disk devices mounted under /mnt."
         return 1
     fi
 
-    echo -e "${CYAN}→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}${RESET}"
+    echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
 
-    # --------------------------------------#
-    # BIOS MODE
-    # --------------------------------------#
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo -e "${CYAN}→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}${RESET}"
-        for DISK in "${TARGET_DISKS[@]}"; do
-            echo -e "${CYAN}→ Installing GRUB (BIOS/MBR mode) on $DISK...${RESET}"
-            arch-chroot /mnt grub-install \
-                --target=i386-pc \
-                --modules="$GRUB_MODULES" \
-                --recheck "$DISK" || {
-                    echo -e "${RED}ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?${RESET}"
-                    return 1
-                }
-        done
-
-    elif [[ "$MODE" == "UEFI" ]]; then
-        echo -e "${CYAN}→ Installing GRUB for UEFI...${RESET}"
-
-        if ! mountpoint -q /mnt/boot/efi; then
-            mkdir -p /mnt/boot/efi
-            mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
-        fi
-
-        if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-            arch-chroot /mnt bash -c "grep -q '^GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
-            echo -e "${GREEN}→ GRUB_ENABLE_CRYPTODISK=y added to /etc/default/grub${RESET}"
-
-            GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
-            arch-chroot /mnt sed -i \
-                "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
-                /etc/default/grub
-            echo -e "${GREEN}→ Added cryptdevice=UUID to GRUB_CMDLINE_LINUX_DEFAULT${RESET}"
-        fi
-
+    
+# --------------------------------------#
+# BIOS MODE
+# --------------------------------------#
+if [[ "$MODE" == "BIOS" ]]; then
+    
+    echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
+    
+    # Iterate over all physical disks involved in the install
+    for DISK in "${TARGET_DISKS[@]}"; do
+        echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
+        
+        # We must use $DISK here to target the physical drive
         arch-chroot /mnt grub-install \
-            --target=x86_64-efi \
-            --efi-directory=/boot/efi \
-            --bootloader-id=GRUB \
+            --target=i386-pc \
             --modules="$GRUB_MODULES" \
-            --recheck \
-            --no-nvram || die "grub-install UEFI failed"
+            --recheck "$DISK" || {
+                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
+                return 1
+            }
+    done
+    
+elif [[ "$MODE" == "UEFI" ]]; then
+    echo "→ Installing GRUB for UEFI..."
 
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-        LABEL="Arch Linux"
-        for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-            efibootmgr -b "$num" -B || true
-        done
-
-        efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
-
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-        if arch-chroot /mnt command -v sbctl &>/dev/null; then
-            echo -e "${CYAN}→ Secure Boot detected, signing GRUB and kernel${RESET}"
-            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-            arch-chroot /mnt sbctl enroll-keys --microsoft || true
-            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
-            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-        fi
-
-        echo -e "${GREEN}✅ UEFI GRUB installed with LUKS+LVM support${RESET}"
+    # Ensure EFI partition is mounted
+    if ! mountpoint -q /mnt/boot/efi; then
+        mkdir -p /mnt/boot/efi
+        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
     fi
+
+    # Ensure GRUB knows about encrypted disks
+    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
+        # Add cryptodisk support to /etc/default/grub
+        arch-chroot /mnt bash -c "grep -q '^GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
+        echo "→ GRUB_ENABLE_CRYPTODISK=y added to /etc/default/grub"
+
+        # Append kernel parameter for encrypted root
+        GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
+        arch-chroot /mnt sed -i \
+            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
+            /etc/default/grub
+        echo "→ Added cryptdevice=UUID to GRUB_CMDLINE_LINUX_DEFAULT"
+    fi
+
+    # Install GRUB
+    arch-chroot /mnt grub-install \
+        --target=x86_64-efi \
+        --efi-directory=/boot/efi \
+        --bootloader-id=GRUB \
+        --modules="$GRUB_MODULES" \
+        --recheck \
+        --no-nvram || die "grub-install UEFI failed"
+
+    # Optional fallback for BOOTX64.EFI
+    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+    # Clean old Arch entries
+    LABEL="Arch Linux"
+    for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
+        efibootmgr -b "$num" -B || true
+    done
+
+    # Create new EFI boot entry
+    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
+
+    # Generate GRUB config
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
+
+    # Optional: Secure Boot signing
+    if arch-chroot /mnt command -v sbctl &>/dev/null; then
+        echo "→ Secure Boot detected, signing GRUB and kernel"
+        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+        arch-chroot /mnt sbctl enroll-keys --microsoft || true
+        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
+        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+    fi
+
+    echo "✅ UEFI GRUB installed with LUKS+LVM support"
+fi
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
 #=========================================================================================================================================#
-network_mirror_selection() {
-    sleep 1
-    clear
-    echo
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo
+network_mirror_selection()
+{
 
-    # Ensure reflector is installed in chroot
-    arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
-        echo -e "${YELLOW}⚠️ Failed to install reflector inside chroot — continuing with defaults.${RESET}"
+sleep 1
+clear
+echo
+echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "${CYAN}# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #${RESET}"
+echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo
+# Ensure reflector is installed in chroot
+arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
+    echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
     }
 
-    echo -e "${CYAN}#========================================================#${RESET}"
-    echo -e "${CYAN}#                   MIRROR SELECTION                     #${RESET}" 
-    echo -e "${CYAN}#========================================================#${RESET}"
-    echo
+echo -e "${CYAN}#========================================================#${RESET}"
+echo -e "${CYAN}#                   MIRROR SELECTION                     #${RESET}" 
+echo -e "${CYAN}#========================================================#${RESET}"
+echo
 
-    echo -e "${CYAN}Available mirror regions:${RESET}"
-    echo -e "${CYAN}1) United States${RESET}"
-    echo -e "${CYAN}2) Canada${RESET}"
-    echo -e "${CYAN}3) Germany${RESET}"
-    echo -e "${CYAN}4) Finland${RESET}"
-    echo -e "${CYAN}5) United Kingdom${RESET}"
-    echo -e "${CYAN}6) Japan${RESET}"
-    echo -e "${CYAN}7) Australia${RESET}"
-    echo -e "${CYAN}8) Custom country code (2-letter ISO, e.g., FR)${RESET}"
-    echo -e "${CYAN}9) Skip (use default mirrors)${RESET}"
+echo "Available mirror regions:"
+echo "1) United States"
+echo "2) Canada"
+echo "3) Germany"
+echo "4) Finland"
+echo "5) United Kingdom"
+echo "6) Japan"
+echo "7) Australia"
+echo "8) Custom country code (2-letter ISO, e.g., FR)"
+echo "9) Skip (use default mirrors)"
+read -r -p "Select your region [1-9, default=1]: " MIRROR_CHOICE
+MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
 
-    read -rp "$(echo -e "${CYAN}Select your region [1-9, default=1]: ${RESET}")" MIRROR_CHOICE
-    MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
+case "$MIRROR_CHOICE" in
+    1) SELECTED_COUNTRY="United States" ;;
+    2) SELECTED_COUNTRY="Canada" ;;
+    3) SELECTED_COUNTRY="Germany" ;;
+    4) SELECTED_COUNTRY="Finland" ;;
+    5) SELECTED_COUNTRY="United Kingdom" ;;
+    6) SELECTED_COUNTRY="Japan" ;;
+    7) SELECTED_COUNTRY="Australia" ;;
+    8)
+        read -r -p "Enter 2-letter country code (e.g., FR): " CUSTOM_CODE
+        SELECTED_COUNTRY="$CUSTOM_CODE"
+        ;;
+    9|*) echo "Skipping mirror optimization, using default mirrors."; SELECTED_COUNTRY="" ;;
+esac
 
-    case "$MIRROR_CHOICE" in
-        1) SELECTED_COUNTRY="United States" ;;
-        2) SELECTED_COUNTRY="Canada" ;;
-        3) SELECTED_COUNTRY="Germany" ;;
-        4) SELECTED_COUNTRY="Finland" ;;
-        5) SELECTED_COUNTRY="United Kingdom" ;;
-        6) SELECTED_COUNTRY="Japan" ;;
-        7) SELECTED_COUNTRY="Australia" ;;
-        8)
-            read -rp "$(echo -e "${CYAN}Enter 2-letter country code (e.g., FR): ${RESET}")" CUSTOM_CODE
-            SELECTED_COUNTRY="$CUSTOM_CODE"
-            ;;
-        9|*)
-            echo -e "${YELLOW}Skipping mirror optimization, using default mirrors.${RESET}"
-            SELECTED_COUNTRY=""
-            ;;
-    esac
-
-    if [[ -n "$SELECTED_COUNTRY" ]]; then
-        echo -e "${GREEN}Optimizing mirrors for: $SELECTED_COUNTRY${RESET}"
-        arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate \
-            --save /etc/pacman.d/mirrorlist || echo -e "${YELLOW}⚠️ Mirror update failed, continuing.${RESET}"
-        echo -e "${GREEN}✅ Mirrors updated.${RESET}"
-    fi
+if [[ -n "$SELECTED_COUNTRY" ]]; then
+    echo "Optimizing mirrors for: $SELECTED_COUNTRY"
+    arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate \
+        --save /etc/pacman.d/mirrorlist || echo "⚠️ Mirror update failed, continuing."
+    echo "✅ Mirrors updated."
+fi
 }
 
 #=========================================================================================================================================#
@@ -1103,55 +1098,46 @@ gpu_driver()
      clear
      echo
      echo -e "${CYAN}#===================================================================================================#${RESET}"
-     echo -e "${CYAN}# 8A) GPU DRIVER INSTALLATION                                                                       #${RESET}"
+     echo -e "${CYAN}# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #${RESET}"
      echo -e "${CYAN}#===================================================================================================#${RESET}"
      echo
-    
-        echo -e "${CYAN}1) Intel${RESET}"
-        echo -e "${CYAN}2) NVIDIA${RESET}"
-        echo -e "${CYAN}3) AMD${RESET}"
-        echo -e "${CYAN}4) All compatible drivers (default)${RESET}"
-        echo -e "${CYAN}5) Skip${RESET}"
-    
-        read -rp "$(echo -e "${CYAN}Select GPU driver set [1-5, default=4]: ${RESET}")" GPU_CHOICE
-        GPU_CHOICE="${GPU_CHOICE:-4}"
-    
-        GPU_PKGS=()
-    
-        case "$GPU_CHOICE" in
-            1)
-                GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel)
-                echo -e "${GREEN}→ Intel GPU drivers selected${RESET}"
-                ;;
-            2)
-                GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-                echo -e "${GREEN}→ NVIDIA GPU drivers selected${RESET}"
-                ;;
-            3)
-                GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu)
-                echo -e "${GREEN}→ AMD GPU drivers selected${RESET}"
-                ;;
-            4)
-                GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
-                echo -e "${GREEN}→ All compatible drivers selected (AMD skipped to prevent hybrid conflicts)${RESET}"
-                ;;
-            5|*)
-                echo -e "${YELLOW}→ Skipping GPU driver installation.${RESET}"
-                GPU_PKGS=()
-                ;;
-        esac
+     
+     echo
+     echo -e "${CYAN}#========================================================#${RESET}"
+     echo -e "${CYAN}🎮 GPU DRIVER INSTALLATION                                #${RESET}"
+     echo -e "${CYAN}#========================================================#${RESET}"
 
-        if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
-            echo -e "${CYAN}🔧 Ensuring multilib repository is enabled...${RESET}"
-            "${CHROOT_CMD[@]}" bash -c '
-                if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-                    echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
-                fi
-                pacman -Sy --noconfirm
-            '
-            echo -e "${GREEN}🔧 Installing GPU driver packages: ${GPU_PKGS[*]}${RESET}"
-            safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
-        fi
+     echo "1) Intel"
+     echo "2) NVIDIA"
+     echo "3) AMD"
+     echo "4) All compatible drivers (default)"
+     echo "5) Skip"
+     read -r -p "Select GPU driver set [1-5, default=4]: " GPU_CHOICE
+     GPU_CHOICE="${GPU_CHOICE:-4}"
+     
+     GPU_PKGS=()
+     
+     case "$GPU_CHOICE" in
+         1) GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel) ;;
+         2) GPU_PKGS=(nvidia nvidia-utils lib32-nvidia-utils nvidia-prime) ;;
+         3) GPU_PKGS=(mesa vulkan-radeon lib32-mesa lib32-vulkan-radeon xf86-video-amdgpu) ;;
+         4)
+             GPU_PKGS=(mesa vulkan-intel lib32-mesa lib32-vulkan-intel nvidia nvidia-utils lib32-nvidia-utils nvidia-prime)
+             echo "→ AMD skipped to prevent hybrid driver conflicts."
+             ;;
+         5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
+     esac
+     
+     if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
+         echo "🔧 Ensuring multilib repository is enabled..."
+         "${CHROOT_CMD[@]}" bash -c '
+             if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
+                 echo -e "${CYAN}\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+             fi
+             pacman -Sy --noconfirm
+         '
+         safe_pacman_install CHROOT_CMD[@] "${GPU_PKGS[@]}"
+     fi
 }
 #=========================================================================================================================================#
 # Window Manager Selection Menu
@@ -1162,21 +1148,21 @@ window_manager() {
     sleep 1
     clear
     echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}#  WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                   #${RESET}"
+    echo -e "${CYAN}# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #${RESET}"
     echo -e "${CYAN}#===================================================================================================#${RESET}"
     echo
   
-    echo -e "${CYAN}1) Hyprland (Wayland)${RESET}"
-    echo -e "${CYAN}2) KDE Plasma (X11/Wayland)${RESET}"
-    echo -e "${CYAN}3) GNOME (X11/Wayland)${RESET}"
-    echo -e "${CYAN}4) XFCE (X11)${RESET}"
-    echo -e "${CYAN}5) Niri${RESET}"
-    echo -e "${CYAN}6) Cinnamon${RESET}"
-    echo -e "${CYAN}7) Mate${RESET}"
-    echo -e "${CYAN}8) Sway (Wayland)${RESET}"
-    echo -e "${CYAN}9) Skip selection${RESET}"
+    echo "1) Hyprland (Wayland)"
+    echo "2) KDE Plasma (X11/Wayland)"
+    echo "3) GNOME (X11/Wayland)"
+    echo "4) XFCE (X11)"
+    echo "5) Niri"
+    echo "6) Cinnamon"
+    echo "7) Mate"
+    echo "8) Sway (Wayland)"
+    echo "9) Skip selection"
 
-    read -rp "$(echo -e "${CYAN}Select your preferred WM/DE [1-9, default=6]: ${RESET}")" WM_CHOICE
+    read -r -p "Select your preferred WM/DE [1-9, default=6]: " WM_CHOICE
     WM_CHOICE="${WM_CHOICE:-6}"
 
     WM_PKGS=()
@@ -1184,52 +1170,54 @@ window_manager() {
     EXTRA_PKGS=()
     EXTRA_AUR_PKGS=()
 
-       # ---------- Set WM packages ----------
+    # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
         1)
             SELECTED_WM="hyprland"
-            echo -e "${GREEN}→ Selected: Hyprland${RESET}"
+            echo -e "${CYAN}→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
+            EXTRA_PKGS=()
+            EXTRA_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
-            echo -e "${GREEN}→ Selected: KDE Plasma${RESET}"
+            echo -e "${CYAN}→ Selected: KDE Plasma"
             WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
             ;;
         3)
             SELECTED_WM="gnome"
-            echo -e "${GREEN}→ Selected: GNOME${RESET}"
+            echo -e "${CYAN}→ Selected: GNOME"
             WM_PKGS=(gnome gdm gnome-tweaks)
             ;;
         4)
             SELECTED_WM="xfce"
-            echo -e "${GREEN}→ Selected: XFCE${RESET}"
+            echo -e "${CYAN}→ Selected: XFCE"
             WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
             ;;
         5)
             SELECTED_WM="niri"
-            echo -e "${GREEN}→ Selected: Niri${RESET}"
+            echo -e "${CYAN}→ Selected: Niri"
             WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
             ;;
         6)
             SELECTED_WM="cinnamon"
-            echo -e "${GREEN}→ Selected: Cinnamon${RESET}"
+            echo -e "${CYAN}→ Selected: Cinnamon"
             WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
             ;;
         7)
             SELECTED_WM="mate"
-            echo -e "${GREEN}→ Selected: Mate${RESET}"
+            echo -e "${CYAN}→ Selected: Mate"
             WM_PKGS=(mate mate-extra)
             ;;
         8)
             SELECTED_WM="sway"
-            echo -e "${GREEN}→ Selected: Sway${RESET}"
+            echo -e "${CYAN}→ Selected: Sway"
             WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
             ;;
         9|*)
             SELECTED_WM="none"
-            echo -e "${YELLOW}Skipping window manager installation.${RESET}"
+            echo "Skipping window manager installation."
             ;;
     esac
 
@@ -1249,53 +1237,47 @@ window_manager() {
             ;;
     esac
 
-# ---------- Optional extra packages ----------
-if [[ "$SELECTED_WM" != "none" ]]; then
-    echo
-    color_cmd "$CYAN" "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: "
-    read -r -p "" EXTRA_CHOICE
-    EXTRA_CHOICE="${EXTRA_CHOICE,,}"
-    if [[ "$EXTRA_CHOICE" == "y" ]]; then
-        color_cmd "$CYAN" "Enter extra pacman packages (space-separated): "
-        read -r -p "" EXTRA_PKGS_INPUT
-        color_cmd "$CYAN" "Enter extra AUR packages (space-separated, leave empty if none): "
-        read -r -p "" EXTRA_AUR_PKGS_INPUT
-
-        IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
-        IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
+    # ---------- Optional extra packages ----------
+    if [[ "$SELECTED_WM" != "none" ]]; then
+        echo
+        read -r -p "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: " EXTRA_CHOICE
+        EXTRA_CHOICE="${EXTRA_CHOICE,,}"
+        if [[ "$EXTRA_CHOICE" == "y" ]]; then
+            read -r -p "Enter extra pacman packages (space-separated): " EXTRA_PKGS_INPUT
+            read -r -p "Enter extra AUR packages (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
+            IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
+            IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
+        fi
     fi
-fi
 
-# ---------- Install WM/DE packages ----------
-if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
-    color_cmd "$GREEN" "Installing WM/DE packages..."
-    safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
-fi
-if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
-    color_cmd "$GREEN" "Installing WM/DE AUR packages..."
-    safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
-fi
+    # ---------- Install WM/DE packages ----------
+    if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
+    fi
+    if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
+    fi
 
-# ---------- Install extra packages ----------
-if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-    color_cmd "$YELLOW" "Installing extra pacman packages..."
-    safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
-fi
-if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
-    color_cmd "$YELLOW" "Installing extra AUR packages..."
-    safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
-fi
+    # ---------- Install extra packages ----------
+    if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
+        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
+    fi
+    if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
+        safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
+    fi
+}
 
+# ---------- DM Selection ----------
 lm_dm() {
-    sleep 1
-    clear
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
-    echo -e "${CYAN}#  Display Manager Selection                                                                        #${RESET}"
-    echo -e "${CYAN}#===================================================================================================#${RESET}"
+
+sleep 1
+clear
+echo -e "${CYAN}#===================================================================================================#${RESET}"
+echo -e "${CYAN}# 8C) Display Manager Selection                                                                     #${RESET}"
+echo -e "${CYAN}#===================================================================================================#${RESET}"
 
     DM_MENU=()
     DM_DEFAULT="6"
-
     # ---------- Filtered DM options ----------
     case "$SELECTED_WM" in
         gnome)
@@ -1330,15 +1312,16 @@ lm_dm() {
             DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
             DM_DEFAULT="6"
             ;;
+            
     esac
-
+    
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
-        echo -e "${CYAN}${entry}${RESET}"
+        echo -e "${CYAN}$entry"
     done
-    echo -e "${CYAN}6) Skip Display Manager${RESET}"
+    echo "6) Skip Display Manager"
 
-    read -rp "$(echo -e "${CYAN}Select DM [default=${DM_DEFAULT}]: ${RESET}")" DM_CHOICE
+    read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
     DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
 
     DM_PKGS=()
@@ -1368,7 +1351,7 @@ lm_dm() {
             DM_SERVICE="lxdm.service"
             ;;
         6|*)
-            echo -e "${YELLOW}Skipping display manager installation.${RESET}"
+            echo "Skipping display manager installation."
             return
             ;;
             
@@ -1376,33 +1359,35 @@ lm_dm() {
 
     # ---------- Install DM packages ----------
     if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
-        echo -e "${GREEN}→ Installing display manager packages...${RESET}"
         safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
     fi
     if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
-        echo -e "${GREEN}→ Installing display manager AUR packages...${RESET}"
         safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
     fi
 
     # ---------- Enable DM service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-        echo -e "${CYAN}✅ Display manager service enabled: $DM_SERVICE${RESET}"
+        echo -e "${CYAN}✅ Display manager service enabled: $DM_SERVICE"
     fi
 
     # ---------- Ly autologin ----------
-    if [[ "$DM_SERVICE" == "ly.service" && -n "$USER_NAME" ]]; then
-        echo -e "${CYAN}→ Setting up Ly autologin for $USER_NAME...${RESET}"
-        sudo mkdir -p /etc/systemd/system/ly.service.d
-        cat <<'EOF' | sudo tee /etc/systemd/system/ly.service.d/override.conf
+    if [[ "$DM_SERVICE" == "ly.service" ]]; then
+        if [[ -n "$USER_NAME" ]]; then
+            echo "Setting up Ly autologin for $USER_NAME..."
+            sudo mkdir -p /etc/systemd/system/ly.service.d
+            cat <<'EOF' | sudo tee /etc/systemd/system/ly.service.d/override.conf
+            
+
 [Service]
 ExecStart=
 ExecStart=/usr/bin/ly -a $USER_NAME
 EOF
-        sudo systemctl daemon-reload
-        echo -e "${GREEN}✅ Ly autologin configuration applied successfully.${RESET}"
+            sudo systemctl daemon-reload
+        fi
     fi
 }
+
 #=========================================================================================================================================#
 # Extra Pacman Package Installer
 #=========================================================================================================================================#
@@ -1417,39 +1402,37 @@ extra_pacman_pkg()
     echo -e "${CYAN}#===================================================================================================#${RESET}"
     echo
     
-            read -r -p "$(color_cmd "$CYAN" "Do you want to install EXTRA pacman packages? [y/N]: ")" INSTALL_EXTRA
-            if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
-                read -r -p "$(color_cmd "$CYAN" "Enter any Pacman packages (space-separated), or leave empty: ")" EXTRA_PKG_INPUT
-            
-                # Clean list: neofetch removed (deprecated)
-                EXTRA_PKGS=() #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
-            
-                # Filter out non-existent packages before installing
-                VALID_PKGS=()
-                for pkg in "${EXTRA_PKGS[@]}"; do
-                    if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
-                        VALID_PKGS+=("$pkg")
-                    else
-                        color_cmd "$YELLOW" "⚠️  Skipping invalid or missing package: $pkg"
+                read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
+                if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
+                    read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                    # Clean list: neofetch removed (deprecated)
+                    EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
+                
+                    # Filter out non-existent packages before installing
+                    VALID_PKGS=()
+                    for pkg in "${EXTRA_PKGS[@]}"; do
+                        if "${CHROOT_CMD[@]}" pacman -Si "$pkg" &>/dev/null; then
+                            VALID_PKGS+=("$pkg")
+                        else
+                            echo "⚠️  Skipping invalid or missing package: $pkg"
+                        fi
+                    done
+                
+                    # Merge validated list with user input
+                    EXTRA_PKG=("${VALID_PKGS[@]}")
+                    if [[ -n "$EXTRA_PKG_INPUT" ]]; then
+                        read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
+                        EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
                     fi
-                done
-            
-                # Merge validated list with user input
-                EXTRA_PKG=("${VALID_PKGS[@]}")
-                if [[ -n "$EXTRA_PKG_INPUT" ]]; then
-                    read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
-                    EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
-                fi
-            
-                if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
-                    color_cmd "$GREEN" "Installing extra pacman packages..."
-                    safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
+                
+                    if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
+                        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
+                    else
+                        echo "⚠️  No valid packages to install."
+                    fi
                 else
-                    color_cmd "$YELLOW" "⚠️  No valid packages to install."
+                    echo "Skipping extra pacman packages."
                 fi
-            else
-                color_cmd "$CYAN" "Skipping extra pacman packages."
-            fi
 }
 #=========================================================================================================================================#
 # Aur Package Installer
@@ -1465,30 +1448,30 @@ optional_aur()
      echo -e "${CYAN}#===================================================================================================#${RESET}"
      echo
      
-                        read -r -p "$(color_cmd "$CYAN" "Install additional AUR packages using paru? [y/N]: ")" install_aur
-            install_aur="${install_aur:-N}"
-            
-            if [[ "$install_aur" =~ ^[Yy]$ ]]; then
-                read -r -p "$(color_cmd "$CYAN" "Enter any AUR packages (space-separated), or leave empty: ")" EXTRA_AUR_INPUT
-            
-                # Predefined extra AUR packages
-                EXTRA_AUR_PKGS=()
-            
-                # Merge WM + DM AUR packages with user input
-                AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
-            
-                if [[ -n "$EXTRA_AUR_INPUT" ]]; then
-                    read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
-                    AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
-                fi
-            
-                color_cmd "$GREEN" "🔧 Installing AUR packages inside chroot..."
-                safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
-            else
-                color_cmd "$CYAN" "Skipping AUR installation."
-            fi
+                     read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
+                     install_aur="${install_aur:-N}"
+                     
+                     if [[ "$install_aur" =~ ^[Yy]$ ]]; then
+                         read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
+                     
+                         # Predefined extra AUR packages
+                         EXTRA_AUR_PKGS=( )
+                     
+                         # Merge WM + DM AUR packages with user input
+                         AUR_PKGS=("${WM_AUR_PKGS[@]}" "${DM_AUR_PKGS[@]}" "${EXTRA_AUR_PKGS[@]}")
+                     
+                         if [[ -n "$EXTRA_AUR_INPUT" ]]; then
+                             read -r -a EXTRA_AUR_INPUT_ARR <<< "$EXTRA_AUR_INPUT"
+                             AUR_PKGS+=("${EXTRA_AUR_INPUT_ARR[@]}")
+                         fi
+                     
+                         echo "🔧 Installing AUR packages inside chroot..."
+                         safe_aur_install CHROOT_CMD[@] "${AUR_PKGS[@]}"
+                     else
+                         echo "Skipping AUR installation."
+                     fi
 
-
+                    #EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
                 
 }
 #=========================================================================================================================================#
@@ -1506,14 +1489,15 @@ hyprland_optional()
       echo
       sleep 1
      
-                    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-                
-                    color_cmd "$GREEN" "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                    arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
-                
-                    read -r -p "$(color_cmd "$CYAN" "Do you want to install the Hyprland theme from GitHub? [y/N]: ")" INSTALL_HYPR_THEME
-                    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-                        color_cmd "$GREEN" "→ Running Hyprland theme setup inside chroot..."
+                          # Only proceed if Hyprland was selected (WM_CHOICE == 1)
+                          if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+                            
+                              echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
+                          
+                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+                                  echo "→ Running Hyprland theme setup inside chroot..."
                           
                                   arch-chroot /mnt /bin/bash -c "
                           NEWUSER=\"$NEWUSER\"
@@ -1571,65 +1555,47 @@ hyprland_optional()
                           rm -rf \"\$REPO_DIR\"
                           "
                           
-                            color_cmd "$GREEN" "✅ Hyprland theme setup completed."
-                            else
-                                color_cmd "$CYAN" "Skipping Hyprland theme setup."
-                            fi
-                        fi
+                                  echo "Hyprland theme setup completed."
+                              else
+                                  echo "Skipping Hyprland theme setup."
+                              fi
+                          fi
 }                          
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
 quick_partition() {
-# Detect boot mode
-detect_boot_mode
+    detect_boot_mode
+    echo "Available disks:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    while true; do
+        read -rp "Enter target disk (e.g. /dev/sda): " DEV
+        DEV="/dev/${DEV##*/}"
+        [[ -b "$DEV" ]] && break || echo "Invalid device, try again."
+    done
 
-# Show available disks
-color_cmd "$CYAN" "Available disks:"
-lsblk -d -o NAME,SIZE,MODEL,TYPE
+    read -rp "This will ERASE all data on $DEV. Continue? [Y/n]: " yn
+    [[ "$yn" =~ ^[Nn]$ ]] && die "Aborted by user."
 
-# Select target disk
-while true; do
-    read -rp "$(color_cmd "$CYAN" "Enter target disk (e.g. /dev/sda): ")" DEV
-    DEV="/dev/${DEV##*/}"
-    [[ -b "$DEV" ]] && break || color_cmd "$YELLOW" "Invalid device, try again."
-done
+    safe_disk_cleanup
+    ask_partition_sizes
+    select_filesystem
+    select_swap
+    partition_disk
+    format_and_mount
+    install_base_system
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
+    
 
-# Confirm destructive operation
-read -rp "$(color_cmd "$RED" "This will ERASE all data on $DEV. Continue? [Y/n]: ")" yn
-[[ "$yn" =~ ^[Nn]$ ]] && die "$(color_cmd "$RED" "Aborted by user.")"
-
-# Disk preparation
-color_cmd "$GREEN" "Cleaning up disk..."
-safe_disk_cleanup
-
-# Partitioning and filesystem
-ask_partition_sizes
-select_filesystem
-select_swap
-partition_disk
-format_and_mount
-
-# Base system installation
-install_base_system
-
-# System configuration
-configure_system
-install_grub
-network_mirror_selection
-
-# Drivers and display/window managers
-gpu_driver
-window_manager
-lm_dm
-
-# Extra packages
-extra_pacman_pkg
-optional_aur
-hyprland_optional
-
-# Completion message
-color_cmd "$GREEN" "✅ Arch Linux installation complete."
+    echo -e "${CYAN}✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -1655,11 +1621,10 @@ convert_to_mib() {
     elif [[ "$SIZE" =~ ^([0-9]+)(m|mi|mib)$ ]]; then
         echo "${BASH_REMATCH[1]}"
     else
-        color_cmd "$RED" "Invalid size format: $1. Use M, MiB, G, GiB, or 100%"
+        echo "Invalid size format: $1. Use M, MiB, G, GiB, or 100%" >&2
         return 1
     fi
 }
-
 #=========================================================================================================================================#
 # Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
 #=========================================================================================================================================#
@@ -1667,17 +1632,17 @@ custom_partition_wizard() {
     clear
     detect_boot_mode
 
-    color_cmd "$CYAN" "=== Custom Partitioning ==="
+    echo "=== Custom Partitioning ==="
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    read -rp "$(color_cmd "$CYAN" "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): ")" DEV
+    read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
     DEV="/dev/${DEV##*/}"
-    [[ -b "$DEV" ]] || die "$(color_cmd "$RED" "Device $DEV not found.")"
+    [[ -b "$DEV" ]] || die "Device $DEV not found."
 
-    color_cmd "$RED" "WARNING: This will erase everything on $DEV"
-    read -rp "$(color_cmd "$RED" "Type y/n to continue (Enter for yes): ")" CONFIRM
+    echo "WARNING: This will erase everything on $DEV"
+    read -rp "Type y/n to continue (Enter for yes): " CONFIRM
     if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
-        die "$(color_cmd "$RED" "Aborted.")"
+        die "Aborted."
     fi
 
     safe_disk_cleanup
@@ -1686,17 +1651,18 @@ custom_partition_wizard() {
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
+    # local per-disk partition array
     local NEW_PARTS=()
     local START=1
     local RESERVED_PARTS=0
 
     # ---------------- BIOS / UEFI reserved partitions ----------------
     if [[ "$MODE" == "BIOS" ]]; then
-        read -rp "$(color_cmd "$CYAN" "Create BIOS Boot Partition automatically? (y/n): ")" bios_auto
+        read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
         bios_auto="${bios_auto:-n}"
         if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
-            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "$(color_cmd "$RED" "Failed to create BIOS partition")"
-            parted -s "$DEV" set 1 bios_grub on || die "$(color_cmd "$RED" "Failed to set bios_grub flag")"
+            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
             NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
             START=2
@@ -1704,10 +1670,10 @@ custom_partition_wizard() {
     fi
 
     if [[ "$MODE" == "UEFI" ]]; then
-        read -rp "$(color_cmd "$CYAN" "Automatically create 1024MiB EFI System Partition? (y/n): ")" esp_auto
+        read -rp "Automatically create 1024MiB EFI System Partition? (y/n): " esp_auto
         esp_auto="${esp_auto:-n}"
         if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
-            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "$(color_cmd "$RED" "Failed to create ESP")"
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
             parted -s "$DEV" set 1 esp on
             parted -s "$DEV" set 1 boot on || true
             NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
@@ -1718,29 +1684,30 @@ custom_partition_wizard() {
 
     # ---------------- Disk info ----------------
     local disk_bytes disk_mib
-    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "$(color_cmd "$RED" "Cannot read disk size.")"
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
-    color_cmd "$CYAN" "Disk size: $(( disk_mib / 1024 )) GiB"
+    echo "Disk size: $(( disk_mib / 1024 )) GiB"
 
     # ---------------- User-defined partitions ----------------
-    read -rp "$(color_cmd "$CYAN" "How many partitions would you like to create on $DEV? ")" COUNT
-    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "$(color_cmd "$RED" "Invalid partition count.")"
+    read -rp "How many partitions would you like to create on $DEV? " COUNT
+    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
     for ((j=1; j<=COUNT; j++)); do
         i=$((j + RESERVED_PARTS))
         parted -s "$DEV" unit MiB print
 
+        # Determine available space for this partition
         local AVAILABLE=$((disk_mib - START))
-        color_cmd "$CYAN" "Available space on disk: $AVAILABLE MiB"
+        echo "Available space on disk: $AVAILABLE MiB"
 
         # Size
         while true; do
-            read -rp "$(color_cmd "$CYAN" "Size (ex: 20G, 512M, 100% for last, default 100%): ")" SIZE
+            read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
             SIZE="${SIZE:-100%}"
             SIZE_MI=$(convert_to_mib "$SIZE") || continue
 
             if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
-                color_cmd "$YELLOW" "⚠ Requested size too large. Max available: $AVAILABLE MiB"
+                echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
                 continue
             fi
             break
@@ -1755,37 +1722,39 @@ custom_partition_wizard() {
         fi
 
         # Mountpoint
-        read -rp "$(color_cmd "$CYAN" "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): ")" MNT
+        read -rp "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): " MNT
         if [[ -z "$MNT" ]]; then
+            # Auto-assign /dataX for secondary partitions
             local next_data=1
             while grep -q "/data$next_data" <<<"${PARTITIONS[*]}"; do
                 ((next_data++))
             done
             MNT="/data$next_data"
-            color_cmd "$CYAN" "→ Auto-assigned mountpoint: $MNT"
+            echo "→ Auto-assigned mountpoint: $MNT"
         fi
 
         # Filesystem
         while true; do
-            read -rp "$(color_cmd "$CYAN" "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): ")" FS
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
             case "$FS" in
                 ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
-                *) color_cmd "$YELLOW" "Unsupported FS." ;;
+                *) echo "Unsupported FS." ;;
             esac
         done
 
         # Label
-        read -rp "$(color_cmd "$CYAN" "Label (optional): ")" LABEL
+        read -rp "Label (optional): " LABEL
 
         # Create partition
-        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "$(color_cmd "$RED" "Failed to create partition $i")"
+        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
         PART="${DEV}${ps}${i}"
         NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
         [[ "$END" != "100%" ]] && START=$END
     done
 
+    # Merge per-disk NEW_PARTS into global PARTITIONS
     PARTITIONS+=("${NEW_PARTS[@]}")
-    color_cmd "$CYAN" "=== Partitions for $DEV ==="
+    echo "=== Partitions for $DEV ==="
     printf "%s\n" "${NEW_PARTS[@]}"
 }
 
@@ -1803,35 +1772,37 @@ create_more_disks() {
     ((disk_counter++))
 
     while true; do
-        read -rp "$(color_cmd "$CYAN" "Do you want to edit another disk? (Yy/Nn, default no): ")" answer
+        read -rp "Do you want to edit another disk? (Yy/Nn, default no): " answer
         case "$answer" in
             [Yy])
-                color_cmd "$GREEN" "→ Editing another disk..."
+                echo "→ Editing another disk..."
                 custom_partition_wizard
 
                 # Auto-assign /dataX for new partitions with 'none' mount
                 for i in "${!PARTITIONS[@]}"; do
                     IFS=':' read -r PART MOUNT FS LABEL <<< "${PARTITIONS[$i]}"
 
+                    # Skip partitions already assigned
                     if [[ "$MOUNT" != "none" && "$MOUNT" != "" ]]; then
                         continue
                     fi
 
+                    # Skip root /boot /efi etc
                     if [[ "$LABEL" == "bios_grub" || "$MOUNT" =~ ^/(boot|boot/efi|)$ ]]; then
                         continue
                     fi
 
                     PARTITIONS[$i]="$PART:/data$disk_counter:$FS:$LABEL"
-                    color_cmd "$CYAN" "→ Auto-assigned $PART to /data$disk_counter"
+                    echo "→ Auto-assigned $PART to /data$disk_counter"
                     ((disk_counter++))
                 done
                 ;;
             ""|[Nn])
-                color_cmd "$GREEN" "→ No more disks. Continuing..."
+                echo "→ No more disks. Continuing..."
                 break
                 ;;
             *)
-                color_cmd "$YELLOW" "Please enter Y or n."
+                echo "Please enter Y or n."
                 ;;
         esac
     done
@@ -1844,11 +1815,11 @@ create_more_disks() {
 #  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
 #=========================================================================================================================================#
 format_and_mount_custom() {
-    color_cmd "$GREEN" "→ Formatting and mounting custom partitions..."
+    echo "→ Formatting and mounting custom partitions..."
     mkdir -p /mnt
 
     if [[ ${#PARTITIONS[@]} -eq 0 ]]; then
-        die "$(color_cmd "$RED" "No partitions to format/mount (PARTITIONS is empty).")"
+        die "No partitions to format/mount (PARTITIONS is empty)."
     fi
 
     # --- Order: root (/) first, then others ---
@@ -1868,13 +1839,13 @@ format_and_mount_custom() {
 
         partprobe "$PART" 2>/dev/null || true
         udevadm settle --timeout=5 || true
-        [[ -b "$PART" ]] || die "$(color_cmd "$RED" "Partition $PART not available.")"
+        [[ -b "$PART" ]] || die "Partition $PART not available."
 
         # Skip reserved partitions
-        [[ "$LABEL" == "bios_grub" ]] && { color_cmd "$CYAN" ">>> Skipping BIOS boot partition $PART"; continue; }
+        [[ "$LABEL" == "bios_grub" ]] && { echo ">>> Skipping BIOS boot partition $PART"; continue; }
         [[ "$FS" == "none" ]] && continue
 
-        color_cmd "$GREEN" ">>> Formatting $PART as $FS"
+        echo ">>> Formatting $PART as $FS"
         case "$FS" in
             ext4) mkfs.ext4 -F "$PART" ;;
             btrfs) mkfs.btrfs -f "$PART" ;;
@@ -1882,7 +1853,7 @@ format_and_mount_custom() {
             f2fs) mkfs.f2fs -f "$PART" ;;
             fat32|vfat) mkfs.fat -F32 "$PART" ;;
             swap) mkswap "$PART"; swapon "$PART"; continue ;;
-            *) die "$(color_cmd "$RED" "Unsupported filesystem: $FS")" ;;
+            *) die "Unsupported filesystem: $FS" ;;
         esac
 
         # Apply label if provided
@@ -1904,7 +1875,7 @@ format_and_mount_custom() {
                     umount /mnt || true
                     mount -o subvol=@,compress=zstd "$PART" /mnt
                 else
-                    mount "$PART" /mnt || die "$(color_cmd "$RED" "Failed to mount root $PART on /mnt")"
+                    mount "$PART" /mnt || die "Failed to mount root $PART on /mnt"
                 fi
                 ;;
             /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
@@ -1913,7 +1884,7 @@ format_and_mount_custom() {
             /data*)  # Auto-mount secondary disk partitions
                 local DATA_DIR="/mnt${MOUNT}"
                 mkdir -p "$DATA_DIR"
-                mount "$PART" "$DATA_DIR" || die "$(color_cmd "$RED" "Failed to mount $PART on $DATA_DIR")"
+                mount "$PART" "$DATA_DIR" || die "Failed to mount $PART on $DATA_DIR"
                 ;;
             *)  # Any other custom mountpoint
                 mkdir -p "/mnt$MOUNT"
@@ -1922,23 +1893,21 @@ format_and_mount_custom() {
         esac
     done
 
-    mountpoint -q /mnt || die "$(color_cmd "$RED" "Root (/) not mounted. Ensure you have a root partition.")"
+    mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
 
-    color_cmd "$GREEN" "✅ All custom partitions formatted and mounted correctly."
+    echo "✅ All custom partitions formatted and mounted correctly."
 
-    color_cmd "$GREEN" "Generating /etc/fstab..."
+    echo "Generating /etc/fstab..."
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-
-    color_cmd "$CYAN" "→ /etc/fstab content:"
+    echo "→ /etc/fstab content:"
     cat /mnt/etc/fstab
 }
-
 #============================================================================================================================#
 # ENSURE FS SUPPORT FOR CUSTOM PARTITION SCHEME (Robust for multiple disks / reserved partitions)
 #============================================================================================================================#
 ensure_fs_support_for_custom() {
-    color_cmd "$GREEN" "→ Running ensure_fs_support_for_custom()"
+    echo "→ Running ensure_fs_support_for_custom()"
 
     # Initialize FS detection flags
     local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
@@ -1980,17 +1949,16 @@ ensure_fs_support_for_custom() {
     (( want_ext4 )) && pkgs+=(e2fsprogs)
 
     if [[ ${#pkgs[@]} -eq 0 ]]; then
-        color_cmd "$CYAN" "→ No special filesystem tools required for custom install."
+        echo "→ No special filesystem tools required for custom install."
         return 0
     fi
 
-    color_cmd "$GREEN" "→ Installing filesystem tools into target: ${pkgs[*]}"
+    echo "→ Installing filesystem tools into target: ${pkgs[*]}"
     arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || {
-        color_cmd "$YELLOW" "⚠️ pacman install inside chroot failed once; retrying..."
+        echo "⚠️ pacman install inside chroot failed once; retrying..."
         sleep 1
-        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "$(color_cmd "$RED" "Failed to install filesystem tools in target")"
+        arch-chroot /mnt pacman -Sy --noconfirm "${pkgs[@]}" || die "Failed to install filesystem tools in target"
     }
-}
 
     # Patch mkinitcpio.conf inside target to ensure proper HOOKS and MODULES
     arch-chroot /mnt /bin/bash <<'CHROOT_EOF'
@@ -2047,55 +2015,31 @@ CHROOT_EOF
 # Multi-disk Custom Partition Flow
 #=========================================================================================================================================#
 custom_partition() {
-# --- First disk ---
-color_cmd "$CYAN" "=== Configuring first disk ==="
-custom_partition_wizard
+    # --- First disk ---
+    custom_partition_wizard
 
-# --- Optional extra disks ---
-color_cmd "$CYAN" "=== Optional extra disks ==="
-create_more_disks
+    # --- Optional extra disks ---
+    create_more_disks
 
-# --- Format & mount all partitions ---
-color_cmd "$GREEN" "=== Formatting and mounting all partitions ==="
-format_and_mount_custom
+    # --- Format & mount all partitions ---
+    format_and_mount_custom
 
-# --- Install base system ---
-color_cmd "$GREEN" "=== Installing base system ==="
-install_base_system
+    # --- Install base system ---
+    install_base_system
 
-# --- Ensure filesystem tools inside target ---
-color_cmd "$GREEN" "=== Installing necessary filesystem tools ==="
-ensure_fs_support_for_custom
+    # --- Ensure filesystem tools inside target ---
+    ensure_fs_support_for_custom
 
-# --- Continue installation steps ---
-color_cmd "$GREEN" "=== Configuring system ==="
-configure_system
-
-color_cmd "$GREEN" "=== Installing GRUB bootloader ==="
-install_grub
-
-color_cmd "$GREEN" "=== Selecting network mirror ==="
-network_mirror_selection
-
-color_cmd "$GREEN" "=== Installing GPU drivers ==="
-gpu_driver
-
-color_cmd "$GREEN" "=== Installing window manager ==="
-window_manager
-
-color_cmd "$GREEN" "=== Configuring display manager / login manager ==="
-lm_dm
-
-color_cmd "$GREEN" "=== Installing extra pacman packages ==="
-extra_pacman_pkg
-
-color_cmd "$GREEN" "=== Installing optional AUR packages ==="
-optional_aur
-
-color_cmd "$GREEN" "=== Running optional Hyprland setup ==="
-hyprland_optional
-
-color_cmd "$GREEN" "✅ Arch Linux installation complete."
+    # --- Continue installation steps ---
+    configure_system
+    install_grub
+    network_mirror_selection
+    gpu_driver
+    window_manager
+    lm_dm
+    extra_pacman_pkg
+    optional_aur
+    hyprland_optional
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -2111,7 +2055,7 @@ color_cmd "$GREEN" "✅ Arch Linux installation complete."
 # arg1: enable_luks (0/1)
 # ----------------------------
 ensure_fs_support_for_luks_lvm() {
-    color_cmd "$GREEN" "→ Running ensure_fs_support_for_luks_lvm() for post-install configuration."
+    echo "→ Running ensure_fs_support_for_luks_lvm() for post-install configuration."
 
     local enable_luks="${1:-0}"
     local want_xfs=0 want_f2fs=0 want_btrfs=0 want_ext4=0
@@ -2152,20 +2096,19 @@ ensure_fs_support_for_luks_lvm() {
     (( enable_luks )) && pkgs+=(cryptsetup)
 
     if (( ${#pkgs[@]} > 0 )); then
-        color_cmd "$GREEN" "→ Installing packages inside target: ${pkgs[*]}"
-        arch-chroot /mnt pacman -Syu --noconfirm "${pkgs[@]}" || die "$(color_cmd "$RED" "Failed to install tools in target.")"
+        echo "→ Installing packages inside target: ${pkgs[*]}"
+        arch-chroot /mnt pacman -Syu --noconfirm "${pkgs[@]}" || die "Failed to install tools in target."
     fi
 
     # Build HOOKS line deterministically depending on whether LUKS is used
     local HOOKS_LINE
     if [[ "$enable_luks" -eq 1 ]]; then
-        color_cmd "$GREEN" "→ Setting mkinitcpio HOOKS for LUKS+LVM"
+        echo "→ Setting mkinitcpio HOOKS for LUKS+LVM"
         HOOKS_LINE='HOOKS=(base udev autodetect keyboard modconf block encrypt lvm2 filesystems fsck)'
     else
-        color_cmd "$GREEN" "→ Setting mkinitcpio HOOKS for LVM-only"
+        echo "→ Setting mkinitcpio HOOKS for LVM-only"
         HOOKS_LINE='HOOKS=(base udev autodetect modconf block lvm2 filesystems keyboard fsck)'
     fi
-}
 
     # Replace HOOKS line inside chroot safely (create if missing)
     arch-chroot /mnt /bin/bash -e <<'CHROOT_EOF'
@@ -2190,44 +2133,33 @@ CHROOT_EOF
 # master flow for option 3 (interactive multiple disks)
 # ----------------------------
 luks_lvm_master_flow() {
-    # --- First disk ---
-    color_cmd "$CYAN" "=== Configuring first disk for LUKS/LVM ==="
-    luks_lvm_route || die "$(color_cmd "$RED" "First luks_lvm_route failed")"
+    # first disk
+    luks_lvm_route || die "First luks_lvm_route failed"
 
-    # --- Optional additional disks ---
+    # optional additional disks (allows adding PVs to existing VG or creating new VGs)
     while true; do
-        read -rp "$(color_cmd "$CYAN" "Do you want to edit another disk for LUKS/LVM? [Y/n]: ")" ans
+        read -rp "Do you want to edit another disk for LUKS/LVM? (Y/n): " ans
         ans="${ans:-n}"
         case "$ans" in
             [Yy])
-                color_cmd "$CYAN" "→ Editing another disk for LUKS/LVM..."
-                luks_lvm_route || die "$(color_cmd "$RED" "luks_lvm_route failed for another disk")"
+                luks_lvm_route || die "luks_lvm_route failed for another disk"
                 ;;
-            [Nn]) 
-                color_cmd "$CYAN" "→ No more LUKS/LVM disks to configure. Continuing..."
-                break
-                ;;
-            *)
-                color_cmd "$YELLOW" "Please answer Y or n."
-                ;;
+            [Nn]) break ;;
+            *) echo "Please answer Y or n." ;;
         esac
     done
 
-    # --- Post-install steps ---
-    color_cmd "$GREEN" "=== Running LUKS/LVM post-install steps ==="
+    # single post-install run
     luks_lvm_post_install_steps
 }
-
 wait_for_lv() {
     local dev="$1"
     local timeout=10
-    color_cmd "$CYAN" "→ Waiting for logical volume $dev to appear (timeout: $timeout s)..."
     for ((i=0;i<timeout;i++)); do
-        [[ -b "$dev" ]] && { color_cmd "$GREEN" "→ Device $dev is ready."; return 0; }
+        [[ -b "$dev" ]] && return 0
         sleep 0.5
         udevadm settle --timeout=2
     done
-    color_cmd "$RED" "⚠️ Device $dev did not appear within $timeout seconds."
     return 1
 }
 #=====================================================================================================================================#
@@ -2247,48 +2179,46 @@ wait_for_lv() {
 luks_lvm_route() {
     detect_boot_mode
 
-    color_cmd "$CYAN" "Available block devices (disks):"
+    echo "Available block devices (disks):"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    # ---------------- Helper prompts ----------------
+    # helper re-prompt functions
     ask_disk() {
         while true; do
-            read -rp "$(color_cmd "$CYAN" "Enter target disk (example /dev/sda or nvme0n1): ")" _d
+            read -rp "Enter target disk (example /dev/sda or nvme0n1): " _d
             _d="/dev/${_d##*/}"
             [[ -b "$_d" ]] && { DEV="$_d"; return 0; }
-            color_cmd "$YELLOW" "Invalid block device: '$_d'. Try again."
+            echo "Invalid block device: '$_d'. Try again."
         done
     }
-
-    ask_yesno_default() {
-        local prompt="$1"
-        local def="${2:-N}"
-        local ans
-        while true; do
-            read -rp "$(color_cmd "$CYAN" "$prompt ")" ans
-            ans="${ans:-$def}"
-            ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')
-            case "$ans_upper" in
-                Y|YES) return 0 ;;
-                N|NO)  return 1 ;;
-                *) color_cmd "$YELLOW" "Please answer Y or N." ;;
-            esac
-        done
-    }
-
+ask_yesno_default() {
+    local prompt="$1"
+    local def="${2:-N}"
+    local ans
+    while true; do
+        read -rp "$prompt " ans
+        ans="${ans:-$def}"
+        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
+        case "$ans_upper" in
+            Y|YES) return 0 ;;   # success = yes
+            N|NO)  return 1 ;;   # failure = no
+            *) echo "Please answer Y or N." ;;
+        esac
+    done
+}
     ask_nonempty() {
         local prompt="$1" val
         while true; do
-            read -rp "$(color_cmd "$CYAN" "$prompt ")" val
+            read -rp "$prompt" val
             [[ -n "$val" ]] && { REPLY="$val"; return 0; }
-            color_cmd "$YELLOW" "Cannot be empty."
+            echo "Cannot be empty."
         done
     }
-
     ask_lv_size() {
+        # basic validation for LVM size: accept 40G, 512M, 10%VG, 100%FREE
         local prompt="${1:-Size (40G, 512M, 10%VG, 100%FREE) [100%FREE]: }" ans
         while true; do
-            read -rp "$(color_cmd "$CYAN" "$prompt ")" ans
+            read -rp "$prompt" ans
             ans="${ans:-100%FREE}"
             if [[ "$ans" =~ ^([0-9]+G|[0-9]+M|[0-9]+%VG|[0-9]+%FREE|100%FREE)$ ]]; then
                 REPLY="$ans"
@@ -2297,59 +2227,57 @@ luks_lvm_route() {
             if [[ "$ans" =~ ^[0-9]+$ ]]; then
                 REPLY="${ans}G"; return 0
             fi
-            color_cmd "$YELLOW" "Invalid LVM size format."
+            echo "Invalid LVM size format."
         done
     }
-
     ask_mountpoint() {
         local prompt="${1:-Mountpoint (/, /home, swap, /data, none): }" ans
         while true; do
-            read -rp "$(color_cmd "$CYAN" "$prompt ")" ans
+            read -rp "$prompt" ans
             ans="${ans:-none}"
             case "$ans" in
                 /|/home|/boot|/efi|/boot/efi|swap|none|/data*|/srv|/opt) REPLY="$ans"; return 0 ;;
-                *) color_cmd "$YELLOW" "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi swap none /dataX /srv /opt" ;;
+                *) echo "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi swap none /dataX /srv /opt" ;;
             esac
         done
     }
-
     ask_fs() {
         local prompt="${1:-Filesystem (ext4,btrfs,xfs,f2fs) [ext4]: }" ans
         while true; do
-            read -rp "$(color_cmd "$CYAN" "$prompt ")" ans
+            read -rp "$prompt" ans
             ans="${ans:-ext4}"
             case "$ans" in
                 ext4|btrfs|xfs|f2fs) REPLY="$ans"; return 0 ;;
-                *) color_cmd "$YELLOW" "Invalid fs. Choose ext4,btrfs,xfs,f2fs" ;;
+                *) echo "Invalid fs. Choose ext4,btrfs,xfs,f2fs" ;;
             esac
         done
     }
 
-    # ---------------- Start main flow ----------------
+    # start
     ask_disk
-    color_cmd "$RED" "WARNING: This will ERASE ALL DATA on $DEV"
-    ask_yesno_default "Continue? [y/N]:" "N" || { color_cmd "$YELLOW" "Aborted by user."; return 1; }
+    echo "WARNING: This will ERASE ALL DATA on $DEV"
+    ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted by user."; return 1; }
 
-    # Verify system tools
+    # verify required system tools exist in live env
     for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
-            color_cmd "$RED" "ERROR: $cmd not found. Install lvm2, cryptsetup, parted."
+            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted) and retry."
             return 1
         fi
     done
 
     safe_disk_cleanup
+
     ps=$(part_suffix "$DEV")
+    echo "→ Writing GPT to $DEV"
+    parted -s "$DEV" mklabel gpt || die "mklabel failed"
 
-    color_cmd "$CYAN" "→ Writing GPT to $DEV"
-    parted -s "$DEV" mklabel gpt || die "$(color_cmd "$RED" "mklabel failed")"
-
-    PART_BOOT=""   
-    PART_LUKS=""   
+    PART_BOOT=""   # path to boot/esp partition (unencrypted)
+    PART_LUKS=""   # path to big partition that will be LUKS or PV
     PART_GRUB_BIOS=""
 
     if [[ "$MODE" == "UEFI" ]]; then
-        color_cmd "$CYAN" "→ MODE=UEFI: creating ESP and main partition"
+        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP and main partition"
         parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "mkpart ESP failed"
         parted -s "$DEV" set 1 esp on || die "set esp failed"
         PART_BOOT="${DEV}${ps}1"
@@ -2357,9 +2285,11 @@ luks_lvm_route() {
         PART_LUKS="${DEV}${ps}2"
 
         partprobe "$DEV"; udevadm settle --timeout=5
+
+        # create esp filesystem now
         mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed on $PART_BOOT"
     else
-        color_cmd "$CYAN" "→ MODE=BIOS: creating BIOS/boot and main partition"
+        echo "→ MODE=BIOS: creating bios_grub (1MiB), /boot (512MiB), and main partition"
         parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "mkpart bios_grub failed"
         parted -s "$DEV" set 1 bios_grub on || die "set bios_grub failed"
         PART_GRUB_BIOS="${DEV}${ps}1"
@@ -2371,20 +2301,29 @@ luks_lvm_route() {
         PART_LUKS="${DEV}${ps}3"
 
         partprobe "$DEV"; udevadm settle --timeout=5
+
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed on $PART_BOOT"
     fi
 
-    [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing."
+    [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
 
-    # ---------------- LUKS encryption ----------------
+    # Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
         ENCRYPTION_ENABLED=1
-        cryptsetup luksFormat --type luks2 "$PART_LUKS" || die "luksFormat failed"
+        if ask_yesno_default "Use LUKS2 (recommended)? [Y/n]:" "Y"; then
+            cryptsetup luksFormat --type luks2 "$PART_LUKS" || die "luksFormat failed"
+        else
+            cryptsetup luksFormat "$PART_LUKS" || die "luksFormat failed"
+        fi
 
+        # ask mapper name and ensure uniqueness
         while true; do
-            read -rp "$(color_cmd "$CYAN" "Name for mapped device (default cryptlvm): ")" cryptname
+            read -rp "Name for mapped device (default cryptlvm): " cryptname
             cryptname="${cryptname:-cryptlvm}"
-            [[ -e "/dev/mapper/$cryptname" ]] && { color_cmd "$YELLOW" "$cryptname exists — choose another"; continue; }
+            if [[ -e "/dev/mapper/$cryptname" ]]; then
+                echo "/dev/mapper/$cryptname exists — choose another"
+                continue
+            fi
             break
         done
 
@@ -2397,26 +2336,26 @@ luks_lvm_route() {
         BASE_DEVICE="$PART_LUKS"
     fi
 
-    color_cmd "$CYAN" "→ Creating PV on $BASE_DEVICE"
-    pvcreate "$BASE_DEVICE" || die "pvcreate failed"
+    echo "→ Creating PV on $BASE_DEVICE"
+    pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
 
-    # ---------------- VG creation ----------------
+    # ask VG name and create/extend
     while true; do
-        read -rp "$(color_cmd "$CYAN" "Volume Group name (default vg0): ")" VGNAME
+        read -rp "Volume Group name (default vg0): " VGNAME
         VGNAME="${VGNAME:-vg0}"
-        [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-        color_cmd "$YELLOW" "Invalid VG name."
+        if [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then break; fi
+        echo "Invalid VG name."
     done
 
     if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-        if ask_yesno_default "VG $VGNAME exists — add PV? [Y/n]:" "Y"; then
+        if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
             vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
         else
             while true; do
-                read -rp "$(color_cmd "$CYAN" "New VG name: ")" VGNAME
+                read -rp "New VG name: " VGNAME
                 VGNAME="${VGNAME:-vg0}"
                 [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-                color_cmd "$YELLOW" "Invalid VG name."
+                echo "Invalid name"
             done
             vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
         fi
@@ -2427,8 +2366,155 @@ luks_lvm_route() {
     vgscan --mknodes
     vgchange -ay "$VGNAME" || die "vgchange -ay failed"
 
-    color_cmd "$GREEN" "→ Completed LUKS+LVM route for $DEV"
-    return 0
+    # Interactively create LVs (re-prompt on invalid input)
+    LV_NAMES=()
+    LV_SIZES=()
+    LV_FSS=()
+    LV_MOUNTS=()
+
+    echo
+    echo "Create logical volumes. Enter empty LV name to finish."
+    while true; do
+        read -rp "LV name (empty to finish): " lvname
+        lvname="${lvname// /}"
+        [[ -z "$lvname" ]] && break
+        if ! [[ "$lvname" =~ ^[a-zA-Z0-9._-]+$ ]]; then
+            echo "Invalid LV name."
+            continue
+        fi
+
+        ask_lv_size
+        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
+
+        ask_mountpoint
+        lvmnt="${REPLY:-none}"
+
+        if [[ "$lvmnt" == "/" ]]; then
+            LVM_ROOT_LV_NAME="$lvname"
+        fi
+
+        if [[ "$lvmnt" == "swap" ]]; then
+            lvfs="swap"
+        else
+            ask_fs
+            lvfs="$REPLY"
+        fi
+
+        LV_NAMES+=("$lvname")
+        LV_SIZES+=("$lvsize")
+        LV_FSS+=("$lvfs")
+        LV_MOUNTS+=("$lvmnt")
+    done
+
+    if [[ ${#LV_NAMES[@]} -eq 0 ]]; then
+        die "No LVs defined; aborting."
+    fi
+
+    # create LVs; if lvcreate fails, allow retry/adjust
+    for idx in "${!LV_NAMES[@]}"; do
+        name="${LV_NAMES[idx]}"
+        size="${LV_SIZES[idx]}"
+
+        while true; do
+            if lvcreate -L "$size" "$VGNAME" -n "$name" 2>/tmp/lvcreate.err; then
+                break
+            fi
+            echo "lvcreate failed for $name (size=$size):"
+            sed -n '1,200p' /tmp/lvcreate.err
+            read -rp "Retry with new size? (y to retry / n to abort) [y]: " r
+            r="${r:-y}"
+            case "$r" in
+                [Yy])
+                    ask_lv_size "New size for $name: "
+                    size="$REPLY"
+                    ;;
+                [Nn])
+                    die "User aborted LV creation."
+                    ;;
+                *)
+                    echo "Please answer y or n."
+                    ;;
+            esac
+        done
+    done
+
+    udevadm settle --timeout=5
+
+    # Format & mount LVs: root first
+    mkdir -p /mnt
+    root_index=""
+    for i in "${!LV_MOUNTS[@]}"; do
+        [[ "${LV_MOUNTS[i]}" == "/" ]] && { root_index="$i"; break; }
+    done
+
+    format_and_mount_lv() {
+        local idx="$1"
+        local name="${LV_NAMES[idx]}"
+        local fs="${LV_FSS[idx]}"
+        local mnt="${LV_MOUNTS[idx]}"
+        local lvpath="/dev/${VGNAME}/${name}"
+
+        wait_for_lv "$lvpath" || die "LV $lvpath not available"
+
+        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
+            mkswap "$lvpath" || die "mkswap failed on $lvpath"
+            swapon "$lvpath" || die "swapon failed on $lvpath"
+            P_SWAP="$lvpath"
+            return 0
+        fi
+
+        case "$fs" in
+            ext4) mkfs.ext4 -F "$lvpath" ;;
+            btrfs) mkfs.btrfs -f "$lvpath" ;;
+            xfs) mkfs.xfs -f "$lvpath" ;;
+            f2fs) mkfs.f2fs -f "$lvpath" ;;
+            *) die "Unsupported FS $fs" ;;
+        esac
+
+        case "$mnt" in
+            /)
+                if [[ "$fs" == "btrfs" ]]; then
+                    mount "$lvpath" /mnt || die "mount $lvpath /mnt failed"
+                    btrfs subvolume create /mnt/@ || true
+                    umount /mnt || true
+                    mount -o subvol=@,compress=zstd "$lvpath" /mnt || die "btrfs mount failed"
+                else
+                    mount "$lvpath" /mnt || die "mount $lvpath /mnt failed"
+                fi
+                P_ROOT="$lvpath"
+                ;;
+            /home)
+                mkdir -p /mnt/home; mount "$lvpath" /mnt/home || die "mount failed"; P_HOME="$lvpath" ;;
+            /boot)
+                mkdir -p /mnt/boot; mount "$lvpath" /mnt/boot || die "mount failed"; P_BOOT="$lvpath" ;;
+            /efi|/boot/efi)
+                mkdir -p /mnt/boot/efi; mount "$lvpath" /mnt/boot/efi || die "mount failed"; P_EFI="$lvpath" ;;
+            /data*|/srv|/opt)
+                mkdir -p "/mnt${mnt}"; mount "$lvpath" "/mnt${mnt}" || die "mount failed" ;;
+            none) ;; # skip
+            *)
+                mkdir -p "/mnt${mnt}"; mount "$lvpath" "/mnt${mnt}" || die "mount failed" ;;
+        esac
+    }
+
+    if [[ -n "$root_index" ]]; then
+        format_and_mount_lv "$root_index"
+    fi
+    for i in "${!LV_NAMES[@]}"; do
+        [[ -n "$root_index" && "$i" -eq "$root_index" ]] && continue
+        format_and_mount_lv "$i"
+    done
+
+    # store common globals for post-install step
+    export LVM_VG_NAME="$VGNAME"
+    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
+    export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
+    export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
+    export PART_BOOT="${PART_BOOT:-}"
+    export PART_LUKS="${PART_LUKS:-$PART_LUKS}"
+
+    echo "→ Completed LUKS+LVM route for $DEV"
+    return 
 }
 
 # ----------------------------
@@ -2440,56 +2526,41 @@ luks_lvm_route() {
 # - installs GRUB
 # ----------------------------
 luks_lvm_post_install_steps() {
-    color_cmd "$CYAN" echo "→ Running LUKS+LVM post-install steps..."
+    echo "→ Running LUKS+LVM post-install steps..."
 
-    # --- Mount boot/EFI partition ---
+    # Mount boot/EFI if not already mounted (the route function formats/mounts LVs but we might need to mount disk boot)
     if [[ "$MODE" == "UEFI" && -n "$PART_BOOT" ]]; then
         mkdir -p /mnt/boot/efi
         mount "$PART_BOOT" /mnt/boot/efi || die "Failed to mount $PART_BOOT on /mnt/boot/efi"
-        color_cmd "$GREEN" echo "→ Mounted ESP at /mnt/boot/efi"
     elif [[ "$MODE" == "BIOS" && -n "$PART_BOOT" ]]; then
         mkdir -p /mnt/boot
         mount "$PART_BOOT" /mnt/boot || die "Failed to mount $PART_BOOT on /mnt/boot"
-        color_cmd "$GREEN" echo "→ Mounted /boot at $PART_BOOT"
     fi
 
-    # --- Write crypttab if LUKS enabled ---
+    # If LUKS used, write crypttab inside target using UUID
     if [[ "${ENCRYPTION_ENABLED:-0}" -eq 1 && -n "${LUKS_PART_UUID:-}" && -n "${LUKS_MAPPER_NAME:-}" ]]; then
         mkdir -p /mnt/etc
         echo "${LUKS_MAPPER_NAME} UUID=${LUKS_PART_UUID} none luks" > /mnt/etc/crypttab
-        color_cmd "$GREEN" echo "→ Wrote /mnt/etc/crypttab for LUKS device ${LUKS_MAPPER_NAME}"
-    else
-        color_cmd "$YELLOW" echo "→ No LUKS encryption configured; skipping crypttab"
+        echo "→ Wrote /mnt/etc/crypttab"
     fi
 
-    # --- Install base system ---
-    color_cmd "$CYAN" echo "→ Installing base system..."
+    # install base system (pacstrap/pacstrap wrapper)
     install_base_system || die "install_base_system failed"
-    color_cmd "$GREEN" echo "→ Base system installed successfully"
 
-    # --- Generate /etc/fstab ---
-    color_cmd "$CYAN" echo "→ Generating /mnt/etc/fstab..."
+    # generate /etc/fstab
     genfstab -U /mnt > /mnt/etc/fstab || die "genfstab failed"
-    color_cmd "$GREEN" echo "→ /mnt/etc/fstab generated:"
+    echo "→ /mnt/etc/fstab:"
     sed -n '1,200p' /mnt/etc/fstab
 
-    # --- Ensure filesystem tools and mkinitcpio hooks ---
-    color_cmd "$CYAN" echo "→ Ensuring FS tools and mkinitcpio hooks..."
+    # ensure fs support and mkinitcpio hooks inside target
     ensure_fs_support_for_luks_lvm "${ENCRYPTION_ENABLED:-0}" || die "ensure_fs_support_for_luks_lvm failed"
-    color_cmd "$GREEN" echo "→ Filesystem tools and hooks installed"
 
-    # --- Chroot-level configuration ---
-    color_cmd "$CYAN" echo "→ Configuring system in chroot..."
+    # chroot-level configuration
     configure_system || die "configure_system failed"
-    color_cmd "$GREEN" echo "→ System configuration completed"
 
-    # --- Install GRUB ---
-    color_cmd "$CYAN" echo "→ Installing GRUB bootloader..."
+    # install grub in chroot
     install_grub || die "install_grub failed"
-    color_cmd "$GREEN" echo "→ GRUB installed successfully"
 
-    # --- Optional post-install packages ---
-    color_cmd "$CYAN" echo "→ Installing additional packages..."
     network_mirror_selection
     gpu_driver
     window_manager
@@ -2497,9 +2568,8 @@ luks_lvm_post_install_steps() {
     extra_pacman_pkg
     optional_aur
     hyprland_optional
-    color_cmd "$GREEN" echo "→ Additional packages installed"
-
-    color_cmd "$CYAN" echo "→ LUKS+LVM post-install steps completed."
+    
+    echo "→ LUKS+LVM post-install done."
 }
 #=========================================================================================================================================#
 # Main menu
