@@ -111,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${CYAN}${YELLOW}ERROR: $*" >&2
+    echo -e "${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -123,7 +123,7 @@ part_suffix() {
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
 prepare_chroot() {
-    echo -e "${CYAN}\n🔧 Preparing pseudo-filesystems for chroot..."
+    echo -e "\n🔧 Preparing pseudo-filesystems for chroot..."
     mkdir -p /mnt
     for fs in proc sys dev run; do
         mount --bind "/$fs" "/mnt/$fs" 2>/dev/null || mount --rbind "/$fs" "/mnt/$fs"
@@ -135,7 +135,7 @@ prepare_chroot() {
 # Cleanup
 #=========================================================================================================================================#
 cleanup() {
-    echo -e "${CYAN}\n🧹 Running cleanup..."
+    echo -e "\n🧹 Running cleanup..."
     swapoff -a 2>/dev/null || true
     if mountpoint -q /mnt; then
         umount -R /mnt 2>/dev/null || true
@@ -150,9 +150,9 @@ trap cleanup EXIT INT TERM
 safe_disk_cleanup() {
     [[ -z "${DEV:-}" ]] && die "safe_disk_cleanup(): DEV not set"
     echo
-    echo -e "${CYAN}#===================================================================================================#"
-    echo -e "${CYAN}# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #"
-    echo -e "${CYAN}#===================================================================================================#"
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
+    echo -e "${CYAN}# - PRE-CLEANUP: Unmounting old partitions, subvolumes, LUKS and LVM from $DEV                      #${RESET}"
+    echo -e "${CYAN}#===================================================================================================#${RESET}"
 
     # 1) Protect the live ISO device
     local iso_dev
@@ -365,7 +365,7 @@ detect_boot_mode() {
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS detected."
+        echo -e "${GREEN}Legacy BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -1132,7 +1132,7 @@ gpu_driver()
          echo "🔧 Ensuring multilib repository is enabled..."
          "${CHROOT_CMD[@]}" bash -c '
              if ! grep -q "^\[multilib\]" /etc/pacman.conf; then
-                 echo -e "${CYAN}\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
+                 echo -e "\n[multilib]\nInclude = /etc/pacman.d/mirrorlist" >> /etc/pacman.conf
              fi
              pacman -Sy --noconfirm
          '
@@ -1174,7 +1174,7 @@ window_manager() {
     case "$WM_CHOICE" in
         1)
             SELECTED_WM="hyprland"
-            echo -e "${CYAN}→ Selected: Hyprland"
+            echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
             EXTRA_PKGS=()
@@ -1182,37 +1182,37 @@ window_manager() {
             ;;
         2)
             SELECTED_WM="kde"
-            echo -e "${CYAN}→ Selected: KDE Plasma"
+            echo -e "→ Selected: KDE Plasma"
             WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
             ;;
         3)
             SELECTED_WM="gnome"
-            echo -e "${CYAN}→ Selected: GNOME"
+            echo -e "→ Selected: GNOME"
             WM_PKGS=(gnome gdm gnome-tweaks)
             ;;
         4)
             SELECTED_WM="xfce"
-            echo -e "${CYAN}→ Selected: XFCE"
+            echo -e "→ Selected: XFCE"
             WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
             ;;
         5)
             SELECTED_WM="niri"
-            echo -e "${CYAN}→ Selected: Niri"
+            echo -e "→ Selected: Niri"
             WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
             ;;
         6)
             SELECTED_WM="cinnamon"
-            echo -e "${CYAN}→ Selected: Cinnamon"
+            echo -e "→ Selected: Cinnamon"
             WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
             ;;
         7)
             SELECTED_WM="mate"
-            echo -e "${CYAN}→ Selected: Mate"
+            echo -e "→ Selected: Mate"
             WM_PKGS=(mate mate-extra)
             ;;
         8)
             SELECTED_WM="sway"
-            echo -e "${CYAN}→ Selected: Sway"
+            echo -e "→ Selected: Sway"
             WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
             ;;
         9|*)
@@ -1317,7 +1317,7 @@ echo -e "${CYAN}#===============================================================
     
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
-        echo -e "${CYAN}$entry"
+        echo -e "$entry"
     done
     echo "6) Skip Display Manager"
 
@@ -1368,7 +1368,7 @@ echo -e "${CYAN}#===============================================================
     # ---------- Enable DM service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-        echo -e "${CYAN}✅ Display manager service enabled: $DM_SERVICE"
+        echo -e "✅ Display manager service enabled: $DM_SERVICE"
     fi
 
     # ---------- Ly autologin ----------
@@ -1595,7 +1595,7 @@ quick_partition() {
     hyprland_optional
     
 
-    echo -e "${CYAN}✅ Arch Linux installation complete."
+    echo -e "✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
