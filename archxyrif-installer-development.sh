@@ -1040,7 +1040,7 @@ sleep 1
 clear
 echo
 echo -e "#===================================================================================================#"
-echo -e "# 7A) INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                   #"
+echo -e "# - INTERACTIVE MIRROR SELECTION & OPTIMIZATION                                                     #"
 echo -e "#===================================================================================================#"
 echo
 # Ensure reflector is installed in chroot
@@ -1098,14 +1098,9 @@ gpu_driver()
      clear
      echo
      echo -e "#===================================================================================================#"
-     echo -e "# 8A) GPU DRIVER INSTALLATION & MULTILIB                                                            #"
+     echo -e "# - GPU DRIVER INSTALLATION & MULTILIB                                                              #"
      echo -e "#===================================================================================================#"
      echo
-     
-     echo
-     echo -e "#========================================================#"
-     echo -e "🎮 GPU DRIVER INSTALLATION                                #"
-     echo -e "#========================================================#"
 
      echo "1) Intel"
      echo "2) NVIDIA"
@@ -1148,7 +1143,7 @@ window_manager() {
     sleep 1
     clear
     echo -e "#===================================================================================================#"
-    echo -e "# 8B) WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                #"
+    echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
     echo -e "#===================================================================================================#"
     echo
   
@@ -1162,7 +1157,7 @@ window_manager() {
     echo "8) Sway (Wayland)"
     echo "9) Skip selection"
 
-    read -r -p "Select your preferred WM/DE [1-9, default=6]: " WM_CHOICE
+    read -r -p "Select your preferred WM/DE [1-9, default=9]: " WM_CHOICE
     WM_CHOICE="${WM_CHOICE:-6}"
 
     WM_PKGS=()
@@ -1273,7 +1268,7 @@ lm_dm() {
 sleep 1
 clear
 echo -e "#===================================================================================================#"
-echo -e "# 8C) Display Manager Selection                                                                     #"
+echo -e "# -   Display Manager Selection                                                                     #"
 echo -e "#===================================================================================================#"
 
     DM_MENU=()
@@ -1398,7 +1393,7 @@ extra_pacman_pkg()
     clear
     echo
     echo -e "#===================================================================================================#"
-    echo -e "# 9A) EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                          #"
+    echo -e "# - EXTRA PACMAN PACKAGE INSTALLATION (Resilient + Safe)                                            #"
     echo -e "#===================================================================================================#"
     echo
     
@@ -1444,7 +1439,7 @@ optional_aur()
      clear
      echo
      echo -e "#===================================================================================================#"
-     echo -e "# 9B) OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                    #"
+     echo -e "# - OPTIONAL AUR PACKAGE INSTALLATION (with Conflict Handling)                                      #"
      echo -e "#===================================================================================================#"
      echo
      
@@ -1484,7 +1479,7 @@ hyprland_optional()
       clear
       echo
       echo -e "#===================================================================================================#"
-      echo -e "# 10) Hyprland Theme Setup (Optional) with .Config Backup                                           #"
+      echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                             #"
       echo -e "#===================================================================================================#"
       echo
       sleep 1
@@ -2606,30 +2601,30 @@ sleep 1
 clear
 echo
 echo -e "#===================================================================================================#"
-echo -e "# 11 Cleanup postinstall script & Final Messages & Instructions                                     #"
+echo -e "# - Cleanup postinstall script & Final Messages & Instructions                                      #"
 echo -e "#===================================================================================================#"
 echo
 echo 
-echo -e "${GREEN}Custom package installation phase complete."
-echo -e "${GREEN}You can later add more software manually or extend these lists:"
-echo -e "${GREEN}  - EXTRA_PKGS[] for pacman packages"
-echo -e "${GREEN}  - AUR_PKGS[] for AUR software"
-echo -e "${GREEN} ----------------------------------------------------------------------------------------------------"
-echo -e "${GREEN}You can now unmount and reboot:"
-echo -e "${GREEN}  umount -R /mnt"
-echo -e "${GREEN}  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo -e "${GREEN}  reboot"
+echo -e "Custom package installation phase complete."
+echo -e "You can later add more software manually or extend these lists:"
+echo -e "  - EXTRA_PKGS[] for pacman packages"
+echo -e "  - AUR_PKGS[] for AUR software"
+echo -e " ----------------------------------------------------------------------------------------------------"
+echo -e "You can now unmount and reboot:"
+echo -e "  umount -R /mnt"
+echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "  reboot"
 #Cleanup postinstall script
 rm -f /mnt/root/postinstall.sh
 #Final messages & instructions
 echo
-echo -e "${GREEN}Installation base and basic configuration finished."
-echo -e "${GREEN}To reboot into your new system:"
-echo -e "${GREEN}  umount -R /mnt"
-echo -e "${GREEN}  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
-echo -e "${GREEN}  reboot"
+echo -e "Installation base and basic configuration finished."
+echo -e "To reboot into your new system:"
+echo -e "  umount -R /mnt"
+echo -e "  swapoff ${P_SWAP} || true" # Changed from P3 to P_SWAP for consistency
+echo -e "  reboot"
 echo
-echo -e "${GREEN}Done."
+echo -e "Done."
 echo -e "#===========================================================================#"
 echo -e "# -GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88             #"
 echo -e "# -Author  : Terra88                                                        #"
