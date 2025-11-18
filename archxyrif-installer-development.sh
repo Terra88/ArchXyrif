@@ -1170,7 +1170,7 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim dunst qview)
+            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim firefox dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
             EXTRA_PKGS=()
             EXTRA_AUR_PKGS=()
@@ -1178,17 +1178,17 @@ window_manager() {
         2)
             SELECTED_WM="kde"
             echo -e "→ Selected: KDE Plasma"
-            WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm)
+            WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm firefox kitty)
             ;;
         3)
             SELECTED_WM="gnome"
             echo -e "→ Selected: GNOME"
-            WM_PKGS=(gnome gdm gnome-tweaks)
+            WM_PKGS=(gnome gdm gnome-tweaks firefox kitty)
             ;;
         4)
             SELECTED_WM="xfce"
             echo -e "→ Selected: XFCE"
-            WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter)
+            WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter firefox kitty)
             ;;
         5)
             SELECTED_WM="niri"
@@ -1198,12 +1198,12 @@ window_manager() {
         6)
             SELECTED_WM="cinnamon"
             echo -e "→ Selected: Cinnamon"
-            WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed)
+            WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed firefox kitty)
             ;;
         7)
             SELECTED_WM="mate"
             echo -e "→ Selected: Mate"
-            WM_PKGS=(mate mate-extra)
+            WM_PKGS=(mate mate-extra kitty firefox)
             ;;
         8)
             SELECTED_WM="sway"
