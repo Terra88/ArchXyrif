@@ -934,7 +934,6 @@ echo -e "UKI: Done. A unified kernel .efi should be placed in the ESP under EFI/
 # Note: Secure Boot handling and sbctl signing is NOT included here. If you need Secure Boot
 # support, ask and I will append sbctl integration so the UKI is signed automatically.
 }
-perform_uki_setup
 #=========================================================================================================================================#
 # GRUB installation
 #=========================================================================================================================================#
@@ -1658,6 +1657,9 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
+
+    perform_uki_setup
+    
     install_grub
     network_mirror_selection
     gpu_driver
@@ -2105,6 +2107,9 @@ custom_partition() {
 
     # --- Continue installation steps ---
     configure_system
+
+    perform_uki_setup
+    
     install_grub
     network_mirror_selection
     gpu_driver
@@ -2643,6 +2648,8 @@ luks_lvm_post_install_steps() {
     # chroot-level configuration
     configure_system || die "configure_system failed"
 
+    perform_uki_setup
+    
     # install grub in chroot
     install_grub || die "install_grub failed"
 
