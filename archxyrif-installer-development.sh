@@ -934,6 +934,7 @@ echo -e "UKI: Done. A unified kernel .efi should be placed in the ESP under EFI/
 # Note: Secure Boot handling and sbctl signing is NOT included here. If you need Secure Boot
 # support, ask and I will append sbctl integration so the UKI is signed automatically.
 }
+perform_uki_setup
 #=========================================================================================================================================#
 # GRUB installation
 #=========================================================================================================================================#
