@@ -881,9 +881,9 @@ echo -e "UKI: Enabling Unified Kernel Image support..."
 ESP_MOUNTPOINT="/mnt/boot" # change if your ESP is mounted elsewhere (e.g. /mnt/efi)
 if ! mountpoint -q "$ESP_MOUNTPOINT"; then
 echo -e "UKI: expected ESP to be mounted at $ESP_MOUNTPOINT. Trying common locations..."
-if mountpoint -q /mnt/efi; then
-ESP_MOUNTPOINT="/mnt/efi"
-echo -e "UKI: using /mnt/efi as ESP mountpoint."
+if mountpoint -q /mnt/boot/efi; then
+ESP_MOUNTPOINT="/mnt/boot/efi"
+echo -e "UKI: using /mnt/boot/efi as ESP mountpoint."
 else
 echo -e "UKI: No ESP mount found. Please ensure ESP is mounted before calling perform_uki_setup."
 return 1
