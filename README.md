@@ -50,6 +50,7 @@ Pacman -Sy git ->
 git clone https://GitHub.com/terra88/archxyrif
 3.Open file directory:
 -> cd archxyrif
+<br>
 4.Give user rights to the file:
 -> chmod +x ./archxyrif-install.sh
 5.Launch the installer:
