@@ -111,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "${YELLOW}ERROR: $*" >&2
+    echo -e "ERROR: $*" >&2
     exit 1
 }
 
@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "${CYAN}UEFI detected.${RESET}"
+        echo -e "UEFI detected."
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
+        echo -e "Legacy BIOS detected."
     fi
 }
 #=========================================================================================================================================#
@@ -856,6 +856,83 @@ chmod +x /mnt/root/postinstall.sh
 arch-chroot /mnt /root/postinstall.sh
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
+}
+perform_uki_setup() {
+# Only attempt for UEFI installs
+if [[ "$BOOT_MODE" != "UEFI" ]]; then
+echo -e "UKI: Skipping — boot mode is not UEFI (BOOT_MODE=$BOOT_MODE)."
+return 0
+fi
+
+
+read -rp $'Enable Unified Kernel Image (UKI) support? [y/N]: ' enable_uki
+enable_uki=${enable_uki,,}
+if [[ "$enable_uki" != "y" && "$enable_uki" != "yes" ]]; then
+echo -e "UKI: user declined. Proceeding without UKI."
+return 0
+fi
+
+
+echo -e "UKI: Enabling Unified Kernel Image support..."
+
+
+# Ensure ESP is mounted at expected path inside target (adjust if your script uses a different mountpoint)
+ESP_MOUNTPOINT="/mnt/boot" # change if your ESP is mounted elsewhere (e.g. /mnt/efi)
+if ! mountpoint -q "$ESP_MOUNTPOINT"; then
+echo -e "UKI: expected ESP to be mounted at $ESP_MOUNTPOINT. Trying common locations..."
+if mountpoint -q /mnt/efi; then
+ESP_MOUNTPOINT="/mnt/efi"
+echo -e "UKI: using /mnt/efi as ESP mountpoint."
+else
+echo -e "UKI: No ESP mount found. Please ensure ESP is mounted before calling perform_uki_setup."
+return 1
+fi
+fi
+
+
+# Install required packages inside chroot
+arch_chroot_cmd() { arch-chroot /mnt "$@"; }
+
+
+echo -e "UKI: Installing required packages (systemd, mkinitcpio, sdboot/kernel-install helpers)..."
+pacman -Sy --noconfirm --needed systemd mkinitcpio linux linux-headers sdboot
+
+
+# Backup and tweak mkinitcpio.conf inside /mnt
+if [[ -f /mnt/etc/mkinitcpio.conf ]]; then
+cp -n /mnt/etc/mkinitcpio.conf /mnt/etc/mkinitcpio.conf.uki.bak || true
+# Ensure systemd and sd-vconsole hooks exist (best-effort, preserves order as much as possible)
+arch_chroot_cmd bash -c "
+awk 'BEGIN{h=0} /^(HOOKS=)/{print; h=1; next} {print} END{if(!h) print \"HOOKS=(base systemd autodetect sd-vconsole modconf block filesystems keyboard fsck)\"}' /etc/mkinitcpio.conf > /tmp/mkinitcpio.conf.tmp && mv /tmp/mkinitcpio.conf.tmp /etc/mkinitcpio.conf
+"
+fi
+
+
+echo -e "UKI: Regenerating initramfs presets..."
+arch_chroot_cmd mkinitcpio -P
+
+
+echo -e "UKI: Installing systemd-boot to the ESP..."
+arch_chroot_cmd bootctl --esp-path "${ESP_MOUNTPOINT#/mnt}" install || arch_chroot_cmd bootctl install
+
+
+# Configure kernel-install to produce UKI
+cat > /mnt/etc/kernel/install.conf <<EOF
+layout=uki
+esp_path=${ESP_MOUNTPOINT#/mnt}
+EOF
+
+
+echo -e "UKI: Generating unified kernel image via kernel-install..."
+# Add currently-installed kernel to trigger kernel-install inside chroot
+arch_chroot_cmd kernel-install add linux /boot/vmlinuz-linux || echo -e "UKI: kernel-install add failed — you may need to run this manually inside chroot."
+
+
+echo -e "UKI: Done. A unified kernel .efi should be placed in the ESP under EFI/Linux/."
+
+
+# Note: Secure Boot handling and sbctl signing is NOT included here. If you need Secure Boot
+# support, ask and I will append sbctl integration so the UKI is signed automatically.
 }
 #=========================================================================================================================================#
 # GRUB installation
