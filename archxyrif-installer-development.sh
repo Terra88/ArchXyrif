@@ -2128,24 +2128,97 @@ CHROOT_EOF
 # master flow for option 3 (interactive multiple disks)
 # ----------------------------
 luks_lvm_master_flow() {
-    # first disk
+    echo "→ Starting LUKS+LVM interactive installation flow..."
+
+    # === First disk ===
+    echo "→ Configuring first disk (requires boot partition if desired)..."
     luks_lvm_route || die "First luks_lvm_route failed"
 
-    # optional additional disks (allows adding PVs to existing VG or creating new VGs)
-    while true; do
-        read -rp "Do you want to edit another disk for LUKS/LVM? (Y/n): " ans
-        ans="${ans:-n}"
-        case "$ans" in
-            [Yy])
-                luks_lvm_route || die "luks_lvm_route failed for another disk"
-                ;;
-            [Nn]) break ;;
-            *) echo "Please answer Y or n." ;;
-        esac
+    # Ask for additional disks
+    while ask_yesno_default "Do you want to add/configure another disk for LUKS/LVM? [y/N]:" "N"; do
+        echo "→ Configuring additional disk (boot partition optional)..."
+        # skip boot partition for additional disks
+        luks_lvm_route_skip_boot() {
+            detect_boot_mode
+            echo "Available block devices (disks):"
+            lsblk -d -o NAME,SIZE,MODEL,TYPE
+            ask_disk
+
+            echo "WARNING: This will ERASE ALL DATA on $DEV"
+            ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted by user."; return 1; }
+
+            safe_disk_cleanup
+            ps=$(part_suffix "$DEV")
+            echo "→ Writing GPT to $DEV"
+            parted -s "$DEV" mklabel gpt || die "mklabel failed"
+
+            PART_BOOT=""
+            PART_LUKS=""
+            RAW_PARTS=()
+
+            # Ask if user wants additional raw partitions
+            if ask_yesno_default "Do you want to manually create partitions on this disk? [Y/n]:" "Y"; then
+                idx=$(( $(lsblk -ln "$DEV" | wc -l) ))
+                while true; do
+                    read -rp "Size of new partition in MiB (0 for remaining space, empty to finish): " part_size
+                    [[ -z "$part_size" ]] && break
+                    [[ "$part_size" -eq 0 ]] && part_size=100%
+                    read -rp "Filesystem type (ext4,btrfs,xfs,f2fs) [ext4]: " fstype; fstype="${fstype:-ext4}"
+                    start=$(parted -m "$DEV" unit MiB print free | awk -F: 'NR==1{print $2}' | tr -d 'MiB')
+                    end=$((start+part_size))
+                    parted -s "$DEV" mkpart primary "$fstype" "${start}MiB" "${end}MiB" || { echo "Partition creation failed"; continue; }
+                    RAW_PARTS+=("${DEV}${ps}$((idx+1))")
+                    ((idx++))
+                done
+            fi
+
+            partprobe "$DEV"; udevadm settle --timeout=5
+
+            # Select PV(s)
+            echo "→ Available partitions for LVM PV creation:"
+            for i in "${!RAW_PARTS[@]}"; do
+                printf "  %2d) %s\n" "$((i+1))" "${RAW_PARTS[i]}"
+            done
+            read -rp "Select partition(s) to use as main PV(s) (comma-separated, default last partition): " sel
+            sel="${sel:-$(( ${#RAW_PARTS[@]} ))}"
+            IFS=',' read -ra PV_SELECTION <<< "$sel"
+            MAIN_PVS=()
+            for p in "${PV_SELECTION[@]}"; do
+                p="${p// /}"
+                MAIN_PVS+=("${RAW_PARTS[$((p-1))]}")
+            done
+
+            # Encrypt PVs if desired
+            for pv in "${MAIN_PVS[@]}"; do
+                if ask_yesno_default "Encrypt $pv with LUKS2? [Y/n]:" "Y"; then
+                    cryptsetup luksFormat --type luks2 "$pv" || die "LUKS format failed on $pv"
+                    read -rp "Name for mapped device (default cryptlvm): " cryptname; cryptname="${cryptname:-cryptlvm}"
+                    cryptsetup open "$pv" "$cryptname" || die "cryptsetup open failed"
+                    BASE_DEVICE="/dev/mapper/$cryptname"
+                else
+                    BASE_DEVICE="$pv"
+                fi
+            done
+
+            # Ask VG name, create/extend
+            read -rp "Volume Group name (default vg0): " VGNAME; VGNAME="${VGNAME:-vg0}"
+            if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+                vgextend "$VGNAME" "${BASE_DEVICE}" || die "vgextend failed"
+            else
+                vgcreate "$VGNAME" "${BASE_DEVICE}" || die "vgcreate failed"
+            fi
+            vgchange -ay "$VGNAME"
+
+            echo "→ Completed configuration for additional disk $DEV"
+        }
+
+        luks_lvm_route_skip_boot || die "Additional disk luks_lvm_route failed"
     done
 
-    # single post-install run
-    luks_lvm_post_install_steps
+    # Post-install
+    luks_lvm_post_install_steps || die "Post-install steps failed"
+
+    echo "→ Multi-disk LUKS+LVM setup complete!"
 }
 wait_for_lv() {
     local dev="$1"
@@ -2160,370 +2233,191 @@ wait_for_lv() {
 #=====================================================================================================================================#
 # LUKS LV
 #=====================================================================================================================================#
-# -------------------------------------------------------------------------
-# Option 3: LUKS + LVM guided route
-# -------------------------------------------------------------------------
-# ----------------------------
-# luks_lvm_route
-# Interactive, safe LUKS+LVM partitioning for a single disk
-# - supports BIOS and UEFI
-# - creates ESP (UEFI) or bios_grub + /boot (BIOS)
-# - optional LUKS on the large partition, optional LVM inside
-# - robust re-prompting for user input
-# ----------------------------
+# ================================
+# Robust Interactive LUKS+LVM Flow
+# ================================
+# ================================
+# Option 3: LUKS + LVM interactive multi-disk flow
+# ================================
 luks_lvm_route() {
     detect_boot_mode
 
-    echo "Available block devices (disks):"
-    lsblk -d -o NAME,SIZE,MODEL,TYPE
+    declare -a DISKS_SELECTED=()
+    local CONTINUE_DISK=1
 
-    # helper re-prompt functions
-    ask_disk() {
+    while (( CONTINUE_DISK )); do
+        echo "Available block devices:"
+        lsblk -d -o NAME,SIZE,MODEL,TYPE
+
+        # --- Ask for target disk ---
         while true; do
-            read -rp "Enter target disk (example /dev/sda or nvme0n1): " _d
-            _d="/dev/${_d##*/}"
-            [[ -b "$_d" ]] && { DEV="$_d"; return 0; }
-            echo "Invalid block device: '$_d'. Try again."
+            read -rp "Enter target disk (e.g., /dev/sda, nvme0n1): " DEV
+            DEV="/dev/${DEV##*/}"
+            [[ -b "$DEV" ]] && break
+            echo "Invalid disk. Try again."
         done
-    }
-ask_yesno_default() {
-    local prompt="$1"
-    local def="${2:-N}"
-    local ans
-    while true; do
-        read -rp "$prompt " ans
-        ans="${ans:-$def}"
-        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
-        case "$ans_upper" in
-            Y|YES) return 0 ;;   # success = yes
-            N|NO)  return 1 ;;   # failure = no
-            *) echo "Please answer Y or N." ;;
-        esac
-    done
-}
-    ask_nonempty() {
-        local prompt="$1" val
-        while true; do
-            read -rp "$prompt" val
-            [[ -n "$val" ]] && { REPLY="$val"; return 0; }
-            echo "Cannot be empty."
-        done
-    }
-    ask_lv_size() {
-        # basic validation for LVM size: accept 40G, 512M, 10%VG, 100%FREE
-        local prompt="${1:-Size (40G, 512M, 10%VG, 100%FREE) [100%FREE]: }" ans
-        while true; do
-            read -rp "$prompt" ans
-            ans="${ans:-100%FREE}"
-            if [[ "$ans" =~ ^([0-9]+G|[0-9]+M|[0-9]+%VG|[0-9]+%FREE|100%FREE)$ ]]; then
-                REPLY="$ans"
-                return 0
+
+        echo "WARNING: ALL DATA on $DEV will be erased."
+        ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted."; return 1; }
+
+        safe_disk_cleanup "$DEV"
+
+        ps=$(part_suffix "$DEV")
+        PART_BOOT=""   # /boot or ESP
+        PART_LUKS=""   # main partition for PV
+        PART_GRUB_BIOS=""
+
+        # --- Boot partition option ---
+        if ask_yesno_default "Create boot partition on this disk? [Y/n]:" "Y"; then
+            if [[ "$MODE" == "UEFI" ]]; then
+                echo "→ Creating 1MiB..1025MiB EFI partition"
+                parted -s "$DEV" mklabel gpt
+                parted -s "$DEV" mkpart primary fat32 1MiB 1025MiB
+                parted -s "$DEV" set 1 esp on
+                PART_BOOT="${DEV}${ps}1"
+                parted -s "$DEV" mkpart primary 1026MiB 100%
+                PART_LUKS="${DEV}${ps}2"
+                mkfs.fat -F32 "$PART_BOOT"
+            else
+                echo "→ Creating BIOS boot + /boot + main partition"
+                parted -s "$DEV" mklabel gpt
+                parted -s "$DEV" mkpart primary 1MiB 2MiB
+                parted -s "$DEV" set 1 bios_grub on
+                PART_GRUB_BIOS="${DEV}${ps}1"
+                parted -s "$DEV" mkpart primary 2MiB 514MiB
+                PART_BOOT="${DEV}${ps}2"
+                parted -s "$DEV" mkpart primary 515MiB 100%
+                PART_LUKS="${DEV}${ps}3"
+                mkfs.ext4 -F "$PART_BOOT"
             fi
-            if [[ "$ans" =~ ^[0-9]+$ ]]; then
-                REPLY="${ans}G"; return 0
-            fi
-            echo "Invalid LVM size format."
-        done
-    }
-    ask_mountpoint() {
-        local prompt="${1:-Mountpoint (/, /home, swap, /data, none): }" ans
-        while true; do
-            read -rp "$prompt" ans
-            ans="${ans:-none}"
-            case "$ans" in
-                /|/home|/boot|/efi|/boot/efi|swap|none|/data*|/srv|/opt) REPLY="$ans"; return 0 ;;
-                *) echo "Invalid mountpoint. Allowed: / /home /boot /efi /boot/efi swap none /dataX /srv /opt" ;;
-            esac
-        done
-    }
-    ask_fs() {
-        local prompt="${1:-Filesystem (ext4,btrfs,xfs,f2fs) [ext4]: }" ans
-        while true; do
-            read -rp "$prompt" ans
-            ans="${ans:-ext4}"
-            case "$ans" in
-                ext4|btrfs|xfs|f2fs) REPLY="$ans"; return 0 ;;
-                *) echo "Invalid fs. Choose ext4,btrfs,xfs,f2fs" ;;
-            esac
-        done
-    }
-
-    # start
-    ask_disk
-    echo "WARNING: This will ERASE ALL DATA on $DEV"
-    ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted by user."; return 1; }
-
-    # verify required system tools exist in live env
-    for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat; do
-        if ! command -v "$cmd" >/dev/null 2>&1; then
-            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted) and retry."
-            return 1
+        else
+            echo "→ Skipping boot partition for this disk."
+            parted -s "$DEV" mklabel gpt
+            parted -s "$DEV" mkpart primary 1MiB 100%
+            PART_LUKS="${DEV}${ps}1"
         fi
-    done
-
-    safe_disk_cleanup
-
-    ps=$(part_suffix "$DEV")
-    echo "→ Writing GPT to $DEV"
-    parted -s "$DEV" mklabel gpt || die "mklabel failed"
-
-    PART_BOOT=""   # path to boot/esp partition (unencrypted)
-    PART_LUKS=""   # path to big partition that will be LUKS or PV
-    PART_GRUB_BIOS=""
-
-    if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP and main partition"
-        parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "mkpart ESP failed"
-        parted -s "$DEV" set 1 esp on || die "set esp failed"
-        PART_BOOT="${DEV}${ps}1"
-        parted -s "$DEV" unit MiB mkpart primary 1026MiB 100% || die "mkpart main failed"
-        PART_LUKS="${DEV}${ps}2"
 
         partprobe "$DEV"; udevadm settle --timeout=5
 
-        # create esp filesystem now
-        mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed on $PART_BOOT"
-    else
-        echo "→ MODE=BIOS: creating bios_grub (1MiB), /boot (512MiB), and main partition"
-        parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "mkpart bios_grub failed"
-        parted -s "$DEV" set 1 bios_grub on || die "set bios_grub failed"
-        PART_GRUB_BIOS="${DEV}${ps}1"
-
-        parted -s "$DEV" unit MiB mkpart primary 2MiB 514MiB || die "mkpart /boot failed"
-        PART_BOOT="${DEV}${ps}2"
-
-        parted -s "$DEV" unit MiB mkpart primary 515MiB 100% || die "mkpart main failed"
-        PART_LUKS="${DEV}${ps}3"
-
-        partprobe "$DEV"; udevadm settle --timeout=5
-
-        mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed on $PART_BOOT"
-    fi
-
-    [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
-
-    # Ask whether to encrypt main partition
-    if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
-        ENCRYPTION_ENABLED=1
-        if ask_yesno_default "Use LUKS2 (recommended)? [Y/n]:" "Y"; then
+        # --- LUKS encryption ---
+        if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
+            ENCRYPTION_ENABLED=1
             cryptsetup luksFormat --type luks2 "$PART_LUKS" || die "luksFormat failed"
+            while true; do
+                read -rp "Name for mapped device (default cryptlvm): " cryptname
+                cryptname="${cryptname:-cryptlvm}"
+                [[ ! -e "/dev/mapper/$cryptname" ]] && break
+                echo "Mapper $cryptname exists. Choose another."
+            done
+            LUKS_MAPPER_NAME="$cryptname"
+            cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME"
+            BASE_DEVICE="/dev/mapper/${LUKS_MAPPER_NAME}"
+            LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS")
         else
-            cryptsetup luksFormat "$PART_LUKS" || die "luksFormat failed"
+            ENCRYPTION_ENABLED=0
+            BASE_DEVICE="$PART_LUKS"
         fi
 
-        # ask mapper name and ensure uniqueness
+        # --- Volume Group ---
         while true; do
-            read -rp "Name for mapped device (default cryptlvm): " cryptname
-            cryptname="${cryptname:-cryptlvm}"
-            if [[ -e "/dev/mapper/$cryptname" ]]; then
-                echo "/dev/mapper/$cryptname exists — choose another"
-                continue
-            fi
-            break
+            read -rp "Volume Group name (default vg0): " VGNAME
+            VGNAME="${VGNAME:-vg0}"
+            [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+            echo "Invalid VG name."
         done
 
-        LUKS_MAPPER_NAME="$cryptname"
-        cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
-        BASE_DEVICE="/dev/mapper/${LUKS_MAPPER_NAME}"
-        LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS" || true)
-    else
-        ENCRYPTION_ENABLED=0
-        BASE_DEVICE="$PART_LUKS"
-    fi
-
-    echo "→ Creating PV on $BASE_DEVICE"
-    pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
-
-    # ask VG name and create/extend
-    while true; do
-        read -rp "Volume Group name (default vg0): " VGNAME
-        VGNAME="${VGNAME:-vg0}"
-        if [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then break; fi
-        echo "Invalid VG name."
-    done
-
-    if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-        if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
-            vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+            if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
+                if check_block_size_compatibility "$BASE_DEVICE" "$VGNAME"; then
+                    vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+                else
+                    echo "Block size incompatible. Creating a new VG."
+                    while true; do
+                        read -rp "New VG name: " VGNAME
+                        VGNAME="${VGNAME:-vg0}"
+                        [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+                        echo "Invalid name."
+                    done
+                    vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+                fi
+            else
+                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+            fi
         else
-            while true; do
-                read -rp "New VG name: " VGNAME
-                VGNAME="${VGNAME:-vg0}"
-                [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-                echo "Invalid name"
-            done
             vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
         fi
-    else
-        vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-    fi
 
-    vgscan --mknodes
-    vgchange -ay "$VGNAME" || die "vgchange -ay failed"
+        vgscan --mknodes; vgchange -ay "$VGNAME"
 
-    # Interactively create LVs (re-prompt on invalid input)
-    LV_NAMES=()
-    LV_SIZES=()
-    LV_FSS=()
-    LV_MOUNTS=()
-
-    echo
-    echo "Create logical volumes. Enter empty LV name to finish."
-    while true; do
-        read -rp "LV name (empty to finish): " lvname
-        lvname="${lvname// /}"
-        [[ -z "$lvname" ]] && break
-        if ! [[ "$lvname" =~ ^[a-zA-Z0-9._-]+$ ]]; then
-            echo "Invalid LV name."
-            continue
-        fi
-
-        ask_lv_size
-        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
-
-        ask_mountpoint
-        lvmnt="${REPLY:-none}"
-
-        if [[ "$lvmnt" == "/" ]]; then
-            LVM_ROOT_LV_NAME="$lvname"
-        fi
-
-        if [[ "$lvmnt" == "swap" ]]; then
-            lvfs="swap"
-        else
-            ask_fs
-            lvfs="$REPLY"
-        fi
-
-        LV_NAMES+=("$lvname")
-        LV_SIZES+=("$lvsize")
-        LV_FSS+=("$lvfs")
-        LV_MOUNTS+=("$lvmnt")
-    done
-
-    if [[ ${#LV_NAMES[@]} -eq 0 ]]; then
-        die "No LVs defined; aborting."
-    fi
-
-    # create LVs; if lvcreate fails, allow retry/adjust
-    for idx in "${!LV_NAMES[@]}"; do
-        name="${LV_NAMES[idx]}"
-        size="${LV_SIZES[idx]}"
-    
+        # --- Logical Volumes ---
+        LV_NAMES=(); LV_SIZES=(); LV_FSS=(); LV_MOUNTS=()
+        echo "Define logical volumes (empty LV name to finish)"
         while true; do
-    
-            # Detect percentage-based sizes → must use -l (extents)
-            if [[ "$size" =~ % ]]; then
-                LVCREATE_CMD=(lvcreate -l "$size" "$VGNAME" -n "$name")
+            read -rp "LV name: " lvname
+            [[ -z "$lvname" ]] && break
+            [[ "$lvname" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid LV name."; continue; }
+
+            ask_lv_size "Size (40G, 100%FREE): "
+            lvsize="$REPLY"
+            ask_mountpoint "Mountpoint (/ , /home, swap, none): "
+            lvmnt="$REPLY"
+
+            if [[ "$lvmnt" == "swap" ]]; then
+                lvfs="swap"
             else
-                LVCREATE_CMD=(lvcreate -L "$size" "$VGNAME" -n "$name")
+                ask_fs "Filesystem (ext4,btrfs,xfs,f2fs) [ext4]: "
+                lvfs="$REPLY"
             fi
-    
-            # Attempt LV creation
-            if "${LVCREATE_CMD[@]}" 2>/tmp/lvcreate.err; then
-                break
-            fi
-    
-            echo "lvcreate failed for $name (size=$size):"
-            sed -n '1,200p' /tmp/lvcreate.err
-    
-            read -rp "Retry with new size? (y to retry / n to abort) [y]: " r
-            r="${r:-y}"
-    
-            case "$r" in
-                [Yy])
-                    ask_lv_size "New size for $name: "
-                    size="$REPLY"
-                    ;;
-                [Nn])
-                    die 'User aborted LV creation.'
-                    ;;
-                *)
-                    echo "Please answer y or n."
-                    ;;
-            esac
+
+            LV_NAMES+=("$lvname")
+            LV_SIZES+=("$lvsize")
+            LV_FSS+=("$lvfs")
+            LV_MOUNTS+=("$lvmnt")
         done
-    done
 
-    udevadm settle --timeout=5
+        # --- Create & mount LVs ---
+        for idx in "${!LV_NAMES[@]}"; do
+            name="${LV_NAMES[idx]}"
+            size="${LV_SIZES[idx]}"
+            lvpath="/dev/${VGNAME}/${name}"
+            if [[ "$size" =~ % ]]; then
+                lvcreate -l "$size" "$VGNAME" -n "$name" || die "lvcreate failed"
+            else
+                lvcreate -L "$size" "$VGNAME" -n "$name" || die "lvcreate failed"
+            fi
 
-    # Format & mount LVs: root first
-    mkdir -p /mnt
-    root_index=""
-    for i in "${!LV_MOUNTS[@]}"; do
-        [[ "${LV_MOUNTS[i]}" == "/" ]] && { root_index="$i"; break; }
-    done
+            # Format
+            case "${LV_FSS[idx]}" in
+                ext4) mkfs.ext4 -F "$lvpath" ;;
+                btrfs) mkfs.btrfs -f "$lvpath" ;;
+                xfs) mkfs.xfs -f "$lvpath" ;;
+                f2fs) mkfs.f2fs -f "$lvpath" ;;
+                swap) mkswap "$lvpath"; swapon "$lvpath"; continue ;;
+            esac
 
-    format_and_mount_lv() {
-        local idx="$1"
-        local name="${LV_NAMES[idx]}"
-        local fs="${LV_FSS[idx]}"
-        local mnt="${LV_MOUNTS[idx]}"
-        local lvpath="/dev/${VGNAME}/${name}"
+            # Mount
+            mnt="${LV_MOUNTS[idx]}"
+            [[ "$mnt" == "none" ]] && continue
+            [[ "$mnt" == "/" ]] && mkdir -p /mnt
+            [[ "$mnt" == "/boot/efi" ]] && mkdir -p /mnt/boot/efi
+            [[ "$mnt" != "/" ]] && mkdir -p "/mnt${mnt}"
+            mount "$lvpath" "/mnt${mnt}" || die "mount failed"
+        done
 
-        wait_for_lv "$lvpath" || die "LV $lvpath not available"
+        # --- Export globals for post-install ---
+        export LVM_VG_NAME="$VGNAME"
+        export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-}"
+        export LUKS_PART_UUID="${LUKS_PART_UUID:-}"
+        export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
+        export PART_BOOT="${PART_BOOT:-}"
+        export PART_LUKS="${PART_LUKS:-$PART_LUKS}"
 
-        if [[ "$fs" == "swap" || "$mnt" == "swap" ]]; then
-            mkswap "$lvpath" || die "mkswap failed on $lvpath"
-            swapon "$lvpath" || die "swapon failed on $lvpath"
-            P_SWAP="$lvpath"
-            return 0
+        # --- Multi-disk ---
+        if ! ask_yesno_default "Edit another disk? [y/N]:" "N"; then
+            CONTINUE_DISK=0
         fi
-
-        case "$fs" in
-            ext4) mkfs.ext4 -F "$lvpath" ;;
-            btrfs) mkfs.btrfs -f "$lvpath" ;;
-            xfs) mkfs.xfs -f "$lvpath" ;;
-            f2fs) mkfs.f2fs -f "$lvpath" ;;
-            *) die "Unsupported FS $fs" ;;
-        esac
-
-        case "$mnt" in
-            /)
-                if [[ "$fs" == "btrfs" ]]; then
-                    mount "$lvpath" /mnt || die "mount $lvpath /mnt failed"
-                    btrfs subvolume create /mnt/@ || true
-                    umount /mnt || true
-                    mount -o subvol=@,compress=zstd "$lvpath" /mnt || die "btrfs mount failed"
-                else
-                    mount "$lvpath" /mnt || die "mount $lvpath /mnt failed"
-                fi
-                P_ROOT="$lvpath"
-                ;;
-            /home)
-                mkdir -p /mnt/home; mount "$lvpath" /mnt/home || die "mount failed"; P_HOME="$lvpath" ;;
-            /boot)
-                mkdir -p /mnt/boot; mount "$lvpath" /mnt/boot || die "mount failed"; P_BOOT="$lvpath" ;;
-            /efi|/boot/efi)
-                mkdir -p /mnt/boot/efi; mount "$lvpath" /mnt/boot/efi || die "mount failed"; P_EFI="$lvpath" ;;
-            /data*|/srv|/opt)
-                mkdir -p "/mnt${mnt}"; mount "$lvpath" "/mnt${mnt}" || die "mount failed" ;;
-            none) ;; # skip
-            *)
-                mkdir -p "/mnt${mnt}"; mount "$lvpath" "/mnt${mnt}" || die "mount failed" ;;
-        esac
-    }
-
-    if [[ -n "$root_index" ]]; then
-        format_and_mount_lv "$root_index"
-    fi
-    for i in "${!LV_NAMES[@]}"; do
-        [[ -n "$root_index" && "$i" -eq "$root_index" ]] && continue
-        format_and_mount_lv "$i"
     done
-
-    # store common globals for post-install step
-    export LVM_VG_NAME="$VGNAME"
-    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
-    export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
-    export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
-    export PART_BOOT="${PART_BOOT:-}"
-    export PART_LUKS="${PART_LUKS:-$PART_LUKS}"
-
-    echo "→ Completed LUKS+LVM route for $DEV"
-    return 
 }
-
 # ----------------------------
 # luks_lvm_post_install_steps
 # Consumes the globals exported by luks_lvm_route()
@@ -2582,33 +2476,36 @@ luks_lvm_post_install_steps() {
 # Main menu
 #=========================================================================================================================================#
 menu() {
-clear
-logo
-            echo -e "#==================================================#"
-            echo -e "#     Select partitioning method for $DEV:         #"
-            echo -e "#==================================================#"
-            echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-3) Lvm & Luks Partitioning                       |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-4) Exit                                          |"
-            echo -e "#==================================================#"
-            read -rp "Enter choice [1-4]: " INSTALL_MODE
-            case "$INSTALL_MODE" in
-                1) quick_partition ;;
-                2) custom_partition ;;
-                3) luks_lvm_master_flow ;;
-                4) echo "Exiting..."; exit 0 ;;
-                *) echo "Invalid choice"; menu ;;
-            esac
+    clear
+    logo
+    echo -e "#======================================================#"
+    echo -e "#     Select partitioning method for $DEV:             #"
+    echo -e "#======================================================#"
+    echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)      |"
+    echo -e "|------------------------------------------------------|"
+    echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)      |"
+    echo -e "|------------------------------------------------------|"
+    echo -e "|-3) LVM & LUKS Partitioning (Interactive, multi-disk) |"
+    echo -e "|------------------------------------------------------|"
+    echo -e "|-4) Exit                                              |"
+    echo -e "#======================================================#"
+    read -rp "Enter choice [1-4]: " INSTALL_MODE
+    case "$INSTALL_MODE" in
+        1) quick_partition ;;
+        2) custom_partition ;;
+        3)
+            luks_lvm_route || die "LUKS+LVM setup failed"
+            luks_lvm_post_install_steps || die "Post-install steps failed"
+            ;;
+        4) echo "Exiting..."; exit 0 ;;
+        *) echo "Invalid choice"; menu ;;
+    esac
 }
 #=========================================================================================================================================#
 # Menu - This is where the first call to Menu Happens.
 #=========================================================================================================================================#
-menu # PROGRAM START !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-#=========================================================================================================================================#                  
+menu # PROGRAM START
+#=========================================================================================================================================#
 sleep 1
 clear
 echo
