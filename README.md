@@ -1,27 +1,59 @@
 # ArchXyrif - Semi-Automated & Interactive Install Script, With guided steps, to install Archlinux with. 
 <img width="723" height="360" alt="2025-11-08-145308_hyprshot" src="https://github.com/user-attachments/assets/a2f2e2a3-0c51-442c-80fa-5af7de453cd1" />
-Warning! this is an install tool, that will format and repartition your system. Handle with care.<br><br>
-
-
-UEFI/Bios Support. <br>
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
-Aim of the project:<br> 
-Is to create a semi-automated script, that will help you install Arch Linux, semi-automatically. The program will guide you through the installation and stop with prompts step by step.<br>
-<br>1)Partition, set root/home size manually, currently EXT4 or btrfs 2) Installing bare minimum build with pacstrap 3) Ask for user/host informations and set user/root pw, sets up basic services.
-<br>
-Optional: [y/n] options: 4) Guides you through GPU driver/Window manager/Login manager setup with simple "example: (1.Intel,2.Nvidia,3.AMD,4.All drivers,5.Skip) options" 5) asks if you want to install extra Pacman or AUR packages y/n and finishes the install.
-<br><br>
-HOW TO USE: Create a USB Boot Stick with Balena Etcher & Iso file from: https://archlinux.org/download/ <br>
-Set USB Boot to 1st priority from startup menu f2/del and Restart to Boot Archlinux Bootable installer ISO(USB Media)<br>
-Make sure you have internet connection turned on.<br>
-Type:<br>
-loadkeys fi or en etc. depending your keyboard language/layout.
-<br>
-git clone https://github.com/terra88/archXyrif <br>
-cd archxyrif <br>
-chmod +x archxyrif-installer.sh <br>
-./archxyrif-installer.sh <br> <br>
+Aim of the Project:
 
+ArchXyrif aims to provide a semi-automated, interactive, and guided installation experience for Arch Linux.
+Instead of performing everything manually, ArchXyrif walks the user through each stage of the installation with prompts, menu selections, optional features, and error-handling.
 
+It is designed to:
+
+simplify the Arch installation process
+
+remain fully transparent and interactive
+
+offer both quick-install and advanced paths
+
+support BIOS & UEFI, encryption, quick(simplified) & custom partitioning(manual), and system customization.
+
+You can either use:
+-Quick format/partition to:
+Give selected drive size to root/home folder and select if swap is on or off. Then select from ext4 or btrfs filesystems.
+
+-Custom format/partition path, select disk manually, create partitions manually, give them mountpoints manually and format the drive or multiple drives to ext4, btrfs, xfs or f2fs.
+
+-Then there is a route for creating lv/Luks drives and give logical volumes mountpoints.
+
+⚠️ Important Warning
+
+This script formats and partitions disks, unmounts, removes disk layouts and encryptions before new installation.
+Use with caution.
+
+How to Use ArchXyrif
+--------------------
+1. loadkeys fi or en etc. depending your keyboard language/layout. 
+
+2. Create a Bootable USB
+
+3. Use Balena Etcher or another tool to flash the latest Arch Linux ISO on a USB drive:
+https://archlinux.org/download/
+
+4. Change your bootable device priority on USB, launch the Arch Linux Installation media. Make sure you are connecter to the internet.
+
+How to use the actual installer after booting up:
+-------------------------------------------
+1.Install git
+Pacman -Sy git ->
+2.Use got clone:
+git clone https://GitHub.com/terra88/archxyrif
+3.Open file directory:
+-> cd archxyrif
+4.Give user rights to the file:
+-> chmod +x ./archxyrif-install.sh
+5.Launch the installer:
+-> ./archxyrif-install.sh
+--------------------------------------------
+
+More info:
 https://github.com/Terra88/ArchXyrif/wiki/%F0%9F%93%98-ArchXyrif-%E2%80%93-Arch-Linux-Semi%E2%80%90Automated-Install-Script#wiki-pages-box
