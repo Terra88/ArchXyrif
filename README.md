@@ -1,4 +1,4 @@
-# ArchXyrif - Semi-Automated & Interactive Install Script, With guided steps, to install Archlinux with. 
+ó# ArchXyrif - Semi-Automated & Interactive Install Script, With guided steps, to install Archlinux with. 
 <img width="723" height="360" alt="2025-11-08-145308_hyprshot" src="https://github.com/user-attachments/assets/a2f2e2a3-0c51-442c-80fa-5af7de453cd1" />
 GNU GENERAL PUBLIC LICENSE Version 3License - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
@@ -32,7 +32,8 @@ Use with caution.
 
 How to Use ArchXyrif
 --------------------
-1. loadkeys fi or en etc. depending your keyboard language/layout. 
+1. loadkeys fi or en etc.
+depending your keyboard language/layout. 
 
 2. Create a Bootable USB
 
@@ -43,7 +44,7 @@ https://archlinux.org/download/
 
 How to use the actual installer after booting up:
 -------------------------------------------
-1.Install git
+1.Install git:
 Pacman -Sy git ->
 2.git clone:
 git clone https://GitHub.com/terra88/archxyrif
