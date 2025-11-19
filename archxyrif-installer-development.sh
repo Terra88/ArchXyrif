@@ -86,6 +86,7 @@ BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
 EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
+BOOT_MODE=""
 #-------------------LV-LUKS-----------------------------------#
 ENCRYPTION_ENABLED=0 # 0=false, 1=true
 LUKS_PART_UUID=""
