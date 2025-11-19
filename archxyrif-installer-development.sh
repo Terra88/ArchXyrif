@@ -53,7 +53,7 @@ echo -e "|-8A)GPU-Guided install             |----------------------------------
 echo -e "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo -e "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo -e "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
+echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و  (◣◢)ψ      |"
 echo -e "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo -e "#===================================================================================================#"
 }
