@@ -86,7 +86,6 @@ BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
 EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
-BOOT_MODE=""
 #-------------------LV-LUKS-----------------------------------#
 ENCRYPTION_ENABLED=0 # 0=false, 1=true
 LUKS_PART_UUID=""
@@ -861,8 +860,8 @@ echo "✅ System configured."
 perform_uki_setup() {
 detect_boot_mode
 # Only attempt for UEFI installs
-if [[ "$BOOT_MODE" != "UEFI" ]]; then
-echo -e "UKI: Skipping — boot mode is not UEFI (BOOT_MODE=$BOOT_MODE)."
+if [[ "$MODE" != "UEFI" ]]; then
+echo -e "UKI: Skipping — boot mode is not UEFI (MODE=$MODE)."
 return 0
 fi
 
