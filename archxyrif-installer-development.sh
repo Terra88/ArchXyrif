@@ -858,6 +858,7 @@ rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
 }
 perform_uki_setup() {
+detect_boot_mode
 # Only attempt for UEFI installs
 if [[ "$BOOT_MODE" != "UEFI" ]]; then
 echo -e "UKI: Skipping — boot mode is not UEFI (BOOT_MODE=$BOOT_MODE)."
