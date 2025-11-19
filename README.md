@@ -4,7 +4,7 @@ GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88 - Read LICENCE sect
 <br>
 support BIOS & UEFI, encryption, quick(simplified) & custom partitioning(manual), and system customization.<br>
 
-After partition and format, the installer guides you through, either installing basic pacstrap & bootloader, of if you choose to, you can select window/login manager from the list and install GPU drivers etc. additional packages as well.
+After partition and format, the installer guides you through, either installing just basic pacstrap & bootloader & skipping rest, or you can choose to select window/login manager from the list and install GPU drivers etc. additional packages as well.
 
 Aim of the Project:
 
