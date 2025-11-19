@@ -23,9 +23,6 @@ cd archxyrif <br>
 chmod +x archxyrif-installer.sh <br>
 ./archxyrif-installer.sh <br> <br>
 
-or: curl -L https://raw.githubusercontent.com/terra88/archxyrif/main/archxyrif-install.sh | bash
-<br><br>
-
 
 Presenting you Version 1.3 - right after 1.0, due to adding a lot more features and fixes to the first release. So i claim the right to add a couple numbers.
 <br><br>
