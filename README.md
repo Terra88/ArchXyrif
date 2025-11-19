@@ -2,20 +2,19 @@ ArchXyrif - Semi-Automated & Interactive Install Script, With guided steps, to i
 <img width="723" height="360" alt="2025-11-08-145308_hyprshot" src="https://github.com/user-attachments/assets/a2f2e2a3-0c51-442c-80fa-5af7de453cd1" />
 GNU GENERAL PUBLIC LICENSE Version 3 - Copyright (c) Terra88 - Read LICENCE section for more.<br>
 <br>
+support BIOS & UEFI, encryption, quick(simplified) & custom partitioning(manual), and system customization.<br>
+
+After partition and format, the installer guides you through, either installing basic pacstrap & bootloader, of if you choose to, you can select window/login manager from the list and install GPU drivers etc. additional packages as well.
+
 Aim of the Project:
 
 ArchXyrif aims to provide a semi-automated, interactive, and guided installation experience for Arch Linux.
 Instead of performing everything manually, ArchXyrif walks the user through each stage of the installation with prompts, menu selections, optional features, and error-handling.
 
 It is designed to:
-
 simplify the Arch installation process
-
 remain fully transparent and interactive
-
 offer both quick-install and advanced paths
-
-support BIOS & UEFI, encryption, quick(simplified) & custom partitioning(manual), and system customization.
 
 You can either use:
 -Quick format/partition to:
