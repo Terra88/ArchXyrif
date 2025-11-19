@@ -53,7 +53,7 @@ echo -e "|-8A)GPU-Guided install             |----------------------------------
 echo -e "|-8B)Guided Window Manager Install  |# Author  : Terra88(Tero.H)                                    |"
 echo -e "|-8C)Guided Login Manager Install   |# Purpose : Arch Linux custom installer                        |"
 echo -e "|-9)Extra Pacman & AUR PKG Install  |# GitHub  : http://github.com/Terra88                          |"
-echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و  (◣◢)ψ      |"
+echo -e "|-If Hyprland Selected As WM        | ↜(╰ •ω•)╯ψ ↑_(ΦωΦ;)Ψ ୧( ಠ┏ل͜┓ಠ )୨ (ʘдʘ╬) ( •̀ᴗ•́ )و   (◣◢)ψ     |"
 echo -e "|-10)Optional Theme install         | (づ｡◕‿‿◕｡)づ ◥(ฅº￦ºฅ)◤ (㇏(•̀ᵥᵥ•́)ノ) ＼(◑д◐)＞∠(◑д◐)          |"
 echo -e "#===================================================================================================#"
 }
@@ -111,7 +111,7 @@ confirm() {
 }
 
 die() {
-    echo -e "ERROR: $*" >&2
+    echo -e "${YELLOW}ERROR: $*" >&2
     exit 1
 }
 
@@ -360,12 +360,12 @@ detect_boot_mode() {
         MODE="UEFI"
         BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$EFI_SIZE_MIB
-        echo -e "UEFI detected."
+        echo -e "${CYAN}UEFI detected.${RESET}"
     else
         MODE="BIOS"
         BIOS_BOOT_PART_CREATED=true
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
-        echo -e "Legacy BIOS detected."
+        echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
 #=========================================================================================================================================#
@@ -857,7 +857,6 @@ arch-chroot /mnt /root/postinstall.sh
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
 }
-
 #=========================================================================================================================================#
 # GRUB installation
 #=========================================================================================================================================#
@@ -1580,7 +1579,7 @@ quick_partition() {
     partition_disk
     format_and_mount
     install_base_system
-    configure_system 
+    configure_system
     install_grub
     network_mirror_selection
     gpu_driver
@@ -2565,7 +2564,7 @@ luks_lvm_post_install_steps() {
 
     # chroot-level configuration
     configure_system || die "configure_system failed"
-    
+
     # install grub in chroot
     install_grub || die "install_grub failed"
 
