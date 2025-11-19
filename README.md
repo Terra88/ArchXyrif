@@ -45,7 +45,7 @@ How to use the actual installer after booting up:
 -------------------------------------------
 1.Install git
 Pacman -Sy git ->
-2.Use got clone:
+2.git clone:
 git clone https://GitHub.com/terra88/archxyrif
 3.Open file directory:
 -> cd archxyrif
