@@ -2015,7 +2015,6 @@ ask_yesno_default() {
     [[ "$reply" =~ ^[Yy]$ ]]
 }
 
-# Ask for LV size (supports 40G or 100%FREE)
 ask_lv_size() {
     while true; do
         read -rp "$1" REPLY
@@ -2024,9 +2023,8 @@ ask_lv_size() {
     done
 }
 
-# Ask for mountpoint
 ask_mountpoint() {
-    local valid=( "/" "/home" "/var" "/srv" "swap" "none" )
+    local valid=( "/" "/home" "/var" "/srv" "/data" "swap" "none" )
     while true; do
         read -rp "$1" REPLY
         for v in "${valid[@]}"; do [[ "$REPLY" == "$v" ]] && return 0; done
@@ -2034,7 +2032,6 @@ ask_mountpoint() {
     done
 }
 
-# Ask filesystem type
 ask_fs() {
     local valid=( "ext4" "btrfs" "xfs" "f2fs" )
     while true; do
@@ -2045,7 +2042,6 @@ ask_fs() {
     done
 }
 
-# Detect boot mode
 detect_boot_mode() {
     if [[ -d /sys/firmware/efi ]]; then
         MODE="UEFI"
@@ -2054,21 +2050,17 @@ detect_boot_mode() {
     fi
 }
 
-# Return partition suffix for disk (/dev/sda -> "", /dev/nvme0n1 -> "p")
-part_suffix() {
-    [[ "$1" =~ nvme ]] && echo "p" || echo ""
-}
+part_suffix() { [[ "$1" =~ nvme ]] && echo "p" || echo ""; }
 
-# Safe disk cleanup
 safe_disk_cleanup() {
     local dev="$1"
+    echo "→ Cleaning $dev..."
     for i in $(lsblk -ln -o NAME "$dev"); do
         umount "/dev/$i" 2>/dev/null || true
     done
     wipefs -af "$dev"
 }
 
-# Block size compatibility check
 check_block_size_compatibility() {
     local dev="$1" vg="$2"
     local dev_bs vg_bs
@@ -2077,19 +2069,18 @@ check_block_size_compatibility() {
     [[ "$dev_bs" -eq "$vg_bs" ]]
 }
 
-#=====================================================================#
-#=============== LUKS + LVM Flow ====================================#
-#=====================================================================#
+#=========================================================================#
+#==================== LUKS+LVM Multi-Disk Route ==========================#
+#=========================================================================#
 
-# Arrays to track multiple disks
-PART_BOOTS=()
-PART_LUKS_ARRAY=()
-LUKS_MAPPER_NAMES=()
-LUKS_PART_UUIDS=()
-BASE_PVS=()
+# Globals to track all disks and partitions
+declare -a PART_BOOTS=()
+declare -a PART_LUKS_ARRAY=()
+declare -a LUKS_MAPPER_NAMES=()
+declare -a LUKS_PART_UUIDS=()
+declare -a BASE_PVS=()
 VGNAME_GLOBAL=""
 
-# Main multi-disk interactive LUKS+LVM route
 luks_lvm_route() {
     detect_boot_mode
     local CONTINUE_DISK=1
@@ -2098,13 +2089,13 @@ luks_lvm_route() {
         echo "Available block devices:"
         lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-        # --- Ask for target disk ---
+        # --- Disk selection ---
         local DEV
         while true; do
             read -rp "Enter target disk (e.g., sda, nvme0n1): " DEV
             DEV="/dev/${DEV##*/}"
             [[ -b "$DEV" ]] && break
-            echo "Invalid disk. Try again."
+            echo "Invalid disk."
         done
 
         echo "⚠ ALL DATA on $DEV will be erased!"
@@ -2113,8 +2104,8 @@ luks_lvm_route() {
         safe_disk_cleanup "$DEV"
         ps=$(part_suffix "$DEV")
 
-        # --- Boot partition ---
-        local PART_BOOT PART_LUKS PART_GRUB_BIOS
+        # --- Boot partition optional ---
+        local PART_BOOT=""
         if ask_yesno_default "Create boot partition on this disk? [Y/n]:" "Y"; then
             parted -s "$DEV" mklabel gpt
             if [[ "$MODE" == "UEFI" ]]; then
@@ -2122,147 +2113,156 @@ luks_lvm_route() {
                 parted -s "$DEV" set 1 esp on
                 mkfs.fat -F32 "${DEV}${ps}1"
                 PART_BOOT="${DEV}${ps}1"
-                parted -s "$DEV" mkpart primary 1026MiB 100%
-                PART_LUKS="${DEV}${ps}2"
             else
                 parted -s "$DEV" mkpart primary 1MiB 2MiB
                 parted -s "$DEV" set 1 bios_grub on
-                PART_GRUB_BIOS="${DEV}${ps}1"
                 parted -s "$DEV" mkpart primary 2MiB 514MiB
                 mkfs.ext4 -F "${DEV}${ps}2"
                 PART_BOOT="${DEV}${ps}2"
-                parted -s "$DEV" mkpart primary 515MiB 100%
-                PART_LUKS="${DEV}${ps}3"
             fi
-        else
-            parted -s "$DEV" mklabel gpt
-            parted -s "$DEV" mkpart primary 1MiB 100%
-            PART_LUKS="${DEV}${ps}1"
         fi
+
+        # --- Raw partition creation ---
+        declare -a RAW_PARTS=()
+        local idx=0
+        while ask_yesno_default "Create a raw partition on $DEV? [Y/n]:" "Y"; do
+            read -rp "Size in MiB (0 for remaining, empty to stop): " part_size
+            [[ -z "$part_size" ]] && break
+            [[ "$part_size" -eq 0 ]] && part_size=100%
+            start=$(parted -m "$DEV" unit MiB print free | awk -F: 'NR==1{print $2}' | tr -d 'MiB')
+            end=$((start+part_size))
+            read -rp "Name for this partition (used in logs): " part_name
+            parted -s "$DEV" mkpart primary "$start"MiB "$end"MiB || { echo "Partition failed"; continue; }
+            idx=$((idx+1))
+            RAW_PARTS+=("${DEV}${ps}${idx}")
+        done
 
         partprobe "$DEV"; udevadm settle --timeout=5
 
-        # --- LUKS encryption ---
-        local ENCRYPTION_ENABLED=0 BASE_DEVICE LUKS_MAPPER_NAME LUKS_PART_UUID
-        if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
-            ENCRYPTION_ENABLED=1
-            cryptsetup luksFormat --type luks2 "$PART_LUKS"
+        # --- Loop over raw partitions to create PVs/VGs ---
+        for raw in "${RAW_PARTS[@]}"; do
+            local BASE_DEVICE="$raw"
+            local ENCRYPTION_ENABLED=0
+            local LUKS_MAPPER_NAME LUKS_PART_UUID
+
+            if ask_yesno_default "Encrypt $raw with LUKS2? [Y/n]:" "Y"; then
+                ENCRYPTION_ENABLED=1
+                cryptsetup luksFormat --type luks2 "$raw"
+                while true; do
+                    read -rp "Name for mapped device (default cryptlvm): " LUKS_MAPPER_NAME
+                    LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-cryptlvm}"
+                    [[ ! -e "/dev/mapper/$LUKS_MAPPER_NAME" ]] && break
+                    echo "Mapper exists. Choose another."
+                done
+                cryptsetup open "$raw" "$LUKS_MAPPER_NAME"
+                BASE_DEVICE="/dev/mapper/$LUKS_MAPPER_NAME"
+                LUKS_PART_UUID=$(blkid -s UUID -o value "$raw")
+            fi
+
+            # --- VG assignment ---
+            local VGNAME
             while true; do
-                read -rp "Name for mapped device (default cryptlvm): " LUKS_MAPPER_NAME
-                LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-cryptlvm}"
-                [[ ! -e "/dev/mapper/$LUKS_MAPPER_NAME" ]] && break
-                echo "Mapper $LUKS_MAPPER_NAME exists. Choose another."
+                read -rp "Volume Group name (default vg0): " VGNAME
+                VGNAME="${VGNAME:-vg0}"
+                [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+                echo "Invalid VG name."
             done
-            cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME"
-            BASE_DEVICE="/dev/mapper/$LUKS_MAPPER_NAME"
-            LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS")
-        else
-            BASE_DEVICE="$PART_LUKS"
-        fi
 
-        # --- Volume Group ---
-        while true; do
-            read -rp "Volume Group name (default vg0): " VGNAME
-            VGNAME="${VGNAME:-vg0}"
-            [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-            echo "Invalid VG name."
-        done
+            if [[ -z "$VGNAME_GLOBAL" ]]; then
+                VGNAME_GLOBAL="$VGNAME"
+            fi
 
-        if [[ -z "$VGNAME_GLOBAL" ]]; then
-            VGNAME_GLOBAL="$VGNAME"
-        fi
-
-        if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-            if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
-                if check_block_size_compatibility "$BASE_DEVICE" "$VGNAME"; then
-                    vgextend "$VGNAME" "$BASE_DEVICE"
+            if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+                if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
+                    if check_block_size_compatibility "$BASE_DEVICE" "$VGNAME"; then
+                        vgextend "$VGNAME" "$BASE_DEVICE"
+                    else
+                        echo "Block size incompatible. Creating new VG."
+                        while true; do
+                            read -rp "New VG name: " VGNAME
+                            VGNAME="${VGNAME:-vg0}"
+                            [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+                        done
+                        vgcreate "$VGNAME" "$BASE_DEVICE"
+                    fi
                 else
-                    echo "Block size incompatible. Creating new VG."
-                    while true; do
-                        read -rp "New VG name: " VGNAME
-                        VGNAME="${VGNAME:-vg0}"
-                        [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-                    done
                     vgcreate "$VGNAME" "$BASE_DEVICE"
                 fi
             else
                 vgcreate "$VGNAME" "$BASE_DEVICE"
             fi
-        else
-            vgcreate "$VGNAME" "$BASE_DEVICE"
-        fi
 
-        vgscan --mknodes; vgchange -ay "$VGNAME"
+            vgscan --mknodes; vgchange -ay "$VGNAME"
 
-        # --- Logical Volumes ---
-        LV_NAMES=(); LV_SIZES=(); LV_FSS=(); LV_MOUNTS=()
-        echo "Define logical volumes (empty LV name to finish)"
-        while true; do
-            read -rp "LV name: " lvname
-            [[ -z "$lvname" ]] && break
-            [[ "$lvname" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid LV name."; continue; }
-            ask_lv_size "Size (40G, 100%FREE): "
-            lvsize="$REPLY"
-            ask_mountpoint "Mountpoint (/ , /home, swap, none): "
-            lvmnt="$REPLY"
-            if [[ "$lvmnt" == "swap" ]]; then
-                lvfs="swap"
-            else
-                ask_fs "Filesystem (ext4,btrfs,xfs,f2fs) [ext4]: "
-                lvfs="$REPLY"
-            fi
-            LV_NAMES+=("$lvname")
-            LV_SIZES+=("$lvsize")
-            LV_FSS+=("$lvfs")
-            LV_MOUNTS+=("$lvmnt")
+            # --- LV creation ---
+            LV_NAMES=(); LV_SIZES=(); LV_FSS=(); LV_MOUNTS=()
+            echo "Define logical volumes on $VGNAME (empty name to finish)"
+            while true; do
+                read -rp "LV name: " lvname
+                [[ -z "$lvname" ]] && break
+                [[ "$lvname" =~ ^[a-zA-Z0-9._-]+$ ]] || { echo "Invalid LV name."; continue; }
+                ask_lv_size "Size (40G, 100%FREE): "
+                lvsize="$REPLY"
+                ask_mountpoint "Mountpoint (/ , /home, swap, /data): "
+                lvmnt="$REPLY"
+                if [[ "$lvmnt" == "swap" ]]; then
+                    lvfs="swap"
+                else
+                    ask_fs "Filesystem (ext4,btrfs,xfs,f2fs) [ext4]: "
+                    lvfs="$REPLY"
+                fi
+                LV_NAMES+=("$lvname")
+                LV_SIZES+=("$lvsize")
+                LV_FSS+=("$lvfs")
+                LV_MOUNTS+=("$lvmnt")
+            done
+
+            # --- Create & mount LVs ---
+            for idx in "${!LV_NAMES[@]}"; do
+                name="${LV_NAMES[idx]}"
+                size="${LV_SIZES[idx]}"
+                lvpath="/dev/${VGNAME}/${name}"
+                if [[ "$size" =~ % ]]; then
+                    lvcreate -l "$size" "$VGNAME" -n "$name"
+                else
+                    lvcreate -L "$size" "$VGNAME" -n "$name"
+                fi
+
+                case "${LV_FSS[idx]}" in
+                    ext4) mkfs.ext4 -F "$lvpath" ;;
+                    btrfs) mkfs.btrfs -f "$lvpath" ;;
+                    xfs) mkfs.xfs -f "$lvpath" ;;
+                    f2fs) mkfs.f2fs -f "$lvpath" ;;
+                    swap) mkswap "$lvpath"; swapon "$lvpath"; continue ;;
+                esac
+
+                mnt="${LV_MOUNTS[idx]}"
+                [[ "$mnt" == "none" ]] && continue
+                [[ "$mnt" == "/" ]] && mkdir -p /mnt
+                [[ "$mnt" == "/boot/efi" ]] && mkdir -p /mnt/boot/efi
+                [[ "$mnt" != "/" ]] && mkdir -p "/mnt${mnt}"
+                mount "$lvpath" "/mnt${mnt}"
+            done
+
+            # --- Export globals for post-install ---
+            PART_LUKS_ARRAY+=("$raw")
+            LUKS_MAPPER_NAMES+=("${LUKS_MAPPER_NAME:-}")
+            LUKS_PART_UUIDS+=("${LUKS_PART_UUID:-}")
+            BASE_PVS+=("$BASE_DEVICE")
         done
 
-        # --- Create & mount LVs ---
-        for idx in "${!LV_NAMES[@]}"; do
-            name="${LV_NAMES[idx]}"
-            size="${LV_SIZES[idx]}"
-            lvpath="/dev/${VGNAME}/${name}"
-            if [[ "$size" =~ % ]]; then
-                lvcreate -l "$size" "$VGNAME" -n "$name"
-            else
-                lvcreate -L "$size" "$VGNAME" -n "$name"
-            fi
+        PART_BOOTS+=("$PART_BOOT")
 
-            # Format
-            case "${LV_FSS[idx]}" in
-                ext4) mkfs.ext4 -F "$lvpath" ;;
-                btrfs) mkfs.btrfs -f "$lvpath" ;;
-                xfs) mkfs.xfs -f "$lvpath" ;;
-                f2fs) mkfs.f2fs -f "$lvpath" ;;
-                swap) mkswap "$lvpath"; swapon "$lvpath"; continue ;;
-            esac
-
-            # Mount
-            mnt="${LV_MOUNTS[idx]}"
-            [[ "$mnt" == "none" ]] && continue
-            [[ "$mnt" == "/" ]] && mkdir -p /mnt
-            [[ "$mnt" == "/boot/efi" ]] && mkdir -p /mnt/boot/efi
-            [[ "$mnt" != "/" ]] && mkdir -p "/mnt${mnt}"
-            mount "$lvpath" "/mnt${mnt}"
-        done
-
-        # --- Export arrays/globals ---
-        PART_BOOTS+=("${PART_BOOT:-}")
-        PART_LUKS_ARRAY+=("$PART_LUKS")
-        LUKS_MAPPER_NAMES+=("${LUKS_MAPPER_NAME:-}")
-        LUKS_PART_UUIDS+=("${LUKS_PART_UUID:-}")
-        BASE_PVS+=("$BASE_DEVICE")
-
-        # --- Multi-disk continuation ---
         if ! ask_yesno_default "Edit another disk? [y/N]:" "N"; then
             CONTINUE_DISK=0
         fi
     done
 }
 
-#=====================================================================#
-#=============== Post-install Steps =================================#
-#=====================================================================#
+#=========================================================================#
+#==================== Post-install Steps =================================#
+#=========================================================================#
+
 luks_lvm_post_install_steps() {
     echo "→ Running LUKS+LVM post-install..."
 
@@ -2277,36 +2277,29 @@ luks_lvm_post_install_steps() {
         fi
     done
 
-    # Write crypttab
+    mkdir -p /mnt/etc
     :> /mnt/etc/crypttab
     for i in "${!LUKS_MAPPER_NAMES[@]}"; do
         [[ -n "${LUKS_MAPPER_NAMES[i]}" ]] || continue
         echo "${LUKS_MAPPER_NAMES[i]} UUID=${LUKS_PART_UUIDS[i]} none luks" >> /mnt/etc/crypttab
     done
 
-    # install base system
     install_base_system || die "install_base_system failed"
-
-    # generate fstab
     genfstab -U /mnt > /mnt/etc/fstab || die "genfstab failed"
-
-    # ensure fs support and mkinitcpio
     ensure_fs_support_for_luks_lvm "${#LUKS_MAPPER_NAMES[@]}" || die "ensure_fs_support_for_luks_lvm failed"
-
-    # chroot-level configuration & grub
     configure_system || die "configure_system failed"
     install_grub || die "install_grub failed"
 }
 
-#=====================================================================#
-#================= ensure_fs_support_for_luks_lvm ===================#
-#=====================================================================#
+#=========================================================================#
+#==================== FS Support & mkinitcpio ============================#
+#=========================================================================#
+
 ensure_fs_support_for_luks_lvm() {
     local enable_luks="${1:-0}"
     local pkgs=(lvm2)
     (( enable_luks )) && pkgs+=(cryptsetup)
-
-    echo "→ Installing necessary packages inside target: ${pkgs[*]}"
+    echo "→ Installing packages inside target: ${pkgs[*]}"
     arch-chroot /mnt pacman -Syu --noconfirm "${pkgs[@]}" || die "Failed to install packages"
 
     local HOOKS_LINE
@@ -2318,6 +2311,7 @@ ensure_fs_support_for_luks_lvm() {
     arch-chroot /mnt bash -c "sed -i 's/^HOOKS=.*/${HOOKS_LINE}/' /etc/mkinitcpio.conf || echo '${HOOKS_LINE}' >> /etc/mkinitcpio.conf"
     arch-chroot /mnt mkinitcpio -P || die "mkinitcpio regeneration failed"
 }
+
 #=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
