@@ -2157,6 +2157,40 @@ wait_for_lv() {
     done
     return 1
 }
+# ============================================================
+# RAW partition creation wizard (independent of custom wizard)
+# Creates empty raw partitions only. No FS, no mountpoints.
+# ============================================================
+luks_lvm_raw_partition_wizard() {
+    echo
+    echo "=== RAW Partition Wizard (LUKS/LVM only) ==="
+    echo "Creates *empty* partitions for use as additional LUKS devices or PVs."
+    echo
+
+    local RAW_PARTS=()
+
+    while true; do
+        echo "Available disks:"
+        lsblk -dpno NAME,SIZE | grep -E "sd|nvme|vd"
+        read -rp "Select disk for RAW partition (ex: /dev/sda): " DISK
+        [[ -b "$DISK" ]] || { echo "Invalid disk."; continue; }
+
+        read -rp "Partition number to create (ex: 4): " NUM
+        PART="${DISK}${NUM}"
+
+        echo "→ Creating RAW partition $PART"
+        sgdisk -n ${NUM}:0:0 "$DISK" || { echo "Failed to create partition"; continue; }
+
+        partprobe "$DISK"; udevadm settle --timeout=5
+
+        RAW_PARTS+=("$PART")
+
+        read -rp "Create another RAW partition? (y/N): " again
+        [[ "$again" =~ ^[Yy]$ ]] || break
+    done
+
+    LUKS_LVM_RAW_PARTS=("${RAW_PARTS[@]}")
+}
 #=====================================================================================================================================#
 # LUKS LV
 #=====================================================================================================================================#
@@ -2302,6 +2336,35 @@ ask_yesno_default() {
 
     [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
 
+                    # Optional RAW partition creation before LUKS/PV stage
+                if ask_yesno_default "Add RAW partitions for this LUKS/LVM setup? (These will be extra PVs) [y/N]:" "N"; then
+                    luks_lvm_raw_partition_wizard
+                
+                    if [[ ${#LUKS_LVM_RAW_PARTS[@]} -gt 0 ]]; then
+                        echo "You created the following RAW partitions:"
+                        printf " → %s\n" "${LUKS_LVM_RAW_PARTS[@]}"
+                
+                        # Ask if these RAW partitions should also be encrypted
+                        RAW_ENCRYPT=0
+                        if ask_yesno_default "Encrypt RAW partitions with LUKS as well? [y/N]:" "N"; then
+                            RAW_ENCRYPT=1
+                        fi
+                
+                        EXTRA_PVS=()
+                        for RAW in "${LUKS_LVM_RAW_PARTS[@]}"; do
+                            if (( RAW_ENCRYPT )); then
+                                echo "Encrypting RAW partition $RAW..."
+                                RAWNAME="luksraw_${RAW##*/}"
+                                cryptsetup luksFormat "$RAW"
+                                cryptsetup open "$RAW" "$RAWNAME"
+                                EXTRA_PVS+=("/dev/mapper/$RAWNAME")
+                            else
+                                EXTRA_PVS+=("$RAW")
+                            fi
+                        done
+                    fi
+                fi
+
     # Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
         ENCRYPTION_ENABLED=1
@@ -2331,8 +2394,16 @@ ask_yesno_default() {
         BASE_DEVICE="$PART_LUKS"
     fi
 
-    echo "→ Creating PV on $BASE_DEVICE"
-    pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
+            echo "→ Creating PV on main device: $BASE_DEVICE"
+            pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
+            
+            # If RAW partitions exist, make them PVs too
+            if [[ ${#EXTRA_PVS[@]} -gt 0 ]]; then
+                for PV in "${EXTRA_PVS[@]}"; do
+                    echo "→ Creating PV on RAW device: $PV"
+                    pvcreate "$PV" || die "pvcreate failed on $PV"
+                done
+            fi
 
     # ask VG name and create/extend
     while true; do
@@ -2341,22 +2412,30 @@ ask_yesno_default() {
         if [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then break; fi
         echo "Invalid VG name."
     done
-
-    if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-        if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
-            vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
-        else
-            while true; do
-                read -rp "New VG name: " VGNAME
-                VGNAME="${VGNAME:-vg0}"
-                [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-                echo "Invalid name"
-            done
-            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-        fi
-    else
-        vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-    fi
+            
+            if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+                if ask_yesno_default "VG $VGNAME exists — add PV(s) to it? [Y/n]:" "Y"; then
+                    vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+                    for PV in "${EXTRA_PVS[@]}"; do
+                        vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+                    done
+                else
+                    while true; do
+                        read -rp "New VG name: " VGNAME
+                        VGNAME="${VGNAME:-vg0}"
+                        [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+                    done
+                    vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+                    for PV in "${EXTRA_PVS[@]}"; do
+                        vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+                    done
+                fi
+            else
+                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+                for PV in "${EXTRA_PVS[@]}"; do
+                    vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+                done
+            fi
 
     vgscan --mknodes
     vgchange -ay "$VGNAME" || die "vgchange -ay failed"
