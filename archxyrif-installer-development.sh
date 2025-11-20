@@ -2210,37 +2210,36 @@ luks_lvm_raw_partition_wizard() {
             fi
             break
         done
-
-        # Ask size; require minimum for encryption to be safe
-        while true; do
-            read -rp "Size for /dev/${DEV##*/}${PS}${PARTNUM} (example 100M, 1G) [100M]: " PARTSIZE
-            PARTSIZE="${PARTSIZE:-100M}"
-            # normalize to sgdisk-friendly +<size> form if it ends with M/G/T
-            if ! [[ "$PARTSIZE" =~ ^[0-9]+(M|G|T)$ ]]; then
-                echo "Invalid size format; use e.g. 100M, 1G, 10G."
-                continue
-            fi
-            # convert to MiB numeric for minimal check (strip trailing letter)
-            local unit="${PARTSIZE: -1}"
-            local num="${PARTSIZE%?}"
-            local sz_mib
-            case "$unit" in
-                M|m) sz_mib=$(( num )) ;;
-                G|g) sz_mib=$(( num * 1024 )) ;;
-                T|t) sz_mib=$(( num * 1024 * 1024 )) ;;
-                *) sz_mib=0 ;;
-            esac
-            if (( sz_mib < 20 )); then
-                echo "Size too small. Minimum allowed is 20MiB. For LUKS encryption use >=100MiB."
-                continue
-            fi
-            # If user intends to encrypt later, recommend >=100MiB
-            if (( sz_mib < 100 )); then
-                read -rp "Size <100MiB. Are you sure? (y/N): " sure
-                [[ "$sure" =~ ^[Yy]$ ]] || continue
-            fi
-            break
-        done
+                
+                # Show free space and ask size
+                echo "Free space available (MiB):"
+                parted -s "$DEV" unit MiB print free
+                
+                while true; do
+                    read -rp "Size for RAW partition #$i (100M, 1G, or 100% for remaining space): " PARTSIZE
+                    PARTSIZE="${PARTSIZE:-100M}"
+                
+                    if [[ "$PARTSIZE" =~ ^100%$ || "$PARTSIZE" =~ ^rest$ ]]; then
+                        # auto-detect remaining free space
+                        remaining_free_mib=$(parted -m "$DEV" unit MiB print free | \
+                            awk -F: '/free/ {gsub("MiB","",$3); last=$3} END {print last}')
+                
+                        if (( remaining_free_mib < 20 )); then
+                            die "Not enough remaining space to create a RAW partition."
+                        fi
+                
+                        PARTSIZE="+${remaining_free_mib}M"
+                        break
+                    fi
+                
+                    # convert to +<size> form if normal size like 200M or 1G
+                    if [[ "$PARTSIZE" =~ ^[0-9]+(M|G|T)$ ]]; then
+                        PARTSIZE="+${PARTSIZE}"
+                        break
+                    fi
+                
+                    echo "Invalid size format. Use 100M, 1G, or 100% for remaining space."
+                done
 
         # Actually create the partition using sgdisk with +size (0-based end using +)
         echo "→ Creating RAW partition number $PARTNUM of size $PARTSIZE on $DEV"
