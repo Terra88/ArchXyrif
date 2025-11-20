@@ -1170,10 +1170,9 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar uwsm kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons hicolor-icon-theme adwaita-icon-theme bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim firefox dunst qview)
+            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager network-manager-applet bluez bluez-utils blueman slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst wofi nwg-look nwg-displays archlinux-xdg-menu uwsm)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-            EXTRA_PKGS=()
-            EXTRA_AUR_PKGS=()
+            WM_SERVICE="bluetooth"
             ;;
         2)
             SELECTED_WM="kde"
