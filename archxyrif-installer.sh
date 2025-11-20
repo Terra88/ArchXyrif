@@ -1164,51 +1164,58 @@ window_manager() {
     WM_AUR_PKGS=()
     EXTRA_PKGS=()
     EXTRA_AUR_PKGS=()
+    WM_SERVICE=""
 
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar uwsm kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons hicolor-icon-theme adwaita-icon-theme bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim firefox dunst qview)
+            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar uwsm kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons hicolor-icon-theme adwaita-icon-theme bluez bluez-utils qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim firefox dunst qview)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-            EXTRA_PKGS=()
-            EXTRA_AUR_PKGS=()
+            WM_SERVICE="bluetooth"
             ;;
         2)
             SELECTED_WM="kde"
             echo -e "→ Selected: KDE Plasma"
             WM_PKGS=(plasma-desktop kde-applications konsole kate dolphin ark sddm firefox kitty)
+            WM_SERVICE=""
             ;;
         3)
             SELECTED_WM="gnome"
             echo -e "→ Selected: GNOME"
             WM_PKGS=(gnome gdm gnome-tweaks firefox kitty)
+            WM_SERVICE=""
             ;;
         4)
             SELECTED_WM="xfce"
             echo -e "→ Selected: XFCE"
             WM_PKGS=(xfce4 xfce4-goodies xarchiver gvfs pavucontrol lightdm-gtk-greeter firefox kitty)
+            WM_SERVICE=""
             ;;
         5)
             SELECTED_WM="niri"
             echo -e "→ Selected: Niri"
             WM_PKGS=(niri alacritty fuzzel mako swaybg swayidle swaylock waybar xdg-desktop-portal-gnome xorg-xwayland)
+            WM_SERVICE=""
             ;;
         6)
             SELECTED_WM="cinnamon"
             echo -e "→ Selected: Cinnamon"
             WM_PKGS=(cinnamon engrampa gnome-keyring gnome-screenshot gnome-terminal gvfs-smb system-config-printer xdg-user-dirs-gtk xed firefox kitty)
+            WM_SERVICE=""
             ;;
         7)
             SELECTED_WM="mate"
             echo -e "→ Selected: Mate"
             WM_PKGS=(mate mate-extra kitty firefox)
+            WM_SERVICE=""
             ;;
         8)
             SELECTED_WM="sway"
             echo -e "→ Selected: Sway"
             WM_PKGS=(sway swaybg swaylock swayidle waybar wofi xorg-xwayland wmenu slurp pavucontrol grim foot brightnessctl)
+            WM_SERVICE=""
             ;;
         9|*)
             SELECTED_WM="none"
@@ -1253,6 +1260,12 @@ window_manager() {
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
     fi
 
+    # ---------- Enable WM service ----------
+    if [[ -n "$WM_SERVICE" ]]; then
+        "${CHROOT_CMD[@]}" systemctl enable "$WM_SERVICE"
+        echo -e "✅ Display manager service enabled: $WM_SERVICE"
+    fi
+    
     # ---------- Install extra packages ----------
     if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
