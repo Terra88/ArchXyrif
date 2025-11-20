@@ -2211,7 +2211,7 @@ luks_lvm_route() {
     echo "Available block devices (disks):"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    # helper re-prompt functions
+    # helper re-prompt functions (kept from original)
     ask_disk() {
         while true; do
             read -rp "Enter target disk (example /dev/sda or nvme0n1): " _d
@@ -2227,10 +2227,10 @@ ask_yesno_default() {
     while true; do
         read -rp "$prompt " ans
         ans="${ans:-$def}"
-        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
+        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')
         case "$ans_upper" in
-            Y|YES) return 0 ;;   # success = yes
-            N|NO)  return 1 ;;   # failure = no
+            Y|YES) return 0 ;;
+            N|NO)  return 1 ;;
             *) echo "Please answer Y or N." ;;
         esac
     done
@@ -2244,14 +2244,12 @@ ask_yesno_default() {
         done
     }
     ask_lv_size() {
-        # basic validation for LVM size: accept 40G, 512M, 10%VG, 100%FREE
         local prompt="${1:-Size (40G, 512M, 10%VG, 100%FREE) [100%FREE]: }" ans
         while true; do
             read -rp "$prompt" ans
             ans="${ans:-100%FREE}"
             if [[ "$ans" =~ ^([0-9]+G|[0-9]+M|[0-9]+%VG|[0-9]+%FREE|100%FREE)$ ]]; then
-                REPLY="$ans"
-                return 0
+                REPLY="$ans"; return 0
             fi
             if [[ "$ans" =~ ^[0-9]+$ ]]; then
                 REPLY="${ans}G"; return 0
@@ -2288,9 +2286,9 @@ ask_yesno_default() {
     ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted by user."; return 1; }
 
     # verify required system tools exist in live env
-    for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat; do
+    for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat sgdisk; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
-            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted) and retry."
+            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted, gdisk) and retry."
             return 1
         fi
     done
@@ -2305,20 +2303,20 @@ ask_yesno_default() {
     PART_LUKS=""   # path to big partition that will be LUKS or PV
     PART_GRUB_BIOS=""
 
+    # Create boot partition(s) FIRST (so they use the start of disk)
     if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP and main partition"
+        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP (will keep space at start)"
         parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "mkpart ESP failed"
         parted -s "$DEV" set 1 esp on || die "set esp failed"
         PART_BOOT="${DEV}${ps}1"
-        parted -s "$DEV" unit MiB mkpart primary 1026MiB 100% || die "mkpart main failed"
-        PART_LUKS="${DEV}${ps}2"
 
+        # ensure kernel sees partition table
         partprobe "$DEV"; udevadm settle --timeout=5
 
-        # create esp filesystem now
+        # create ESP filesystem now (safe to do before creating other partitions)
         mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed on $PART_BOOT"
     else
-        echo "→ MODE=BIOS: creating bios_grub (1MiB), /boot (512MiB), and main partition"
+        echo "→ MODE=BIOS: creating bios_grub (1MiB) and /boot (2MiB..514MiB)"
         parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "mkpart bios_grub failed"
         parted -s "$DEV" set 1 bios_grub on || die "set bios_grub failed"
         PART_GRUB_BIOS="${DEV}${ps}1"
@@ -2326,44 +2324,82 @@ ask_yesno_default() {
         parted -s "$DEV" unit MiB mkpart primary 2MiB 514MiB || die "mkpart /boot failed"
         PART_BOOT="${DEV}${ps}2"
 
-        parted -s "$DEV" unit MiB mkpart primary 515MiB 100% || die "mkpart main failed"
-        PART_LUKS="${DEV}${ps}3"
-
         partprobe "$DEV"; udevadm settle --timeout=5
 
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed on $PART_BOOT"
     fi
 
-    [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
+    # ---- Now ask if user wants RAW partitions (they will be created in remaining free space)
+    EXTRA_PVS=()   # reset
+    LUKS_LVM_RAW_PARTS=()
+    if ask_yesno_default "Add RAW partitions for this LUKS/LVM setup? (These will be extra PVs) [y/N]:" "N"; then
+        luks_lvm_raw_partition_wizard
 
-                    # Optional RAW partition creation before LUKS/PV stage
-                if ask_yesno_default "Add RAW partitions for this LUKS/LVM setup? (These will be extra PVs) [y/N]:" "N"; then
-                    luks_lvm_raw_partition_wizard
-                
-                    if [[ ${#LUKS_LVM_RAW_PARTS[@]} -gt 0 ]]; then
-                        echo "You created the following RAW partitions:"
-                        printf " → %s\n" "${LUKS_LVM_RAW_PARTS[@]}"
-                
-                        # Ask if these RAW partitions should also be encrypted
-                        RAW_ENCRYPT=0
-                        if ask_yesno_default "Encrypt RAW partitions with LUKS as well? [y/N]:" "N"; then
-                            RAW_ENCRYPT=1
-                        fi
-                
-                        EXTRA_PVS=()
-                        for RAW in "${LUKS_LVM_RAW_PARTS[@]}"; do
-                            if (( RAW_ENCRYPT )); then
-                                echo "Encrypting RAW partition $RAW..."
-                                RAWNAME="luksraw_${RAW##*/}"
-                                cryptsetup luksFormat "$RAW"
-                                cryptsetup open "$RAW" "$RAWNAME"
-                                EXTRA_PVS+=("/dev/mapper/$RAWNAME")
-                            else
-                                EXTRA_PVS+=("$RAW")
-                            fi
-                        done
-                    fi
+        if [[ ${#LUKS_LVM_RAW_PARTS[@]} -gt 0 ]]; then
+            echo "You created the following RAW partitions:"
+            printf " → %s\n" "${LUKS_LVM_RAW_PARTS[@]}"
+
+            RAW_ENCRYPT=0
+            if ask_yesno_default "Encrypt RAW partitions with LUKS as well? [y/N]:" "N"; then
+                RAW_ENCRYPT=1
+            fi
+
+            for RAW in "${LUKS_LVM_RAW_PARTS[@]}"; do
+                # validate existence
+                if [[ ! -b "$RAW" ]]; then
+                    echo "Warning: RAW partition $RAW not present, skipping."
+                    continue
                 fi
+
+                if (( RAW_ENCRYPT )); then
+                    echo "Encrypting RAW partition $RAW..."
+                    RAWNAME="luksraw_${RAW##*/}"
+                    cryptsetup luksFormat "$RAW" || die "luksFormat failed on $RAW"
+                    cryptsetup open "$RAW" "$RAWNAME" || die "cryptsetup open failed for $RAW"
+                    EXTRA_PVS+=("/dev/mapper/$RAWNAME")
+                else
+                    EXTRA_PVS+=("$RAW")
+                fi
+            done
+        fi
+    fi
+
+    # ---- Now create the MAIN (LUKS/PV) partition using remaining free space
+    # We place it after boot and after any RAW partitions so it becomes the remaining free area.
+    # Use parted to mkpart from next MiB to 100%.
+    if [[ "$MODE" == "UEFI" ]]; then
+        # Determine next free MiB after existing partitions to set start for main
+        # parted unit MiB print will show partitions and we can compute next start, but simplest is to create main as from 1026MiB 100% (works unless RAW partitions overlap the end)
+        # To be robust: create main as the first available free region by using sgdisk to create with 0:0 (first available), but ensure we do not overlap early partitions.
+        echo "→ Creating main partition in remaining space (UEFI layout)"
+        # Create main partition as next free region (uses parted's 1026MiB..100% only if no RAW partitions touch that range)
+        # Safer approach: use sgdisk to create a partition occupying the remaining free space (first available contiguous region).
+        # Determine an unused partition number:
+        NUM=$(sgdisk -p "$DEV" | awk '/Number/ {p=1; next} p && NF {print $1}' | tail -n1)
+        if [[ -z "$NUM" ]]; then
+            # no partitions found, choose 1
+            newnum=1
+        else
+            newnum=$((NUM+1))
+        fi
+        # Use sgdisk -n newnum:0:0 to allocate first available free region (which will be after existing partitions)
+        sgdisk -n ${newnum}:0:0 "$DEV" || die "Failed to create main partition with sgdisk"
+        partprobe "$DEV"; udevadm settle --timeout=5
+        PART_LUKS="${DEV}${ps}${newnum}"
+    else
+        echo "→ Creating main partition in remaining space (BIOS layout)"
+        NUM=$(sgdisk -p "$DEV" | awk '/Number/ {p=1; next} p && NF {print $1}' | tail -n1)
+        if [[ -z "$NUM" ]]; then
+            newnum=1
+        else
+            newnum=$((NUM+1))
+        fi
+        sgdisk -n ${newnum}:0:0 "$DEV" || die "Failed to create main partition with sgdisk"
+        partprobe "$DEV"; udevadm settle --timeout=5
+        PART_LUKS="${DEV}${ps}${newnum}"
+    fi
+
+    [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
 
     # Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
@@ -2394,16 +2430,16 @@ ask_yesno_default() {
         BASE_DEVICE="$PART_LUKS"
     fi
 
-            echo "→ Creating PV on main device: $BASE_DEVICE"
-            pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
-            
-            # If RAW partitions exist, make them PVs too
-            if [[ ${#EXTRA_PVS[@]} -gt 0 ]]; then
-                for PV in "${EXTRA_PVS[@]}"; do
-                    echo "→ Creating PV on RAW device: $PV"
-                    pvcreate "$PV" || die "pvcreate failed on $PV"
-                done
-            fi
+    echo "→ Creating PV on main device: $BASE_DEVICE"
+    pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
+
+    # If RAW partitions exist (EXTRA_PVS) create PVs for them as well
+    if [[ ${#EXTRA_PVS[@]} -gt 0 ]]; then
+        for PV in "${EXTRA_PVS[@]}"; do
+            echo "→ Creating PV on RAW device: $PV"
+            pvcreate "$PV" || die "pvcreate failed on $PV"
+        done
+    fi
 
     # ask VG name and create/extend
     while true; do
@@ -2412,30 +2448,30 @@ ask_yesno_default() {
         if [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]]; then break; fi
         echo "Invalid VG name."
     done
-            
-            if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-                if ask_yesno_default "VG $VGNAME exists — add PV(s) to it? [Y/n]:" "Y"; then
-                    vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
-                    for PV in "${EXTRA_PVS[@]}"; do
-                        vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-                    done
-                else
-                    while true; do
-                        read -rp "New VG name: " VGNAME
-                        VGNAME="${VGNAME:-vg0}"
-                        [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
-                    done
-                    vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-                    for PV in "${EXTRA_PVS[@]}"; do
-                        vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-                    done
-                fi
-            else
-                vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-                for PV in "${EXTRA_PVS[@]}"; do
-                    vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-                done
-            fi
+
+    if vgdisplay "$VGNAME" >/dev/null 2>&1; then
+        if ask_yesno_default "VG $VGNAME exists — add PV(s) to it? [Y/n]:" "Y"; then
+            vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
+            for PV in "${EXTRA_PVS[@]}"; do
+                vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+            done
+        else
+            while true; do
+                read -rp "New VG name: " VGNAME
+                VGNAME="${VGNAME:-vg0}"
+                [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+            done
+            vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+            for PV in "${EXTRA_PVS[@]}"; do
+                vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+            done
+        fi
+    else
+        vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
+        for PV in "${EXTRA_PVS[@]}"; do
+            vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
+        done
+    fi
 
     vgscan --mknodes
     vgchange -ay "$VGNAME" || die "vgchange -ay failed"
@@ -2458,7 +2494,7 @@ ask_yesno_default() {
         fi
 
         ask_lv_size
-        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
+        lvsize="$REPLY"
 
         ask_mountpoint
         lvmnt="${REPLY:-none}"
@@ -2488,27 +2524,24 @@ ask_yesno_default() {
     for idx in "${!LV_NAMES[@]}"; do
         name="${LV_NAMES[idx]}"
         size="${LV_SIZES[idx]}"
-    
+
         while true; do
-    
-            # Detect percentage-based sizes → must use -l (extents)
             if [[ "$size" =~ % ]]; then
                 LVCREATE_CMD=(lvcreate -l "$size" "$VGNAME" -n "$name")
             else
                 LVCREATE_CMD=(lvcreate -L "$size" "$VGNAME" -n "$name")
             fi
-    
-            # Attempt LV creation
+
             if "${LVCREATE_CMD[@]}" 2>/tmp/lvcreate.err; then
                 break
             fi
-    
+
             echo "lvcreate failed for $name (size=$size):"
             sed -n '1,200p' /tmp/lvcreate.err
-    
+
             read -rp "Retry with new size? (y to retry / n to abort) [y]: " r
             r="${r:-y}"
-    
+
             case "$r" in
                 [Yy])
                     ask_lv_size "New size for $name: "
@@ -2526,7 +2559,7 @@ ask_yesno_default() {
 
     udevadm settle --timeout=5
 
-    # Format & mount LVs: root first
+    # Format & mount LVs (root first)
     mkdir -p /mnt
     root_index=""
     for i in "${!LV_MOUNTS[@]}"; do
