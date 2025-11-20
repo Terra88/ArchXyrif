@@ -2579,30 +2579,55 @@ luks_lvm_post_install_steps() {
     echo "→ LUKS+LVM post-install done."
 }
 #=========================================================================================================================================#
+# CFDISK - For LV/LUKS
+#=========================================================================================================================================#
+manual_partition_cfdisk() {
+    echo
+    echo "Available block devices:"
+    lsblk -d -o NAME,SIZE,MODEL,TYPE | grep -E "sd|nvme|vd"
+
+    local DEV_CHOICE
+    while true; do
+        read -rp "Enter the disk to manually partition (ex: /dev/sda): " DEV_CHOICE
+        DEV_CHOICE="/dev/${DEV_CHOICE##*/}"  # normalize input
+        [[ -b "$DEV_CHOICE" ]] && break
+        echo "Invalid block device. Try again."
+    done
+
+    echo "Launching cfdisk on $DEV_CHOICE..."
+    cfdisk "$DEV_CHOICE"
+
+    echo "Returned from cfdisk."
+    read -rp "Press Enter to return to main menu..."
+    menu
+#=========================================================================================================================================#
 # Main menu
 #=========================================================================================================================================#
 menu() {
-clear
-logo
-            echo -e "#==================================================#"
-            echo -e "#     Select partitioning method for $DEV:         #"
-            echo -e "#==================================================#"
-            echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-3) Lvm & Luks Partitioning                       |"
-            echo -e "|--------------------------------------------------|"
-            echo -e "|-4) Exit                                          |"
-            echo -e "#==================================================#"
-            read -rp "Enter choice [1-4]: " INSTALL_MODE
-            case "$INSTALL_MODE" in
-                1) quick_partition ;;
-                2) custom_partition ;;
-                3) luks_lvm_master_flow ;;
-                4) echo "Exiting..."; exit 0 ;;
-                *) echo "Invalid choice"; menu ;;
-            esac
+    clear
+    logo
+    echo -e "#==================================================#"
+    echo -e "#     Select partitioning method for $DEV:       #"
+    echo -e "#==================================================#"
+    echo -e "|-1) Quick Partitioning  (automated, ext4, btrfs)  |"
+    echo -e "|--------------------------------------------------|"
+    echo -e "|-2) Custom Partitioning (FS:ext4,btrfs,f2fs,xfs)  |"
+    echo -e "|--------------------------------------------------|"
+    echo -e "|-3) Lvm & Luks Partitioning                       |"
+    echo -e "|--------------------------------------------------|"
+    echo -e "|-4) Manual Partitioning (cfdisk)                 |"
+    echo -e "|--------------------------------------------------|"
+    echo -e "|-5) Exit                                          |"
+    echo -e "#==================================================#"
+    read -rp "Enter choice [1-5]: " INSTALL_MODE
+    case "$INSTALL_MODE" in
+        1) quick_partition ;;
+        2) custom_partition ;;
+        3) luks_lvm_master_flow ;;
+        4) manual_partition_cfdisk ;;
+        5) echo "Exiting..."; exit 0 ;;
+        *) echo "Invalid choice"; read -rp "Press Enter to continue..."; menu ;;
+    esac
 }
 #=========================================================================================================================================#
 # Menu - This is where the first call to Menu Happens.
