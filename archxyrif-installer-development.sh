@@ -2147,7 +2147,6 @@ luks_lvm_master_flow() {
     # single post-install run
     luks_lvm_post_install_steps
 }
-#=================WAIT HELPERS=============#
 wait_for_lv() {
     local dev="$1"
     local timeout=10
@@ -2157,115 +2156,6 @@ wait_for_lv() {
         udevadm settle --timeout=2
     done
     return 1
-}
-# Wait for a block device node to appear (seconds timeout)
-wait_for_block() {
-    local dev="$1"
-    local timeout="${2:-10}"
-    local i=0
-    while (( i < timeout )); do
-        [[ -b "$dev" ]] && return 0
-        sleep 0.5
-        ((i++))
-        udevadm settle --timeout=2 >/dev/null 2>&1 || true
-    done
-    return 1
-}
-# ============================================================
-# RAW partition creation wizard (independent of custom wizard)
-# Creates empty raw partitions only. No FS, no mountpoints.
-# ============================================================
-luks_lvm_raw_partition_wizard() {
-    echo
-    echo "=== RAW Partition Wizard (LUKS/LVM only) ==="
-    echo "Creates empty partitions for use as additional LUKS devices or PVs."
-    echo
-
-    local DISK PS USED_PARTS RAW_PARTS=()
-    PS=$(part_suffix "$DEV")   # use current disk's suffix logic (assumes $DEV already set)
-    # Show free space to user
-    echo "Current partition table (existing partitions):"
-    parted -s "$DEV" unit MiB print || true
-    echo
-
-    read -rp "How many RAW partitions do you want to create on $DEV? " RAW_COUNT
-    [[ "$RAW_COUNT" =~ ^[0-9]+$ && "$RAW_COUNT" -ge 1 ]] || { echo "Invalid number."; return 1; }
-
-    for ((i=1;i<=RAW_COUNT;i++)); do
-        # show current partition table every iteration
-        parted -s "$DEV" unit MiB print
-        echo
-
-        # choose partition index number (must not conflict)
-        while true; do
-            read -rp "Choose partition number for RAW #$i (e.g. 2, 3): " PARTNUM
-            if ! [[ "$PARTNUM" =~ ^[0-9]+$ ]]; then
-                echo "Partition number must be numeric."
-                continue
-            fi
-            # check if partition number is free
-            if sgdisk -p "$DEV" | awk '/^[ ]*[0-9]+/ {print $1}' | grep -qx "$PARTNUM"; then
-                echo "Partition number $PARTNUM already exists. Choose another."
-                continue
-            fi
-            break
-        done
-                
-                # Show free space and ask size
-                echo "Free space available (MiB):"
-                parted -s "$DEV" unit MiB print free
-                
-                while true; do
-                    read -rp "Size for RAW partition #$i (100M, 1G, or 100% for remaining space): " PARTSIZE
-                    PARTSIZE="${PARTSIZE:-100M}"
-                
-                    if [[ "$PARTSIZE" =~ ^100%$ || "$PARTSIZE" =~ ^rest$ ]]; then
-                        # auto-detect remaining free space
-                        remaining_free_mib=$(parted -m "$DEV" unit MiB print free | \
-                            awk -F: '/free/ {gsub("MiB","",$3); last=$3} END {print last}')
-                
-                        if (( remaining_free_mib < 20 )); then
-                            die "Not enough remaining space to create a RAW partition."
-                        fi
-                
-                        PARTSIZE="+${remaining_free_mib}M"
-                        break
-                    fi
-                
-                    # convert to +<size> form if normal size like 200M or 1G
-                    if [[ "$PARTSIZE" =~ ^[0-9]+(M|G|T)$ ]]; then
-                        PARTSIZE="+${PARTSIZE}"
-                        break
-                    fi
-                
-                    echo "Invalid size format. Use 100M, 1G, or 100% for remaining space."
-                done
-
-        # Actually create the partition using sgdisk with +size (0-based end using +)
-        echo "→ Creating RAW partition number $PARTNUM of size $PARTSIZE on $DEV"
-        # sgdisk accepts size like +100M in the end field
-        if ! sgdisk -n ${PARTNUM}:0:+${PARTSIZE} "$DEV"; then
-            echo "sgdisk failed to create partition $PARTNUM. Aborting RAW wizard."
-            return 1
-        fi
-
-        # push kernel to re-read table
-        partprobe "$DEV"; udevadm settle --timeout=5
-        sleep 0.5
-
-        # Wait for device node to appear
-        local PARTDEV="${DEV}${PS}${PARTNUM}"
-        if ! wait_for_block "$PARTDEV" 10; then
-            echo "Warning: device node $PARTDEV did not appear promptly; continuing but be careful."
-        fi
-
-        RAW_PARTS+=("$PARTDEV")
-        echo "→ Created RAW partition: $PARTDEV"
-    done
-
-    # export list for caller
-    LUKS_LVM_RAW_PARTS=("${RAW_PARTS[@]}")
-    return 0
 }
 #=====================================================================================================================================#
 # LUKS LV
@@ -2287,7 +2177,7 @@ luks_lvm_route() {
     echo "Available block devices (disks):"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-    # helper re-prompt functions (kept from original)
+    # helper re-prompt functions
     ask_disk() {
         while true; do
             read -rp "Enter target disk (example /dev/sda or nvme0n1): " _d
@@ -2303,10 +2193,10 @@ ask_yesno_default() {
     while true; do
         read -rp "$prompt " ans
         ans="${ans:-$def}"
-        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')
+        ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
         case "$ans_upper" in
-            Y|YES) return 0 ;;
-            N|NO)  return 1 ;;
+            Y|YES) return 0 ;;   # success = yes
+            N|NO)  return 1 ;;   # failure = no
             *) echo "Please answer Y or N." ;;
         esac
     done
@@ -2320,12 +2210,14 @@ ask_yesno_default() {
         done
     }
     ask_lv_size() {
+        # basic validation for LVM size: accept 40G, 512M, 10%VG, 100%FREE
         local prompt="${1:-Size (40G, 512M, 10%VG, 100%FREE) [100%FREE]: }" ans
         while true; do
             read -rp "$prompt" ans
             ans="${ans:-100%FREE}"
             if [[ "$ans" =~ ^([0-9]+G|[0-9]+M|[0-9]+%VG|[0-9]+%FREE|100%FREE)$ ]]; then
-                REPLY="$ans"; return 0
+                REPLY="$ans"
+                return 0
             fi
             if [[ "$ans" =~ ^[0-9]+$ ]]; then
                 REPLY="${ans}G"; return 0
@@ -2362,9 +2254,9 @@ ask_yesno_default() {
     ask_yesno_default "Continue? [y/N]:" "N" || { echo "Aborted by user."; return 1; }
 
     # verify required system tools exist in live env
-    for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat sgdisk; do
+    for cmd in parted blkid cryptsetup pvcreate vgcreate lvcreate vgchange lvdisplay mkfs.ext4 mkfs.fat; do
         if ! command -v "$cmd" >/dev/null 2>&1; then
-            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted, gdisk) and retry."
+            echo "ERROR: $cmd not found on live system. Install required packages (lvm2, cryptsetup, parted) and retry."
             return 1
         fi
     done
@@ -2379,20 +2271,20 @@ ask_yesno_default() {
     PART_LUKS=""   # path to big partition that will be LUKS or PV
     PART_GRUB_BIOS=""
 
-    # Create boot partition(s) FIRST (so they use the start of disk)
     if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP (will keep space at start)"
+        echo "→ MODE=UEFI: creating 1MiB..1025MiB ESP and main partition"
         parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "mkpart ESP failed"
         parted -s "$DEV" set 1 esp on || die "set esp failed"
         PART_BOOT="${DEV}${ps}1"
+        parted -s "$DEV" unit MiB mkpart primary 1026MiB 100% || die "mkpart main failed"
+        PART_LUKS="${DEV}${ps}2"
 
-        # ensure kernel sees partition table
         partprobe "$DEV"; udevadm settle --timeout=5
 
-        # create ESP filesystem now (safe to do before creating other partitions)
+        # create esp filesystem now
         mkfs.fat -F32 "$PART_BOOT" || die "mkfs.fat failed on $PART_BOOT"
     else
-        echo "→ MODE=BIOS: creating bios_grub (1MiB) and /boot (2MiB..514MiB)"
+        echo "→ MODE=BIOS: creating bios_grub (1MiB), /boot (512MiB), and main partition"
         parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "mkpart bios_grub failed"
         parted -s "$DEV" set 1 bios_grub on || die "set bios_grub failed"
         PART_GRUB_BIOS="${DEV}${ps}1"
@@ -2400,90 +2292,12 @@ ask_yesno_default() {
         parted -s "$DEV" unit MiB mkpart primary 2MiB 514MiB || die "mkpart /boot failed"
         PART_BOOT="${DEV}${ps}2"
 
+        parted -s "$DEV" unit MiB mkpart primary 515MiB 100% || die "mkpart main failed"
+        PART_LUKS="${DEV}${ps}3"
+
         partprobe "$DEV"; udevadm settle --timeout=5
 
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed on $PART_BOOT"
-    fi
-
- # ---- Now ask if user wants RAW partitions (they will be created in remaining free space)
-    EXTRA_PVS=()
-    LUKS_LVM_RAW_PARTS=()
-    if ask_yesno_default "Add RAW partitions for this LUKS/LVM setup? (These will be extra PVs) [y/N]:" "N"; then
-        luks_lvm_raw_partition_wizard || die "RAW partition wizard failed"
-
-        if [[ ${#LUKS_LVM_RAW_PARTS[@]} -gt 0 ]]; then
-            echo "You created the following RAW partitions:"
-            printf " → %s\n" "${LUKS_LVM_RAW_PARTS[@]}"
-
-            # Offer to encrypt them
-            RAW_ENCRYPT=0
-            if ask_yesno_default "Encrypt RAW partitions with LUKS as well? [y/N]:" "N"; then
-                RAW_ENCRYPT=1
-            fi
-
-            for RAW in "${LUKS_LVM_RAW_PARTS[@]}"; do
-                [[ -b "$RAW" ]] || { echo "Warning: $RAW missing, skipping."; continue; }
-
-                # Ensure partition is large enough for LUKS if user chose encryption
-                if (( RAW_ENCRYPT )); then
-                    # check size in MiB via blockdev
-                    raw_size_bytes=$(blockdev --getsize64 "$RAW" 2>/dev/null || echo 0)
-                    raw_size_mib=$(( raw_size_bytes / 1024 / 1024 ))
-                    if (( raw_size_mib < 50 )); then
-                        die "RAW partition $RAW is too small (${raw_size_mib}MiB). Minimum ~50MiB required for LUKS; use larger partition."
-                    fi
-
-                    echo "Encrypting RAW partition $RAW..."
-                    # ensure kernel sees partition
-                    partprobe "$DEV"; udevadm settle --timeout=5
-                    if ! wait_for_block "$RAW" 10; then
-                        die "Device $RAW not present after partitioning."
-                    fi
-
-                    RAWNAME="luksraw_${RAW##*/}"
-                    cryptsetup luksFormat --type luks2 "$RAW" || die "luksFormat failed on $RAW"
-                    cryptsetup open "$RAW" "$RAWNAME" || die "cryptsetup open failed for $RAW"
-                    EXTRA_PVS+=("/dev/mapper/$RAWNAME")
-                else
-                    EXTRA_PVS+=("$RAW")
-                fi
-            done
-        fi
-    fi
-
-    # ---- Now create the MAIN (LUKS/PV) partition using remaining free space
-    # We place it after boot and after any RAW partitions so it becomes the remaining free area.
-    # Use parted to mkpart from next MiB to 100%.
-    if [[ "$MODE" == "UEFI" ]]; then
-        # Determine next free MiB after existing partitions to set start for main
-        # parted unit MiB print will show partitions and we can compute next start, but simplest is to create main as from 1026MiB 100% (works unless RAW partitions overlap the end)
-        # To be robust: create main as the first available free region by using sgdisk to create with 0:0 (first available), but ensure we do not overlap early partitions.
-        echo "→ Creating main partition in remaining space (UEFI layout)"
-        # Create main partition as next free region (uses parted's 1026MiB..100% only if no RAW partitions touch that range)
-        # Safer approach: use sgdisk to create a partition occupying the remaining free space (first available contiguous region).
-        # Determine an unused partition number:
-        NUM=$(sgdisk -p "$DEV" | awk '/Number/ {p=1; next} p && NF {print $1}' | tail -n1)
-        if [[ -z "$NUM" ]]; then
-            # no partitions found, choose 1
-            newnum=1
-        else
-            newnum=$((NUM+1))
-        fi
-        # Use sgdisk -n newnum:0:0 to allocate first available free region (which will be after existing partitions)
-        sgdisk -n ${newnum}:0:0 "$DEV" || die "Failed to create main partition with sgdisk"
-        partprobe "$DEV"; udevadm settle --timeout=5
-        PART_LUKS="${DEV}${ps}${newnum}"
-    else
-        echo "→ Creating main partition in remaining space (BIOS layout)"
-        NUM=$(sgdisk -p "$DEV" | awk '/Number/ {p=1; next} p && NF {print $1}' | tail -n1)
-        if [[ -z "$NUM" ]]; then
-            newnum=1
-        else
-            newnum=$((NUM+1))
-        fi
-        sgdisk -n ${newnum}:0:0 "$DEV" || die "Failed to create main partition with sgdisk"
-        partprobe "$DEV"; udevadm settle --timeout=5
-        PART_LUKS="${DEV}${ps}${newnum}"
     fi
 
     [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
@@ -2517,16 +2331,8 @@ ask_yesno_default() {
         BASE_DEVICE="$PART_LUKS"
     fi
 
-    echo "→ Creating PV on main device: $BASE_DEVICE"
+    echo "→ Creating PV on $BASE_DEVICE"
     pvcreate "$BASE_DEVICE" || die "pvcreate failed on $BASE_DEVICE"
-
-    # If RAW partitions exist (EXTRA_PVS) create PVs for them as well
-    if [[ ${#EXTRA_PVS[@]} -gt 0 ]]; then
-        for PV in "${EXTRA_PVS[@]}"; do
-            echo "→ Creating PV on RAW device: $PV"
-            pvcreate "$PV" || die "pvcreate failed on $PV"
-        done
-    fi
 
     # ask VG name and create/extend
     while true; do
@@ -2537,27 +2343,19 @@ ask_yesno_default() {
     done
 
     if vgdisplay "$VGNAME" >/dev/null 2>&1; then
-        if ask_yesno_default "VG $VGNAME exists — add PV(s) to it? [Y/n]:" "Y"; then
+        if ask_yesno_default "VG $VGNAME exists — add PV to it? [Y/n]:" "Y"; then
             vgextend "$VGNAME" "$BASE_DEVICE" || die "vgextend failed"
-            for PV in "${EXTRA_PVS[@]}"; do
-                vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-            done
         else
             while true; do
                 read -rp "New VG name: " VGNAME
                 VGNAME="${VGNAME:-vg0}"
                 [[ "$VGNAME" =~ ^[a-zA-Z0-9._-]+$ ]] && break
+                echo "Invalid name"
             done
             vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-            for PV in "${EXTRA_PVS[@]}"; do
-                vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-            done
         fi
     else
         vgcreate "$VGNAME" "$BASE_DEVICE" || die "vgcreate failed"
-        for PV in "${EXTRA_PVS[@]}"; do
-            vgextend "$VGNAME" "$PV" || die "vgextend failed on $PV"
-        done
     fi
 
     vgscan --mknodes
@@ -2581,7 +2379,7 @@ ask_yesno_default() {
         fi
 
         ask_lv_size
-        lvsize="$REPLY"
+        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
 
         ask_mountpoint
         lvmnt="${REPLY:-none}"
@@ -2611,24 +2409,27 @@ ask_yesno_default() {
     for idx in "${!LV_NAMES[@]}"; do
         name="${LV_NAMES[idx]}"
         size="${LV_SIZES[idx]}"
-
+    
         while true; do
+    
+            # Detect percentage-based sizes → must use -l (extents)
             if [[ "$size" =~ % ]]; then
                 LVCREATE_CMD=(lvcreate -l "$size" "$VGNAME" -n "$name")
             else
                 LVCREATE_CMD=(lvcreate -L "$size" "$VGNAME" -n "$name")
             fi
-
+    
+            # Attempt LV creation
             if "${LVCREATE_CMD[@]}" 2>/tmp/lvcreate.err; then
                 break
             fi
-
+    
             echo "lvcreate failed for $name (size=$size):"
             sed -n '1,200p' /tmp/lvcreate.err
-
+    
             read -rp "Retry with new size? (y to retry / n to abort) [y]: " r
             r="${r:-y}"
-
+    
             case "$r" in
                 [Yy])
                     ask_lv_size "New size for $name: "
@@ -2646,7 +2447,7 @@ ask_yesno_default() {
 
     udevadm settle --timeout=5
 
-    # Format & mount LVs (root first)
+    # Format & mount LVs: root first
     mkdir -p /mnt
     root_index=""
     for i in "${!LV_MOUNTS[@]}"; do
