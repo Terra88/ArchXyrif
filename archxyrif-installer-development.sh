@@ -2147,6 +2147,7 @@ luks_lvm_master_flow() {
     # single post-install run
     luks_lvm_post_install_steps
 }
+#=================WAIT HELPERS=============#
 wait_for_lv() {
     local dev="$1"
     local timeout=10
@@ -2157,6 +2158,19 @@ wait_for_lv() {
     done
     return 1
 }
+# Wait for a block device node to appear (seconds timeout)
+wait_for_block() {
+    local dev="$1"
+    local timeout="${2:-10}"
+    local i=0
+    while (( i < timeout )); do
+        [[ -b "$dev" ]] && return 0
+        sleep 0.5
+        ((i++))
+        udevadm settle --timeout=2 >/dev/null 2>&1 || true
+    done
+    return 1
+}
 # ============================================================
 # RAW partition creation wizard (independent of custom wizard)
 # Creates empty raw partitions only. No FS, no mountpoints.
@@ -2164,32 +2178,95 @@ wait_for_lv() {
 luks_lvm_raw_partition_wizard() {
     echo
     echo "=== RAW Partition Wizard (LUKS/LVM only) ==="
-    echo "Creates *empty* partitions for use as additional LUKS devices or PVs."
+    echo "Creates empty partitions for use as additional LUKS devices or PVs."
     echo
 
-    local RAW_PARTS=()
+    local DISK PS USED_PARTS RAW_PARTS=()
+    PS=$(part_suffix "$DEV")   # use current disk's suffix logic (assumes $DEV already set)
+    # Show free space to user
+    echo "Current partition table (existing partitions):"
+    parted -s "$DEV" unit MiB print || true
+    echo
 
-    while true; do
-        echo "Available disks:"
-        lsblk -dpno NAME,SIZE | grep -E "sd|nvme|vd"
-        read -rp "Select disk for RAW partition (ex: /dev/sda): " DISK
-        [[ -b "$DISK" ]] || { echo "Invalid disk."; continue; }
+    read -rp "How many RAW partitions do you want to create on $DEV? " RAW_COUNT
+    [[ "$RAW_COUNT" =~ ^[0-9]+$ && "$RAW_COUNT" -ge 1 ]] || { echo "Invalid number."; return 1; }
 
-        read -rp "Partition number to create (ex: 4): " NUM
-        PART="${DISK}${NUM}"
+    for ((i=1;i<=RAW_COUNT;i++)); do
+        # show current partition table every iteration
+        parted -s "$DEV" unit MiB print
+        echo
 
-        echo "→ Creating RAW partition $PART"
-        sgdisk -n ${NUM}:0:0 "$DISK" || { echo "Failed to create partition"; continue; }
+        # choose partition index number (must not conflict)
+        while true; do
+            read -rp "Choose partition number for RAW #$i (e.g. 2, 3): " PARTNUM
+            if ! [[ "$PARTNUM" =~ ^[0-9]+$ ]]; then
+                echo "Partition number must be numeric."
+                continue
+            fi
+            # check if partition number is free
+            if sgdisk -p "$DEV" | awk '/^[ ]*[0-9]+/ {print $1}' | grep -qx "$PARTNUM"; then
+                echo "Partition number $PARTNUM already exists. Choose another."
+                continue
+            fi
+            break
+        done
 
-        partprobe "$DISK"; udevadm settle --timeout=5
+        # Ask size; require minimum for encryption to be safe
+        while true; do
+            read -rp "Size for /dev/${DEV##*/}${PS}${PARTNUM} (example 100M, 1G) [100M]: " PARTSIZE
+            PARTSIZE="${PARTSIZE:-100M}"
+            # normalize to sgdisk-friendly +<size> form if it ends with M/G/T
+            if ! [[ "$PARTSIZE" =~ ^[0-9]+(M|G|T)$ ]]; then
+                echo "Invalid size format; use e.g. 100M, 1G, 10G."
+                continue
+            fi
+            # convert to MiB numeric for minimal check (strip trailing letter)
+            local unit="${PARTSIZE: -1}"
+            local num="${PARTSIZE%?}"
+            local sz_mib
+            case "$unit" in
+                M|m) sz_mib=$(( num )) ;;
+                G|g) sz_mib=$(( num * 1024 )) ;;
+                T|t) sz_mib=$(( num * 1024 * 1024 )) ;;
+                *) sz_mib=0 ;;
+            esac
+            if (( sz_mib < 20 )); then
+                echo "Size too small. Minimum allowed is 20MiB. For LUKS encryption use >=100MiB."
+                continue
+            fi
+            # If user intends to encrypt later, recommend >=100MiB
+            if (( sz_mib < 100 )); then
+                read -rp "Size <100MiB. Are you sure? (y/N): " sure
+                [[ "$sure" =~ ^[Yy]$ ]] || continue
+            fi
+            break
+        done
 
-        RAW_PARTS+=("$PART")
+        # Actually create the partition using sgdisk with +size (0-based end using +)
+        echo "→ Creating RAW partition number $PARTNUM of size $PARTSIZE on $DEV"
+        # sgdisk accepts size like +100M in the end field
+        if ! sgdisk -n ${PARTNUM}:0:+${PARTSIZE} "$DEV"; then
+            echo "sgdisk failed to create partition $PARTNUM. Aborting RAW wizard."
+            return 1
+        fi
 
-        read -rp "Create another RAW partition? (y/N): " again
-        [[ "$again" =~ ^[Yy]$ ]] || break
+        # push kernel to re-read table
+        partprobe "$DEV"; udevadm settle --timeout=5
+        sleep 0.5
+
+        # Wait for device node to appear
+        local PARTDEV="${DEV}${PS}${PARTNUM}"
+        if ! wait_for_block "$PARTDEV" 10; then
+            echo "Warning: device node $PARTDEV did not appear promptly; continuing but be careful."
+        fi
+
+        RAW_PARTS+=("$PARTDEV")
+        echo "→ Created RAW partition: $PARTDEV"
     done
 
+    # export list for caller
     LUKS_LVM_RAW_PARTS=("${RAW_PARTS[@]}")
+    return 0
 }
 #=====================================================================================================================================#
 # LUKS LV
@@ -2329,32 +2406,43 @@ ask_yesno_default() {
         mkfs.ext4 -F "$PART_BOOT" || die "mkfs.ext4 failed on $PART_BOOT"
     fi
 
-    # ---- Now ask if user wants RAW partitions (they will be created in remaining free space)
-    EXTRA_PVS=()   # reset
+ # ---- Now ask if user wants RAW partitions (they will be created in remaining free space)
+    EXTRA_PVS=()
     LUKS_LVM_RAW_PARTS=()
     if ask_yesno_default "Add RAW partitions for this LUKS/LVM setup? (These will be extra PVs) [y/N]:" "N"; then
-        luks_lvm_raw_partition_wizard
+        luks_lvm_raw_partition_wizard || die "RAW partition wizard failed"
 
         if [[ ${#LUKS_LVM_RAW_PARTS[@]} -gt 0 ]]; then
             echo "You created the following RAW partitions:"
             printf " → %s\n" "${LUKS_LVM_RAW_PARTS[@]}"
 
+            # Offer to encrypt them
             RAW_ENCRYPT=0
             if ask_yesno_default "Encrypt RAW partitions with LUKS as well? [y/N]:" "N"; then
                 RAW_ENCRYPT=1
             fi
 
             for RAW in "${LUKS_LVM_RAW_PARTS[@]}"; do
-                # validate existence
-                if [[ ! -b "$RAW" ]]; then
-                    echo "Warning: RAW partition $RAW not present, skipping."
-                    continue
-                fi
+                [[ -b "$RAW" ]] || { echo "Warning: $RAW missing, skipping."; continue; }
 
+                # Ensure partition is large enough for LUKS if user chose encryption
                 if (( RAW_ENCRYPT )); then
+                    # check size in MiB via blockdev
+                    raw_size_bytes=$(blockdev --getsize64 "$RAW" 2>/dev/null || echo 0)
+                    raw_size_mib=$(( raw_size_bytes / 1024 / 1024 ))
+                    if (( raw_size_mib < 50 )); then
+                        die "RAW partition $RAW is too small (${raw_size_mib}MiB). Minimum ~50MiB required for LUKS; use larger partition."
+                    fi
+
                     echo "Encrypting RAW partition $RAW..."
+                    # ensure kernel sees partition
+                    partprobe "$DEV"; udevadm settle --timeout=5
+                    if ! wait_for_block "$RAW" 10; then
+                        die "Device $RAW not present after partitioning."
+                    fi
+
                     RAWNAME="luksraw_${RAW##*/}"
-                    cryptsetup luksFormat "$RAW" || die "luksFormat failed on $RAW"
+                    cryptsetup luksFormat --type luks2 "$RAW" || die "luksFormat failed on $RAW"
                     cryptsetup open "$RAW" "$RAWNAME" || die "cryptsetup open failed for $RAW"
                     EXTRA_PVS+=("/dev/mapper/$RAWNAME")
                 else
