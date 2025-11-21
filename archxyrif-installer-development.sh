@@ -824,7 +824,6 @@ set_password_interactive() {
     return 1
 }
 
-# Create user and set passwords
 useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
@@ -837,19 +836,21 @@ chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 #========================================================#
-# 8) Home directory setup & XDG dirs
+# 8) Home directory setup & XDG dirs (with fix)
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 
-# Ensure .config exists
 mkdir -p "$CONFIG_DIR"
 
-# Backup existing .config if non-empty (optional)
+# Backup existing .config if non-empty
 if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
     mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
     mkdir -p "$CONFIG_DIR"
 fi
+
+# --- FIX: ensure xdg-user-dirs is installed ---
+pacman -Sy --needed --noconfirm xdg-user-dirs
 
 # Create standard XDG directories
 sudo -u "$NEWUSER" xdg-user-dirs-update --force
@@ -866,22 +867,23 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 
-# -------------------------------
-# Inject values
-# -------------------------------
-sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
-sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
-sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
-sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
-sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 
-# -------------------------------
-# Execute
-# -------------------------------
-chmod +x /mnt/root/postinstall.sh
-arch-chroot /mnt /root/postinstall.sh
-rm -f /mnt/root/postinstall.sh
-echo "✅ System configured."
+    # -------------------------------
+    # Inject values
+    # -------------------------------
+    sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+    sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+    sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
+    sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+    sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+
+    # -------------------------------
+    # Execute
+    # -------------------------------
+    chmod +x /mnt/root/postinstall.sh
+    arch-chroot /mnt /root/postinstall.sh
+    rm -f /mnt/root/postinstall.sh
+    echo "✅ System configured."
 }
 #=========================================================================================================================================#
 # GRUB installation
