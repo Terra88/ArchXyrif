@@ -1164,7 +1164,6 @@ window_manager() {
     WM_AUR_PKGS=()
     EXTRA_PKGS=()
     EXTRA_AUR_PKGS=()
-    WM_SERVICE=""
 
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
@@ -1173,7 +1172,6 @@ window_manager() {
             echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager flatpak network-manager-applet bluez bluez-utils blueman slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-            WM_SERVICE="bluetooth NetworkManager"
             ;;
         2)
             SELECTED_WM="kde"
@@ -1266,16 +1264,6 @@ window_manager() {
     fi
     if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
-    fi
-
-    # ---------- Enable optional WM services ----------
-    if [[ -n "$WM_SERVICE" ]]; then
-        echo
-        echo "Enabling optional services for $SELECTED_WM..."
-        for svc in $WM_SERVICE; do
-        echo "→ Enabling and starting $svc..."
-        sudo systemctl enable --now "$svc"
-        done
     fi
     
 }
