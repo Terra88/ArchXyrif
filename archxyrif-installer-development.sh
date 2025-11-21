@@ -825,6 +825,7 @@ set_password_interactive() {
     return 1
 }
 
+# Create user and set passwords
 useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
@@ -842,17 +843,17 @@ sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
 
-# Ensure .config exists
+# Ensure home and .config exist
 mkdir -p "$CONFIG_DIR"
 
-# Backup existing .config if non-empty (optional)
+# Backup existing .config if non-empty
 if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
     mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
     mkdir -p "$CONFIG_DIR"
 fi
 
-# Create standard XDG directories (xdg-user-dirs must be installed via pacstrap)
-sudo -u "$NEWUSER" xdg-user-dirs-update --force
+# Create standard XDG directories as the user
+sudo -u "$NEWUSER" env HOME="$HOME_DIR" XDG_CONFIG_HOME="$CONFIG_DIR" xdg-user-dirs-update --force
 
 # Fix ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
