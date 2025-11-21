@@ -1139,14 +1139,13 @@ gpu_driver()
 #=========================================================================================================================================#
 # ---------- WM/DE Selection ----------
 window_manager() {
-   
     sleep 1
     clear
     echo -e "#===================================================================================================#"
     echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
     echo -e "#===================================================================================================#"
     echo
-  
+
     echo "1) Hyprland (Wayland)"
     echo "2) KDE Plasma (X11/Wayland)"
     echo "3) GNOME (X11/Wayland)"
@@ -1162,8 +1161,6 @@ window_manager() {
 
     WM_PKGS=()
     WM_AUR_PKGS=()
-    EXTRA_PKGS=()
-    EXTRA_AUR_PKGS=()
 
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
@@ -1172,8 +1169,6 @@ window_manager() {
             echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager network-manager-applet bluez bluez-utils blueman hypridle hyprlock hyprpaper hyprshot slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm )
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git wlogout wlrobs-hg)
-            EXTRA_PKGS=()
-            EXTRA_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
@@ -1232,16 +1227,7 @@ window_manager() {
             ;;
     esac
 
-    # ---------- Automatically read extra packages ----------
-    if [[ "$SELECTED_WM" != "none" ]]; then
-        read -r -p "Enter extra pacman packages for ${SELECTED_WM} (space-separated, leave empty if none): " EXTRA_PKGS_INPUT
-        read -r -p "Enter extra AUR packages for ${SELECTED_WM} (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
-        IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
-        IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
-    fi
-
-
-    # ---------- Install WM/DE packages ----------
+    # ---------- Install only WM/DE packages ----------
     if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
     fi
@@ -1249,13 +1235,7 @@ window_manager() {
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
     fi
 
-    # ---------- Install extra packages ----------
-    if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
-    fi
-    if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
-        safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
-    fi
+    echo "→ WM/DE packages installation completed. Skipping extra packages."
 }
 
 # ---------- DM Selection ----------
@@ -1466,71 +1446,77 @@ optional_aur()
                 
 }
 #=========================================================================================================================================#
-# Hyprland optional Configuration Installer - from http://github.com/terra88/hyprland-setup
+# Hyprland Configuration Installer - from http://github.com/terra88/hyprland-setup
 #=========================================================================================================================================#
-hyprland_optional()
-{     
-  
-      sleep 1
-      clear
-      echo
-      echo -e "#===================================================================================================#"
-      echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                             #"
-      echo -e "#===================================================================================================#"
-      echo
-      sleep 1
-     
-# Only proceed if Hyprland was selected (WM_CHOICE == 1)
-if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-    echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-    arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
+hyprland_theme() {
+    # Only run if Hyprland was selected
+    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
 
-    echo "→ Installing Hyprland dotfiles automatically..."
-    arch-chroot /mnt /bin/bash -c "
-NEWUSER=\"$NEWUSER\"
-HOME_DIR=\"/home/\$NEWUSER\"
-CONFIG_DIR=\"\$HOME_DIR/.config\"
-REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+        echo "🔧 Installing unzip and git inside chroot..."
+        arch-chroot /mnt pacman -S --needed --noconfirm unzip git
 
-mkdir -p \"\$HOME_DIR\"
-chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-chmod 755 \"\$HOME_DIR\"
+        echo "→ Running Hyprland theme setup inside chroot..."
 
-if [[ -d \"\$REPO_DIR\" ]]; then
-    rm -rf \"\$REPO_DIR\"
+        arch-chroot /mnt /bin/bash -e <<EOF
+NEWUSER="$NEWUSER"
+HOME_DIR="/home/\$NEWUSER"
+CONFIG_DIR="\$HOME_DIR/.config"
+REPO_DIR="\$HOME_DIR/hyprland-setup"
+
+# Ensure home and .config exist
+mkdir -p "\$CONFIG_DIR"
+chown \$NEWUSER:\$NEWUSER "\$HOME_DIR" "\$CONFIG_DIR"
+
+# Clone theme repository
+if [[ -d "\$REPO_DIR" ]]; then
+    rm -rf "\$REPO_DIR"
 fi
-sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git "\$REPO_DIR"
 
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
-
-if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-    echo '==> Existing .config backed up.'
+# Backup existing .config if not empty
+if [[ -d "\$CONFIG_DIR" && \$(ls -A "\$CONFIG_DIR") ]]; then
+    mv "\$CONFIG_DIR" "\$CONFIG_DIR.backup.\$(date +%s)"
+    mkdir -p "\$CONFIG_DIR"
 fi
-mkdir -p \"\$CONFIG_DIR\"
 
-if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-    unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
-    if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
-        cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
-        rm -rf \"\$HOME_DIR/temp_unzip\"
-        echo '==> config.zip contents copied to .config'
+# Extract config.zip into .config (folders inside config/ only)
+if [[ -f "\$REPO_DIR/config.zip" ]]; then
+    TEMP_DIR=\$(mktemp -d)
+    unzip -q "\$REPO_DIR/config.zip" -d "\$TEMP_DIR"
+    if [[ -d "\$TEMP_DIR/config" ]]; then
+        cp -r "\$TEMP_DIR/config/"* "\$CONFIG_DIR/"
+        echo "==> config.zip contents copied to .config"
     else
-        echo '⚠️ config/ folder not found inside zip, skipping.'
+        echo "⚠️ config/ folder not found inside zip, skipping."
     fi
+    rm -rf "\$TEMP_DIR"
+else
+    echo "⚠️ config.zip not found, skipping."
 fi
 
-[[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
-[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
-
-chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-rm -rf \"\$REPO_DIR\"
-"
-    echo "✅ Hyprland dotfiles installed automatically."
+# Extract wallpaper.zip into home directory
+if [[ -f "\$REPO_DIR/wallpaper.zip" ]]; then
+    unzip -o "\$REPO_DIR/wallpaper.zip" -d "\$HOME_DIR/"
+    echo "==> wallpaper.zip extracted"
 fi
-}                          
+
+# Copy wallpaper.sh and make executable
+if [[ -f "\$REPO_DIR/wallpaper.sh" ]]; then
+    cp -f "\$REPO_DIR/wallpaper.sh" "\$HOME_DIR/"
+    chmod +x "\$HOME_DIR/wallpaper.sh"
+    echo "==> wallpaper.sh copied and made executable"
+fi
+
+# Fix ownership for the new user
+chown -R \$NEWUSER:\$NEWUSER "\$HOME_DIR"
+
+# Cleanup cloned repository
+rm -rf "\$REPO_DIR"
+
+EOF
+        echo "Hyprland theme setup completed."
+    fi
+}                      
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
@@ -1562,7 +1548,7 @@ quick_partition() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
     
 
     echo -e "✅ Arch Linux installation complete."
@@ -2009,7 +1995,7 @@ custom_partition() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -2549,7 +2535,7 @@ luks_lvm_post_install_steps() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
     
     echo "→ LUKS+LVM post-install done."
 }
