@@ -761,6 +761,9 @@ KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
@@ -773,6 +776,7 @@ hwclock --systohc
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
+
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
@@ -802,60 +806,61 @@ localectl set-x11-keymap ${KEYMAP}
 mkinitcpio -P
 
 #========================================================#
-# 6) Root + user passwords (interactive)
+# 6) Create user + passwords
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
+
 set_password_interactive() {
     local target="$1"
     local max_tries=3
-    local i=1
-    while (( i <= max_tries )); do
+    local attempt=1
+
+    while (( attempt <= max_tries )); do
         echo "--------------------------------------------------------"
-        echo "Set password for $target (attempt $i/$max_tries)"
+        echo "Set password for $target (attempt $attempt/$max_tries)"
         echo "--------------------------------------------------------"
+
         if passwd "$target"; then
-            echo "✅ Password set for $target"
+            echo "Password OK for $target"
             return 0
         fi
-        echo "⚠️ Password setup failed — try again."
-        ((i++))
+
+        echo "Password failed. Try again."
+        ((attempt++))
     done
-    echo "❌ Giving up after $max_tries failed attempts for $target"
+
+    echo "Failed to set password for $target"
     return 1
 }
 
-useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
-set_password_interactive "${NEWUSER}"
+useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
+
+set_password_interactive "$NEWUSER"
 set_password_interactive "root"
 
 #========================================================#
 # 7) Sudo privileges
 #========================================================#
-echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
-chmod 440 /etc/sudoers.d/${NEWUSER}
+echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
+chmod 440 /etc/sudoers.d/$NEWUSER
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 #========================================================#
-# 8) Home directory setup & XDG dirs (with fix)
+# 8) Create + Fix Home/XDG dirs (safe for all WMs)
 #========================================================#
-HOME_DIR="/home/$NEWUSER"
-CONFIG_DIR="$HOME_DIR/.config"
 
+mkdir -p "$HOME_DIR"
 mkdir -p "$CONFIG_DIR"
 
-# Backup existing .config if non-empty
-if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-    mkdir -p "$CONFIG_DIR"
-fi
+# Proper directory setup without sudo
+runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.config"
+runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.local/share"
+runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.cache"
 
-# --- FIX: ensure xdg-user-dirs is installed ---
-pacman -Sy --needed --noconfirm xdg-user-dirs
+# Create XDG standard dirs
+runuser -u "$NEWUSER" -- xdg-user-dirs-update --force
 
-# Create standard XDG directories
-sudo -u "$NEWUSER" xdg-user-dirs-update --force
-
-# Fix ownership
+# Ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 
 #========================================================#
@@ -866,7 +871,6 @@ systemctl enable sshd
 
 echo "Postinstall inside chroot finished."
 EOF
-
 
     # -------------------------------
     # Inject values
@@ -883,6 +887,7 @@ EOF
     chmod +x /mnt/root/postinstall.sh
     arch-chroot /mnt /root/postinstall.sh
     rm -f /mnt/root/postinstall.sh
+
     echo "✅ System configured."
 }
 #=========================================================================================================================================#
