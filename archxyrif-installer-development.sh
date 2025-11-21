@@ -1232,18 +1232,14 @@ window_manager() {
             ;;
     esac
 
-    # ---------- Optional extra packages ----------
+    # ---------- Automatically read extra packages ----------
     if [[ "$SELECTED_WM" != "none" ]]; then
-        echo
-        read -r -p "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: " EXTRA_CHOICE
-        EXTRA_CHOICE="${EXTRA_CHOICE,,}"
-        if [[ "$EXTRA_CHOICE" == "y" ]]; then
-            read -r -p "Enter extra pacman packages (space-separated): " EXTRA_PKGS_INPUT
-            read -r -p "Enter extra AUR packages (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
-            IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
-            IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
-        fi
+        read -r -p "Enter extra pacman packages for ${SELECTED_WM} (space-separated, leave empty if none): " EXTRA_PKGS_INPUT
+        read -r -p "Enter extra AUR packages for ${SELECTED_WM} (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
+        IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
+        IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
     fi
+
 
     # ---------- Install WM/DE packages ----------
     if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
