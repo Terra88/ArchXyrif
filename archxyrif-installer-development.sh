@@ -706,7 +706,6 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
-
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
@@ -762,9 +761,6 @@ KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
 
-HOME_DIR="/home/$NEWUSER"
-CONFIG_DIR="$HOME_DIR/.config"
-
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
@@ -777,7 +773,6 @@ hwclock --systohc
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
-
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
@@ -807,61 +802,59 @@ localectl set-x11-keymap ${KEYMAP}
 mkinitcpio -P
 
 #========================================================#
-# 6) Create user + passwords
+# 6) Root + user passwords (interactive)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
 
 set_password_interactive() {
     local target="$1"
     local max_tries=3
-    local attempt=1
-
-    while (( attempt <= max_tries )); do
+    local i=1
+    while (( i <= max_tries )); do
         echo "--------------------------------------------------------"
-        echo "Set password for $target (attempt $attempt/$max_tries)"
+        echo "Set password for $target (attempt $i/$max_tries)"
         echo "--------------------------------------------------------"
-
         if passwd "$target"; then
-            echo "Password OK for $target"
+            echo "✅ Password set for $target"
             return 0
         fi
-
-        echo "Password failed. Try again."
-        ((attempt++))
+        echo "⚠️ Password setup failed — try again."
+        ((i++))
     done
-
-    echo "Failed to set password for $target"
+    echo "❌ Giving up after $max_tries failed attempts for $target"
     return 1
 }
 
-useradd -m -G wheel -s /bin/bash "$NEWUSER" || true
-
-set_password_interactive "$NEWUSER"
+useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
+set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
 
 #========================================================#
 # 7) Sudo privileges
 #========================================================#
-echo "$NEWUSER ALL=(ALL:ALL) ALL" > /etc/sudoers.d/$NEWUSER
-chmod 440 /etc/sudoers.d/$NEWUSER
+echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
+chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
 
 #========================================================#
-# 8) Create + Fix Home/XDG dirs (safe for all WMs)
+# 8) Home directory setup & XDG dirs
 #========================================================#
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
 
-mkdir -p "$HOME_DIR"
+# Ensure .config exists
 mkdir -p "$CONFIG_DIR"
 
-# Proper directory setup without sudo
-runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.config"
-runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.local/share"
-runuser -u "$NEWUSER" -- mkdir -p "$HOME_DIR/.cache"
+# Backup existing .config if non-empty (optional)
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+    mkdir -p "$CONFIG_DIR"
+fi
 
-# Create XDG standard dirs
-runuser -u "$NEWUSER" -- xdg-user-dirs-update --force
+# Create standard XDG directories (xdg-user-dirs must be installed via pacstrap)
+sudo -u "$NEWUSER" xdg-user-dirs-update --force
 
-# Ownership
+# Fix ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 
 #========================================================#
@@ -873,23 +866,22 @@ systemctl enable sshd
 echo "Postinstall inside chroot finished."
 EOF
 
-    # -------------------------------
-    # Inject values
-    # -------------------------------
-    sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
-    sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+# -------------------------------
+# Inject actual values
+# -------------------------------
+sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
+sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
+sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
+sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
+sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 
-    # -------------------------------
-    # Execute
-    # -------------------------------
-    chmod +x /mnt/root/postinstall.sh
-    arch-chroot /mnt /root/postinstall.sh
-    rm -f /mnt/root/postinstall.sh
-
-    echo "✅ System configured."
+# -------------------------------
+# Execute
+# -------------------------------
+chmod +x /mnt/root/postinstall.sh
+arch-chroot /mnt /root/postinstall.sh
+rm -f /mnt/root/postinstall.sh
+echo "✅ System configured."
 }
 #=========================================================================================================================================#
 # GRUB installation
