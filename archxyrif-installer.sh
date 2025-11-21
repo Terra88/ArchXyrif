@@ -1139,14 +1139,13 @@ gpu_driver()
 #=========================================================================================================================================#
 # ---------- WM/DE Selection ----------
 window_manager() {
-   
     sleep 1
     clear
     echo -e "#===================================================================================================#"
     echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
     echo -e "#===================================================================================================#"
     echo
-  
+
     echo "1) Hyprland (Wayland)"
     echo "2) KDE Plasma (X11/Wayland)"
     echo "3) GNOME (X11/Wayland)"
@@ -1162,8 +1161,6 @@ window_manager() {
 
     WM_PKGS=()
     WM_AUR_PKGS=()
-    EXTRA_PKGS=()
-    EXTRA_AUR_PKGS=()
 
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
@@ -1172,8 +1169,6 @@ window_manager() {
             echo -e "→ Selected: Hyprland"
             WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager network-manager-applet bluez bluez-utils blueman hypridle hyprlock hyprpaper hyprshot slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm )
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git wlogout wlrobs-hg)
-            EXTRA_PKGS=()
-            EXTRA_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
@@ -1232,20 +1227,7 @@ window_manager() {
             ;;
     esac
 
-    # ---------- Optional extra packages ----------
-    if [[ "$SELECTED_WM" != "none" ]]; then
-        echo
-        read -r -p "Do you want to install extra packages for ${SELECTED_WM}? [y/N]: " EXTRA_CHOICE
-        EXTRA_CHOICE="${EXTRA_CHOICE,,}"
-        if [[ "$EXTRA_CHOICE" == "y" ]]; then
-            read -r -p "Enter extra pacman packages (space-separated): " EXTRA_PKGS_INPUT
-            read -r -p "Enter extra AUR packages (space-separated, leave empty if none): " EXTRA_AUR_PKGS_INPUT
-            IFS=' ' read -r -a EXTRA_PKGS <<< "$EXTRA_PKGS_INPUT"
-            IFS=' ' read -r -a EXTRA_AUR_PKGS <<< "$EXTRA_AUR_PKGS_INPUT"
-        fi
-    fi
-
-    # ---------- Install WM/DE packages ----------
+    # ---------- Install only WM/DE packages ----------
     if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
     fi
@@ -1253,13 +1235,7 @@ window_manager() {
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
     fi
 
-    # ---------- Install extra packages ----------
-    if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
-        safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKGS[@]}"
-    fi
-    if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
-        safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
-    fi
+    echo "→ WM/DE packages installation completed. Skipping extra packages."
 }
 
 # ---------- DM Selection ----------
