@@ -710,45 +710,48 @@ pacstrap /mnt "${PKGS[@]}"
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
+    sleep 1
+    clear
+    echo -e "#===================================================================================================#"
+    echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+    echo -e "#===================================================================================================#"
+    echo
 
-sleep 1
-clear
-echo -e "#===================================================================================================#"
-echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
-echo -e "#===================================================================================================#"
-echo
-# -------------------------------
-# Prompt for timezone, locale, hostname, and username
-# -------------------------------
-DEFAULT_TZ="Europe/Helsinki"
-read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-TZ="${TZ:-$DEFAULT_TZ}"
+    # -------------------------------
+    # Prompt for timezone, locale, hostname, and username
+    # -------------------------------
+    DEFAULT_TZ="Europe/Helsinki"
+    read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+    TZ="${TZ:-$DEFAULT_TZ}"
 
-DEFAULT_LOCALE="fi_FI.UTF-8"
-read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+    DEFAULT_LOCALE="fi_FI.UTF-8"
+    read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+    LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
-DEFAULT_KEYMAP="fi"
-read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
-KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+    DEFAULT_KEYMAP="fi"
+    read -r -p "Enter keyboard layout [${DEFAULT_KEYMAP}]: " KEYMAP
+    KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
-DEFAULT_HOSTNAME="archbox"
-read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
-HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+    DEFAULT_HOSTNAME="archbox"
+    read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+    HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
-DEFAULT_USER="user"
-read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
-NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-# -------------------------------
-# Prepare chroot (mount pseudo-filesystems etc.)
-# -------------------------------
-prepare_chroot
-# -------------------------------
-# Create postinstall.sh inside chroot
-# -------------------------------
-cat > /mnt/root/postinstall.sh <<'EOF'
+    DEFAULT_USER="user"
+    read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+    NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+
+    # -------------------------------
+    # Prepare chroot
+    # -------------------------------
+    prepare_chroot
+
+    # -------------------------------
+    # Create postinstall.sh inside chroot
+    # -------------------------------
+    cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
 #========================================================#
 # Variables injected by main installer
 #========================================================#
@@ -757,11 +760,13 @@ LANG_LOCALE="{{LANG_LOCALE}}"
 KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
+
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
+
 #========================================================#
 # 2) Locale
 #========================================================#
@@ -772,6 +777,7 @@ locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
 export LC_ALL="${LANG_LOCALE}"
+
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
@@ -781,6 +787,7 @@ cat > /etc/hosts <<HOSTS
 ::1         localhost
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
+
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
@@ -788,16 +795,16 @@ echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap ${KEYMAP}
 localectl set-x11-keymap ${KEYMAP}
+
 #========================================================#
 # 5) Initramfs
 #========================================================#
 mkinitcpio -P
+
 #========================================================#
-#========================================================#
-# 6) Root + user passwords (interactive with retries)
+# 6) Root + user passwords (interactive)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-# Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
     local max_tries=3
@@ -821,36 +828,55 @@ set_password_interactive() {
 useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
+
 #========================================================#
-# 7) Ensure user has sudo privileges
+# 7) Sudo privileges
 #========================================================#
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
 #========================================================#
-# 8) Home directory setup
+# 8) Home directory setup & XDG dirs
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
+
+# Ensure .config exists
 mkdir -p "$CONFIG_DIR"
+
+# Backup existing .config if non-empty (optional)
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+    mkdir -p "$CONFIG_DIR"
+fi
+
+# Create standard XDG directories
+sudo -u "$NEWUSER" xdg-user-dirs-update --force
+
+# Fix ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
+
 #========================================================#
 # 9) Enable basic services
 #========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
+
 echo "Postinstall inside chroot finished."
 EOF
+
 # -------------------------------
-# Inject actual values into postinstall.sh
+# Inject values
 # -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+
 # -------------------------------
-# Make executable and run inside chroot
+# Execute
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
 arch-chroot /mnt /root/postinstall.sh
@@ -1472,90 +1498,65 @@ optional_aur()
 #=========================================================================================================================================#
 # Hyprland optional Configuration Installer - from http://github.com/terra88/hyprland-setup
 #=========================================================================================================================================#
-hyprland_optional()
-{     
-  
-      sleep 1
-      clear
-      echo
-      echo -e "#===================================================================================================#"
-      echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                             #"
-      echo -e "#===================================================================================================#"
-      echo
-      sleep 1
-     
-                          # Only proceed if Hyprland was selected (WM_CHOICE == 1)
-                          if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-                            
-                              echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
-                          
-                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-                                  echo "→ Running Hyprland theme setup inside chroot..."
-                          
-                                  arch-chroot /mnt /bin/bash -c "
-                          NEWUSER=\"$NEWUSER\"
-                          HOME_DIR=\"/home/\$NEWUSER\"
-                          CONFIG_DIR=\"\$HOME_DIR/.config\"
-                          REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
-                          
-                          # Ensure home exists
-                          mkdir -p \"\$HOME_DIR\"
-                          chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                          chmod 755 \"\$HOME_DIR\"
-                          
-                          # Clone theme repo
-                          if [[ -d \"\$REPO_DIR\" ]]; then
-                              rm -rf \"\$REPO_DIR\"
-                          fi
-                          sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
-                          
-                          # Copy files to home directory
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
-                          
-                          # Backup existing .config if not empty
-                          if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-                              mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-                              echo '==> Existing .config backed up.'
-                          fi
-                          mkdir -p \"\$CONFIG_DIR\"
-                          
-                          # Extract config.zip into .config
-                          if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-                              unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
-                              if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
-                                  cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
-                                  rm -rf \"\$HOME_DIR/temp_unzip\"
-                                  echo '==> config.zip contents copied to .config'
-                              else
-                                  echo '⚠️ config/ folder not found inside zip, skipping.'
-                              fi
-                          else
-                              echo '⚠️ config.zip not found, skipping.'
-                          fi
-                          
-                          # Extract wallpaper.zip to HOME_DIR
-                          [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
-                          
-                          # Copy wallpaper.sh and make executable
-                          [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
-                          
-                          # Fix ownership
-                          chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                          
-                          # Cleanup cloned repo
-                          rm -rf \"\$REPO_DIR\"
-                          "
-                          
-                                  echo "Hyprland theme setup completed."
-                              else
-                                  echo "Skipping Hyprland theme setup."
-                              fi
-                          fi
-}                          
+hyprland_optional() {
+    # Only run if Hyprland was selected
+    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+
+        echo "🔧 Installing unzip and git inside chroot..."
+        arch-chroot /mnt pacman -S --needed --noconfirm unzip git
+
+        read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+        if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+            echo "→ Running Hyprland theme setup inside chroot..."
+
+            arch-chroot /mnt /bin/bash -c "
+NEWUSER=\"$NEWUSER\"
+HOME_DIR=\"/home/\$NEWUSER\"
+CONFIG_DIR=\"\$HOME_DIR/.config\"
+REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+
+# Ensure home and .config exist
+mkdir -p \"\$HOME_DIR\"
+mkdir -p \"\$CONFIG_DIR\"
+chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\" \"\$CONFIG_DIR\"
+
+# Clone theme repo
+if [[ -d \"\$REPO_DIR\" ]]; then
+    rm -rf \"\$REPO_DIR\"
+fi
+sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+
+# Copy files safely (overwrite only what's in the repo)
+if [[ -f \"\$REPO_DIR/config.zip\" ]]; then
+    TEMP_DIR=\$(mktemp -d)
+    unzip -q \"\$REPO_DIR/config.zip\" -d \"\$TEMP_DIR\"
+    if [[ -d \"\$TEMP_DIR/config\" ]]; then
+        cp -rT -v \"\$TEMP_DIR/config\" \"\$CONFIG_DIR\"
+    fi
+    rm -rf \"\$TEMP_DIR\"
+fi
+
+if [[ -f \"\$REPO_DIR/wallpaper.zip\" ]]; then
+    unzip -o \"\$REPO_DIR/wallpaper.zip\" -d \"\$HOME_DIR/\"
+fi
+
+if [[ -f \"\$REPO_DIR/wallpaper.sh\" ]]; then
+    cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\"
+    chmod +x \"\$HOME_DIR/wallpaper.sh\"
+fi
+
+# Fix ownership after copy
+chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+
+# Cleanup cloned repo
+rm -rf \"\$REPO_DIR\"
+"
+            echo "Hyprland theme setup completed."
+        else
+            echo "Skipping Hyprland theme setup."
+        fi
+    fi
+}               
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
