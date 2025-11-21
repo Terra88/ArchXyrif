@@ -1164,16 +1164,14 @@ window_manager() {
     WM_AUR_PKGS=()
     EXTRA_PKGS=()
     EXTRA_AUR_PKGS=()
-    WM_SERVICE=""
 
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager network-manager-applet bluez bluez-utils blueman slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm)
+            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager flatpak network-manager-applet bluez bluez-utils blueman slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm)
             WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
-            WM_SERVICE="bluetooth"
             ;;
         2)
             SELECTED_WM="kde"
@@ -1259,12 +1257,6 @@ window_manager() {
     if [[ ${#WM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${WM_AUR_PKGS[@]}"
     fi
-
-    # ---------- Enable WM service ----------
-    if [[ -n "$WM_SERVICE" ]]; then
-        "${CHROOT_CMD[@]}" systemctl enable "$WM_SERVICE"
-        echo -e "✅ Display manager service enabled: $WM_SERVICE"
-    fi
     
     # ---------- Install extra packages ----------
     if [[ ${#EXTRA_PKGS[@]} -gt 0 ]]; then
@@ -1273,6 +1265,7 @@ window_manager() {
     if [[ ${#EXTRA_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${EXTRA_AUR_PKGS[@]}"
     fi
+    
 }
 
 # ---------- DM Selection ----------
