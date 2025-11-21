@@ -701,7 +701,6 @@ PKGS=(
   xfsprogs
   lvm2
   cryptsetup
-  xdg-user-dirs
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
@@ -711,48 +710,45 @@ pacstrap /mnt "${PKGS[@]}"
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
-    sleep 1
-    clear
-    echo -e "#===================================================================================================#"
-    echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
-    echo -e "#===================================================================================================#"
-    echo
 
-    # -------------------------------
-    # Prompt for timezone, locale, hostname, and username
-    # -------------------------------
-    DEFAULT_TZ="Europe/Helsinki"
-    read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-    TZ="${TZ:-$DEFAULT_TZ}"
+sleep 1
+clear
+echo -e "#===================================================================================================#"
+echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+echo -e "#===================================================================================================#"
+echo
+# -------------------------------
+# Prompt for timezone, locale, hostname, and username
+# -------------------------------
+DEFAULT_TZ="Europe/Helsinki"
+read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+TZ="${TZ:-$DEFAULT_TZ}"
 
-    DEFAULT_LOCALE="fi_FI.UTF-8"
-    read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-    LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+DEFAULT_LOCALE="fi_FI.UTF-8"
+read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
-    DEFAULT_KEYMAP="fi"
-    read -r -p "Enter keyboard layout [${DEFAULT_KEYMAP}]: " KEYMAP
-    KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+DEFAULT_KEYMAP="fi"
+read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
+KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
-    DEFAULT_HOSTNAME="archbox"
-    read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
-    HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+DEFAULT_HOSTNAME="archbox"
+read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
-    DEFAULT_USER="user"
-    read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
-    NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-
-    # -------------------------------
-    # Prepare chroot
-    # -------------------------------
-    prepare_chroot
-
-    # -------------------------------
-    # Create postinstall.sh inside chroot
-    # -------------------------------
-    cat > /mnt/root/postinstall.sh <<'EOF'
+DEFAULT_USER="user"
+read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+# -------------------------------
+# Prepare chroot (mount pseudo-filesystems etc.)
+# -------------------------------
+prepare_chroot
+# -------------------------------
+# Create postinstall.sh inside chroot
+# -------------------------------
+cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
-
 #========================================================#
 # Variables injected by main installer
 #========================================================#
@@ -761,13 +757,11 @@ LANG_LOCALE="{{LANG_LOCALE}}"
 KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
-
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
-
 #========================================================#
 # 2) Locale
 #========================================================#
@@ -778,7 +772,6 @@ locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
 export LC_ALL="${LANG_LOCALE}"
-
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
@@ -788,7 +781,6 @@ cat > /etc/hosts <<HOSTS
 ::1         localhost
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
-
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
@@ -796,17 +788,16 @@ echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap ${KEYMAP}
 localectl set-x11-keymap ${KEYMAP}
-
 #========================================================#
 # 5) Initramfs
 #========================================================#
 mkinitcpio -P
-
 #========================================================#
-# 6) Root + user passwords (interactive)
+#========================================================#
+# 6) Root + user passwords (interactive with retries)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-
+# Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
     local max_tries=3
@@ -826,58 +817,40 @@ set_password_interactive() {
     return 1
 }
 
+# Create user and set passwords
 useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
-
 #========================================================#
-# 7) Sudo privileges
+# 7) Ensure user has sudo privileges
 #========================================================#
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
-
 #========================================================#
-# 8) Home directory setup & XDG dirs
+# 8) Home directory setup
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
-
-# Ensure .config exists
 mkdir -p "$CONFIG_DIR"
-
-# Backup existing .config if non-empty (optional)
-if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
-    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
-    mkdir -p "$CONFIG_DIR"
-fi
-
-# Create standard XDG directories (xdg-user-dirs must be installed via pacstrap)
-sudo -u "$NEWUSER" xdg-user-dirs-update --force
-
-# Fix ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
-
 #========================================================#
 # 9) Enable basic services
 #========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
-
 echo "Postinstall inside chroot finished."
 EOF
-
 # -------------------------------
-# Inject actual values
+# Inject actual values into postinstall.sh
 # -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
-
 # -------------------------------
-# Execute
+# Make executable and run inside chroot
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
 arch-chroot /mnt /root/postinstall.sh
@@ -1197,8 +1170,8 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget networkmanager network-manager-applet bluez bluez-utils blueman hypridle hyprlock hyprpaper hyprshot slurp swayidle swaylock waybar xdg-desktop-portal-hyprland xdg-user-dirs qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm )
-            WM_AUR_PKGS=(kvantum-theme-catppuccin-git wlogout wlrobs-hg)
+            WM_PKGS=(hyprland hyprpaper hyprshot xdg-desktop-portal-hyprland hypridle hyprlock waybar kitty slurp kvantum dolphin dolphin-plugins rofi wofi discover nwg-displays nwg-look breeze breeze-icons bluez qt5ct qt6ct polkit-kde-agent blueman pavucontrol brightnessctl networkmanager network-manager-applet cpupower thermald nvtop btop pipewire otf-font-awesome ark grim firefox dunst qview)
+            WM_AUR_PKGS=(kvantum-theme-catppuccin-git qt6ct-kde wlogout wlrobs-hg)
             EXTRA_PKGS=()
             EXTRA_AUR_PKGS=()
             ;;
