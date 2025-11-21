@@ -1484,77 +1484,56 @@ hyprland_optional()
       echo
       sleep 1
      
-                          # Only proceed if Hyprland was selected (WM_CHOICE == 1)
-                          if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
-                            
-                              echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-                              arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
-                          
-                              read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-                              if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-                                  echo "→ Running Hyprland theme setup inside chroot..."
-                          
-                                  arch-chroot /mnt /bin/bash -c "
-                          NEWUSER=\"$NEWUSER\"
-                          HOME_DIR=\"/home/\$NEWUSER\"
-                          CONFIG_DIR=\"\$HOME_DIR/.config\"
-                          REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
-                          
-                          # Ensure home exists
-                          mkdir -p \"\$HOME_DIR\"
-                          chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                          chmod 755 \"\$HOME_DIR\"
-                          
-                          # Clone theme repo
-                          if [[ -d \"\$REPO_DIR\" ]]; then
-                              rm -rf \"\$REPO_DIR\"
-                          fi
-                          sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
-                          
-                          # Copy files to home directory
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-                          sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
-                          
-                          # Backup existing .config if not empty
-                          if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-                              mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
-                              echo '==> Existing .config backed up.'
-                          fi
-                          mkdir -p \"\$CONFIG_DIR\"
-                          
-                          # Extract config.zip into .config
-                          if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-                              unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
-                              if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
-                                  cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
-                                  rm -rf \"\$HOME_DIR/temp_unzip\"
-                                  echo '==> config.zip contents copied to .config'
-                              else
-                                  echo '⚠️ config/ folder not found inside zip, skipping.'
-                              fi
-                          else
-                              echo '⚠️ config.zip not found, skipping.'
-                          fi
-                          
-                          # Extract wallpaper.zip to HOME_DIR
-                          [[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
-                          
-                          # Copy wallpaper.sh and make executable
-                          [[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
-                          
-                          # Fix ownership
-                          chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-                          
-                          # Cleanup cloned repo
-                          rm -rf \"\$REPO_DIR\"
-                          "
-                          
-                                  echo "Hyprland theme setup completed."
-                              else
-                                  echo "Skipping Hyprland theme setup."
-                              fi
-                          fi
+# Only proceed if Hyprland was selected (WM_CHOICE == 1)
+if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+    echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+    arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
+
+    echo "→ Installing Hyprland dotfiles automatically..."
+    arch-chroot /mnt /bin/bash -c "
+NEWUSER=\"$NEWUSER\"
+HOME_DIR=\"/home/\$NEWUSER\"
+CONFIG_DIR=\"\$HOME_DIR/.config\"
+REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+
+mkdir -p \"\$HOME_DIR\"
+chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+chmod 755 \"\$HOME_DIR\"
+
+if [[ -d \"\$REPO_DIR\" ]]; then
+    rm -rf \"\$REPO_DIR\"
+fi
+sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\"
+
+sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
+sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+
+if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
+    mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+    echo '==> Existing .config backed up.'
+fi
+mkdir -p \"\$CONFIG_DIR\"
+
+if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+    unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/temp_unzip\"
+    if [[ -d \"\$HOME_DIR/temp_unzip/config\" ]]; then
+        cp -r \"\$HOME_DIR/temp_unzip/config/\"* \"\$CONFIG_DIR/\"
+        rm -rf \"\$HOME_DIR/temp_unzip\"
+        echo '==> config.zip contents copied to .config'
+    else
+        echo '⚠️ config/ folder not found inside zip, skipping.'
+    fi
+fi
+
+[[ -f \"\$HOME_DIR/wallpaper.zip\" ]] && unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
+[[ -f \"\$HOME_DIR/wallpaper.sh\" ]] && chmod +x \"\$HOME_DIR/wallpaper.sh\" && echo '==> wallpaper.sh copied and made executable'
+
+chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
+rm -rf \"\$REPO_DIR\"
+"
+    echo "✅ Hyprland dotfiles installed automatically."
+fi
 }                          
 #=========================================================================================================================================#
 # Quick Partition Main
