@@ -701,6 +701,7 @@ PKGS=(
   xfsprogs
   lvm2
   cryptsetup
+  xdg-user-dirs
 )
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
