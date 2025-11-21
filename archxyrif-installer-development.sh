@@ -1643,6 +1643,7 @@ custom_partition_wizard() {
     echo "=== Custom Partitioning ==="
     lsblk -d -o NAME,SIZE,MODEL,TYPE
 
+    # Ask target disk
     read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
     DEV="/dev/${DEV##*/}"
     [[ -b "$DEV" ]] || die "Device $DEV not found."
@@ -1656,63 +1657,53 @@ custom_partition_wizard() {
     safe_disk_cleanup
     parted -s "$DEV" mklabel gpt
 
+    # part suffix (nvme => p)
     local ps=""
     [[ "$DEV" =~ nvme ]] && ps="p"
 
-    # local per-disk partition array
-    local NEW_PARTS=()
-    local START=1
-    local RESERVED_PARTS=0
-
-    # ---------------- BIOS / UEFI reserved partitions ----------------
-    if [[ "$MODE" == "BIOS" ]]; then
-        read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
-        bios_auto="${bios_auto:-n}"
-        if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
-            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
-            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
-            NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
-            RESERVED_PARTS=$((RESERVED_PARTS+1))
-            START=2
-        fi
-    fi
-
+    # Optional automatic ESP creation for UEFI
     if [[ "$MODE" == "UEFI" ]]; then
-        read -rp "Automatically create 1024MiB EFI System Partition? (y/n): " esp_auto
+        read -rp "Automatically create ${EFI_SIZE_MIB}MiB EFI System Partition? (y/N): " esp_auto
         esp_auto="${esp_auto:-n}"
         if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
-            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB || die "Failed to create ESP"
             parted -s "$DEV" set 1 esp on
             parted -s "$DEV" set 1 boot on || true
-            NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
+            NEW_PARTS=("${NEW_PARTS[@]}" "${DEV}${ps}1:/boot/efi:fat32:EFI")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
-            START=1025
+            START=$((1 + EFI_SIZE_MIB))
         fi
+    else
+        # ensure START initialized for BIOS default area
+        START=1
     fi
 
-    # ---------------- Disk info ----------------
+    # Disk size info
     local disk_bytes disk_mib
     disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
     disk_mib=$(( disk_bytes / 1024 / 1024 ))
     echo "Disk size: $(( disk_mib / 1024 )) GiB"
 
-    # ---------------- User-defined partitions ----------------
+    # How many partitions
     read -rp "How many partitions would you like to create on $DEV? " COUNT
     [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
+    NEW_PARTS=()   # per-disk list to later merge into global PARTITIONS
+
     for ((j=1; j<=COUNT; j++)); do
-        i=$((j + RESERVED_PARTS))
+        local i=$((j + RESERVED_PARTS))
         parted -s "$DEV" unit MiB print
 
-        # Determine available space for this partition
-        local AVAILABLE=$((disk_mib - START))
-        echo "Available space on disk: $AVAILABLE MiB"
+        # Determine available space for this partition (MiB)
+        local AVAILABLE=$(( disk_mib - (START) ))
+        echo "Available space on disk: ${AVAILABLE} MiB (starting at ${START}MiB)"
 
-        # Size
+        # Size prompt (allow percentage 100% for last partition)
+        local SIZE SIZE_MI END PART_SIZE
         while true; do
             read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
             SIZE="${SIZE:-100%}"
-            SIZE_MI=$(convert_to_mib "$SIZE") || continue
+            SIZE_MI=$(convert_to_mib "$SIZE") || { echo "Invalid size format. Use M, MiB, G, GiB or 100%."; continue; }
 
             if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
                 echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
@@ -1722,42 +1713,72 @@ custom_partition_wizard() {
         done
 
         if [[ "$SIZE_MI" != "100%" ]]; then
-            END=$((START + SIZE_MI))
+            END=$(( START + SIZE_MI ))
             PART_SIZE="${START}MiB ${END}MiB"
         else
             PART_SIZE="${START}MiB 100%"
             END="100%"
         fi
 
-        # Mountpoint
+        # Mountpoint prompt
         read -rp "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): " MNT
+        MNT="${MNT:-}"   # allow blank
+
+        # If blank -> will be auto-assigned later as /dataX
         if [[ -z "$MNT" ]]; then
-            # Auto-assign /dataX for secondary partitions
-            local next_data=1
-            while grep -q "/data$next_data" <<<"${PARTITIONS[*]}"; do
-                ((next_data++))
-            done
-            MNT="/data$next_data"
-            echo "→ Auto-assigned mountpoint: $MNT"
+            MNT="auto"
         fi
 
-        # Filesystem
+        # Filesystem prompt
+        local FS
         while true; do
             read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            FS="${FS,,}"
             case "$FS" in
                 ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
-                *) echo "Unsupported FS." ;;
+                *) echo "Unsupported FS. Choose ext4, btrfs, xfs, f2fs, fat32, or swap." ;;
             esac
         done
 
-        # Label
+        # Label optional
         read -rp "Label (optional): " LABEL
 
-        # Create partition
+        # Normalize mountpoint values BEFORE creating partition record
+        # Rules:
+        #  - swap -> MNT="swap"
+        #  - none or auto -> MNT remains "auto" or "none" (we treat auto specially)
+        #  - otherwise ensure leading slash
+        if [[ "$FS" == "swap" ]]; then
+            MNT="swap"
+        elif [[ "$MNT" == "auto" ]]; then
+            # leave as-is for later auto-assignment
+            :
+        elif [[ "$MNT" == "none" ]]; then
+            MNT="none"
+        else
+            # Force leading slash if user typed without it (e.g., 'home' -> '/home')
+            if [[ "$MNT" != /* ]]; then
+                echo "→ Normalizing mountpoint '$MNT' to '/$MNT'"
+                MNT="/${MNT##*/}"   # remove any slashes user might have accidentally put and add single leading slash
+            fi
+            # Extra validation: disallow stray whitespace and ensure single leading '/'
+            if [[ "$MNT" != /* || "$MNT" =~ [[:space:]] ]]; then
+                echo "Invalid mountpoint entered: $MNT"
+                die "Aborting due to invalid mountpoint."
+            fi
+        fi
+
+        # Create partition via parted
         parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
-        PART="${DEV}${ps}${i}"
-        NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
+
+        local PART="${DEV}${ps}${i}"
+        # Save as colon-separated record PART:MNT:FS:LABEL to match other parts of script
+        NEW_PARTS+=("${PART}:${MNT}:${FS}:${LABEL}")
+
+        # Update START if not the 100% last partition
         [[ "$END" != "100%" ]] && START=$END
+
+        echo "→ Created ${PART} (${FS}) mount=${MNT} label='${LABEL}'"
     done
 
     # Merge per-disk NEW_PARTS into global PARTITIONS
