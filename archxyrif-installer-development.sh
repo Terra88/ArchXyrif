@@ -86,7 +86,6 @@ BOOT_SIZE_MIB=512        # ext4 /boot size for BIOS installs
 EFI_SIZE_MIB=1024        # keep as-is for UEFI
 BUFFER_MIB=8
 FS_CHOICE=1
-RESERVED_PARTS=0
 #-------------------LV-LUKS-----------------------------------#
 ENCRYPTION_ENABLED=0 # 0=false, 1=true
 LUKS_PART_UUID=""
@@ -1651,8 +1650,9 @@ if [[ -z "${!_name+x}" ]]; then
 eval "$_name='$_def'"
 fi
 }
-
-
+#=========================================================================================#
+# Custom partition wizard
+#=========================================================================================#
 custom_partition_wizard() {
 clear
 detect_boot_mode
@@ -1759,7 +1759,71 @@ continue
 fi
 break
 }
+ # ------------------------------
+    # Calculate END based on size
+    # ------------------------------
+    if [[ "$SIZE_MI" == "100%" ]]; then
+        END=$disk_mib
+        PART_SIZE=$(( disk_mib - START ))
+    else
+        END=$(( START + SIZE_MI ))
+        PART_SIZE=$SIZE_MI
+    fi
 
+    echo "Creating partition $i: Start=${START}MiB  End=${END}MiB"
+
+    parted -s "$DEV" unit MiB mkpart primary "${START}MiB" "${END}MiB" \
+        || die "Failed to create partition $i."
+
+    # -------------------------------------------------------------
+    # Choose filesystem
+    # -------------------------------------------------------------
+    echo "Filesystem options: ext4, btrfs, f2fs, xfs, vfat, swap"
+    read -rp "Choose filesystem for partition $i: " FS
+    FS="${FS,,}"
+
+    case "$FS" in
+        ext4|btrfs|f2fs|xfs|vfat|fat32|swap) ;;
+        *) die "Unsupported filesystem: $FS" ;;
+    esac
+
+    # -------------------------------------------------------------
+    # Mountpoint
+    # -------------------------------------------------------------
+    read -rp "Mountpoint for partition $i (/, /home, /boot, /boot/efi, none): " MNT
+    MNT="${MNT,,}"
+
+    # Normalize empty mountpoints to 'none'
+    [[ -z "$MNT" ]] && MNT="none"
+
+    # Safety: ensure only root gets "/"
+    if [[ "$MNT" == "/" ]]; then
+        ROOT_SEEN=1
+    fi
+
+    # Normalize vfat→fat32
+    [[ "$FS" == "vfat" ]] && FS="fat32"
+
+    # -------------------------------------------------------------
+    # Add to NEW_PARTS array
+    # Format: DEVpart:MNT:FS:LABEL(optional)
+    # -------------------------------------------------------------
+    NEW_PARTS+=("${DEV}${ps}${i}:${MNT}:${FS}:${FS}${i}")
+
+    # Move START forward
+    START=$END
+
+done  # <--- THIS closes the for-loop and removes your syntax error
+# =================================================================
+# END OF LOOP — now we finish partitioning
+# =================================================================
+
+
+# Export NEW_PARTS to global PART_LIST
+PART_LIST+=("${NEW_PARTS[@]}")
+
+echo "Custom partitioning complete."
+}
 #======================================CUSTOMDISKS=======================================================#
 create_more_disks() {
     local disk_counter=1  # start numbering for /dataX
