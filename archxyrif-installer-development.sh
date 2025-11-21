@@ -1633,197 +1633,139 @@ convert_to_mib() {
         return 1
     fi
 }
-# Patched functions: custom_partition_wizard() and format_and_mount_custom()
-# Drop-in replacements for archxyrif-installer-development.sh
-# - Robust initialization for RESERVED_PARTS/START
-# - Normalizes mountpoints
-# - Ensures ESP gets mkfs.fat -F32
-# - Detects and sets P_EFI/P_BOOT/P_ROOT/P_HOME globals for GRUB
-# - Supports NVMe suffix, multiple disks, auto /dataX assignment
-
-
-# Helper: ensure a variable is defined (avoid set -u failures)
-_safe_init_var() {
-# _safe_init_var NAME default_value
-local _name="$1" _def="$2"
-if [[ -z "${!_name+x}" ]]; then
-eval "$_name='$_def'"
-fi
-}
-#=========================================================================================#
-# Custom partition wizard
-#=========================================================================================#
+#=========================================================================================================================================#
+# Custom Partition Wizard (Unlimited partitions, any FS) - FIXED VERSION
+#=========================================================================================================================================#
 custom_partition_wizard() {
-clear
-detect_boot_mode
+    clear
+    detect_boot_mode
 
+    echo "=== Custom Partitioning ==="
+    lsblk -d -o NAME,SIZE,MODEL,TYPE
 
-# Ensure globals won't be unbound (safe defaults if caller didn't init)
-_safe_init_var RESERVED_PARTS 0
-_safe_init_var START 1
+    read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
+    DEV="/dev/${DEV##*/}"
+    [[ -b "$DEV" ]] || die "Device $DEV not found."
 
-
-echo "=== Custom Partitioning ==="
-lsblk -d -o NAME,SIZE,MODEL,TYPE
-
-
-# Ask target disk
-read -rp "Enter target disk (e.g. /dev/sda or /dev/nvme0n1): " DEV
-DEV="/dev/${DEV##*/}"
-[[ -b "$DEV" ]] || die "Device $DEV not found."
-
-
-echo "WARNING: This will erase everything on $DEV"
-read -rp "Type y/n to continue (Enter for yes): " CONFIRM
-if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
-die "Aborted."
-fi
-
-
-safe_disk_cleanup
-parted -s "$DEV" mklabel gpt
-
-
-# part suffix (nvme => p)
-local ps=""
-[[ "$DEV" =~ nvme ]] && ps="p"
-
-
-# local per-disk list
-local NEW_PARTS=()
-
-
-# ---------------- BIOS / UEFI reserved partitions ----------------
-if [[ "$MODE" == "BIOS" ]]; then
-read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
-bios_auto="${bios_auto:-n}"
-if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
-parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
-parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
-NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
-RESERVED_PARTS=$((RESERVED_PARTS+1))
-START=2
-fi
-fi
-
-
-if [[ "$MODE" == "UEFI" ]]; then
-read -rp "Automatically create ${EFI_SIZE_MIB}MiB EFI System Partition? (y/N): " esp_auto
-esp_auto="${esp_auto:-n}"
-if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
-# ensure our indexing is correct
-local esp_end=$((1 + EFI_SIZE_MIB))
-parted -s "$DEV" unit MiB mkpart primary fat32 1MiB ${esp_end}MiB || die "Failed to create ESP"
-parted -s "$DEV" set 1 esp on
-parted -s "$DEV" set 1 boot on || true
-NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
-RESERVED_PARTS=$((RESERVED_PARTS+1))
-START=${esp_end}
-fi
-fi
-
-
-# Disk size info
-local disk_bytes disk_mib
-disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
-disk_mib=$(( disk_bytes / 1024 / 1024 ))
-echo "Disk size: $(( disk_mib / 1024 )) GiB"
-
-
-# How many partitions
-read -rp "How many partitions would you like to create on $DEV? " COUNT
-[[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
-
-
-for ((j=1; j<=COUNT; j++)); do
-local i=$((j + RESERVED_PARTS))
-parted -s "$DEV" unit MiB print
-
-
-# Determine available space for this partition (MiB)
-local AVAILABLE=$(( disk_mib - START ))
-echo "Available space on disk: ${AVAILABLE} MiB (starting at ${START}MiB)"
-
-
-# Size prompt (allow percentage 100% for last partition)
-local SIZE SIZE_MI END PART_SIZE
-while true; do
-read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
-SIZE="${SIZE:-100%}"
-SIZE_MI=$(convert_to_mib "$SIZE") || { echo "Invalid size format. Use M, MiB, G, GiB or 100%."; continue; }
-
-
-if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
-echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
-continue
-fi
-break
-}
- # ------------------------------
-    # Calculate END based on size
-    # ------------------------------
-    if [[ "$SIZE_MI" == "100%" ]]; then
-        END=$disk_mib
-        PART_SIZE=$(( disk_mib - START ))
-    else
-        END=$(( START + SIZE_MI ))
-        PART_SIZE=$SIZE_MI
+    echo "WARNING: This will erase everything on $DEV"
+    read -rp "Type y/n to continue (Enter for yes): " CONFIRM
+    if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
+        die "Aborted."
     fi
 
-    echo "Creating partition $i: Start=${START}MiB  End=${END}MiB"
+    safe_disk_cleanup
+    parted -s "$DEV" mklabel gpt
 
-    parted -s "$DEV" unit MiB mkpart primary "${START}MiB" "${END}MiB" \
-        || die "Failed to create partition $i."
+    local ps=""
+    [[ "$DEV" =~ nvme ]] && ps="p"
 
-    # -------------------------------------------------------------
-    # Choose filesystem
-    # -------------------------------------------------------------
-    echo "Filesystem options: ext4, btrfs, f2fs, xfs, vfat, swap"
-    read -rp "Choose filesystem for partition $i: " FS
-    FS="${FS,,}"
+    # local per-disk partition array
+    local NEW_PARTS=()
+    local START=1
+    local RESERVED_PARTS=0
 
-    case "$FS" in
-        ext4|btrfs|f2fs|xfs|vfat|fat32|swap) ;;
-        *) die "Unsupported filesystem: $FS" ;;
-    esac
-
-    # -------------------------------------------------------------
-    # Mountpoint
-    # -------------------------------------------------------------
-    read -rp "Mountpoint for partition $i (/, /home, /boot, /boot/efi, none): " MNT
-    MNT="${MNT,,}"
-
-    # Normalize empty mountpoints to 'none'
-    [[ -z "$MNT" ]] && MNT="none"
-
-    # Safety: ensure only root gets "/"
-    if [[ "$MNT" == "/" ]]; then
-        ROOT_SEEN=1
+    # ---------------- BIOS / UEFI reserved partitions ----------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        read -rp "Create BIOS Boot Partition automatically? (y/n): " bios_auto
+        bios_auto="${bios_auto:-n}"
+        if [[ "$bios_auto" =~ ^[Yy]$ ]]; then
+            parted -s "$DEV" unit MiB mkpart primary 1MiB 2MiB || die "Failed to create BIOS partition"
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
+            NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
+            RESERVED_PARTS=$((RESERVED_PARTS+1))
+            START=2
+        fi
     fi
 
-    # Normalize vfat→fat32
-    [[ "$FS" == "vfat" ]] && FS="fat32"
+    if [[ "$MODE" == "UEFI" ]]; then
+        read -rp "Automatically create 1024MiB EFI System Partition? (y/n): " esp_auto
+        esp_auto="${esp_auto:-n}"
+        if [[ "$esp_auto" =~ ^[Yy]$ ]]; then
+            parted -s "$DEV" unit MiB mkpart primary fat32 1MiB 1025MiB || die "Failed to create ESP"
+            parted -s "$DEV" set 1 esp on
+            parted -s "$DEV" set 1 boot on || true
+            NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
+            RESERVED_PARTS=$((RESERVED_PARTS+1))
+            START=1025
+        fi
+    fi
 
-    # -------------------------------------------------------------
-    # Add to NEW_PARTS array
-    # Format: DEVpart:MNT:FS:LABEL(optional)
-    # -------------------------------------------------------------
-    NEW_PARTS+=("${DEV}${ps}${i}:${MNT}:${FS}:${FS}${i}")
+    # ---------------- Disk info ----------------
+    local disk_bytes disk_mib
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size."
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    echo "Disk size: $(( disk_mib / 1024 )) GiB"
 
-    # Move START forward
-    START=$END
+    # ---------------- User-defined partitions ----------------
+    read -rp "How many partitions would you like to create on $DEV? " COUNT
+    [[ "$COUNT" =~ ^[0-9]+$ && "$COUNT" -ge 1 ]] || die "Invalid partition count."
 
-done  # <--- THIS closes the for-loop and removes your syntax error
-# =================================================================
-# END OF LOOP — now we finish partitioning
-# =================================================================
+    for ((j=1; j<=COUNT; j++)); do
+        i=$((j + RESERVED_PARTS))
+        parted -s "$DEV" unit MiB print
 
+        # Determine available space for this partition
+        local AVAILABLE=$((disk_mib - START))
+        echo "Available space on disk: $AVAILABLE MiB"
 
-# Export NEW_PARTS to global PART_LIST
-PART_LIST+=("${NEW_PARTS[@]}")
+        # Size
+        while true; do
+            read -rp "Size (ex: 20G, 512M, 100% for last, default 100%): " SIZE
+            SIZE="${SIZE:-100%}"
+            SIZE_MI=$(convert_to_mib "$SIZE") || continue
 
-echo "Custom partitioning complete."
+            if [[ "$SIZE_MI" != "100%" && $SIZE_MI -gt $AVAILABLE ]]; then
+                echo "⚠ Requested size too large. Max available: $AVAILABLE MiB"
+                continue
+            fi
+            break
+        done
+
+        if [[ "$SIZE_MI" != "100%" ]]; then
+            END=$((START + SIZE_MI))
+            PART_SIZE="${START}MiB ${END}MiB"
+        else
+            PART_SIZE="${START}MiB 100%"
+            END="100%"
+        fi
+
+        # Mountpoint
+        read -rp "Mountpoint (/, /home, /boot, swap, none, leave blank for auto /dataX): " MNT
+        if [[ -z "$MNT" ]]; then
+            # Auto-assign /dataX for secondary partitions
+            local next_data=1
+            while grep -q "/data$next_data" <<<"${PARTITIONS[*]}"; do
+                ((next_data++))
+            done
+            MNT="/data$next_data"
+            echo "→ Auto-assigned mountpoint: $MNT"
+        fi
+
+        # Filesystem
+        while true; do
+            read -rp "Filesystem (ext4, btrfs, xfs, f2fs, fat32, swap): " FS
+            case "$FS" in
+                ext4|btrfs|xfs|f2fs|fat32|swap) break ;;
+                *) echo "Unsupported FS." ;;
+            esac
+        done
+
+        # Label
+        read -rp "Label (optional): " LABEL
+
+        # Create partition
+        parted -s "$DEV" unit MiB mkpart primary $PART_SIZE || die "Failed to create partition $i"
+        PART="${DEV}${ps}${i}"
+        NEW_PARTS+=("$PART:$MNT:$FS:$LABEL")
+        [[ "$END" != "100%" ]] && START=$END
+    done
+
+    # Merge per-disk NEW_PARTS into global PARTITIONS
+    PARTITIONS+=("${NEW_PARTS[@]}")
+    echo "=== Partitions for $DEV ==="
+    printf "%s\n" "${NEW_PARTS[@]}"
 }
+
 #======================================CUSTOMDISKS=======================================================#
 create_more_disks() {
     local disk_counter=1  # start numbering for /dataX
@@ -1881,114 +1823,93 @@ create_more_disks() {
 #  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
 #=========================================================================================================================================#
 format_and_mount_custom() {
-xfs) mkfs.xfs -f "$PART" ;;
-f2fs) mkfs.f2fs -f "$PART" ;;
-fat32|vfat) mkfs.fat -F32 "$PART" ;;
-swap) mkswap "$PART" ; swapon "$PART" ; P_SWAP="$PART" ; continue ;;
-*) die "Unsupported filesystem: $FS" ;;
-esac
+    echo "→ Formatting and mounting custom partitions..."
+    mkdir -p /mnt
 
+    if [[ ${#PARTITIONS[@]} -eq 0 ]]; then
+        die "No partitions to format/mount (PARTITIONS is empty)."
+    fi
 
-# Apply label if provided
-if [[ -n "$LABEL" ]]; then
-case "$FS" in
-ext4) e2label "$PART" "$LABEL" ;;
-btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
-xfs) xfs_admin -L "$LABEL" "$PART" ;;
-f2fs) f2fslabel "$PART" "$LABEL" ;;
-fat32|vfat) fatlabel "$PART" "$LABEL" ;;
-swap) mkswap -L "$LABEL" "$PART" ;;
-esac
-fi
+    # --- Order: root (/) first, then others ---
+    local ordered=() others=()
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r p m f l <<< "$entry"
+        if [[ "$m" == "/" ]]; then
+            ordered+=("$entry")
+        else
+            others+=("$entry")
+        fi
+    done
+    ordered+=("${others[@]}")
 
+    for entry in "${ordered[@]}"; do
+        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
 
-# --- Mount ---
-case "$MOUNT" in
-"/")
-if [[ "$FS" == "btrfs" ]]; then
-mount "$PART" /mnt
-# create subvols if not exist
-if ! btrfs subvolume show /mnt/@ >/dev/null 2>&1; then
-btrfs subvolume create /mnt/@ || true
-fi
-if ! btrfs subvolume show /mnt/@home >/dev/null 2>&1; then
-btrfs subvolume create /mnt/@home || true
-fi
-umount /mnt || true
-mount -o subvol=@,noatime,compress=zstd "$PART" /mnt || die "Failed to mount btrfs root"
-else
-mount "$PART" /mnt || die "Failed to mount root $PART on /mnt"
-fi
-P_ROOT="$PART"
-;;
-"/home")
-mkdir -p /mnt/home
-if [[ "$FS" == "btrfs" && "$P_ROOT" == "$PART" ]]; then
-# unlikely case root and home are same partition; handled above
-mount -o subvol=@home "$PART" /mnt/home
-elif [[ "$FS" == "btrfs" && "$P_ROOT" != "" ]]; then
-# If root is btrfs and home is a separate btrfs partition, mount subvol
-mount -o subvol=@home,defaults,noatime,compress=zstd "$PART" /mnt/home || mount "$PART" /mnt/home
-else
-mount "$PART" /mnt/home || die "Failed to mount $PART on /mnt/home"
-fi
-P_HOME="$PART"
-;;
-"/boot")
-mkdir -p /mnt/boot
-mount "$PART" /mnt/boot || die "Failed to mount $PART on /mnt/boot"
-P_BOOT="$PART"
-;;
-"/efi"|"/boot/efi")
-mkdir -p /mnt/boot/efi
-mount "$PART" /mnt/boot/efi || { echo "Failed to mount $PART on /mnt/boot/efi"; die "Failed to mount EFI"; }
-P_EFI="$PART"
-;;
-/data*)
-local DATA_DIR="/mnt${MOUNT}"
-mkdir -p "$DATA_DIR"
-mount "$PART" "$DATA_DIR" || die "Failed to mount $PART on $DATA_DIR"
-;;
-"none")
-# skip
-;;
-"auto")
-# will be assigned later by create_more_disks logic; skip here
-;;
-*)
-mkdir -p "/mnt${MOUNT}"
-mount "$PART" "/mnt${MOUNT}" || die "Failed to mount $PART on /mnt${MOUNT}"
-;;
-esac
-done
+        partprobe "$PART" 2>/dev/null || true
+        udevadm settle --timeout=5 || true
+        [[ -b "$PART" ]] || die "Partition $PART not available."
 
+        # Skip reserved partitions
+        [[ "$LABEL" == "bios_grub" ]] && { echo ">>> Skipping BIOS boot partition $PART"; continue; }
+        [[ "$FS" == "none" ]] && continue
 
-mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
+        echo ">>> Formatting $PART as $FS"
+        case "$FS" in
+            ext4) mkfs.ext4 -F "$PART" ;;
+            btrfs) mkfs.btrfs -f "$PART" ;;
+            xfs) mkfs.xfs -f "$PART" ;;
+            f2fs) mkfs.f2fs -f "$PART" ;;
+            fat32|vfat) mkfs.fat -F32 "$PART" ;;
+            swap) mkswap "$PART"; swapon "$PART"; continue ;;
+            *) die "Unsupported filesystem: $FS" ;;
+        esac
 
+        # Apply label if provided
+        [[ -n "$LABEL" ]] && case "$FS" in
+            ext4) e2label "$PART" "$LABEL" ;;
+            btrfs) btrfs filesystem label "$PART" "$LABEL" ;;
+            xfs) xfs_admin -L "$LABEL" "$PART" ;;
+            f2fs) f2fslabel "$PART" "$LABEL" ;;
+            fat32|vfat) fatlabel "$PART" "$LABEL" ;;
+            swap) mkswap -L "$LABEL" "$PART" ;;
+        esac
 
-# Fallback detection: if no explicit P_EFI found, look for any vfat partition under /dev
-if [[ -z "$P_EFI" ]]; then
-while read -r dev fstype _; do
-if [[ "$fstype" == "vfat" || "$fstype" == "fat32" ]]; then
-P_EFI="/dev/$dev"
-break
-fi
-done < <(lsblk -ln -o NAME,FSTYPE)
-fi
+        # --- Mount ---
+        case "$MOUNT" in
+            "/") 
+                if [[ "$FS" == "btrfs" ]]; then
+                    mount "$PART" /mnt
+                    mountpoint -q /mnt && btrfs subvolume create /mnt/@ || true
+                    umount /mnt || true
+                    mount -o subvol=@,compress=zstd "$PART" /mnt
+                else
+                    mount "$PART" /mnt || die "Failed to mount root $PART on /mnt"
+                fi
+                ;;
+            /home) mkdir -p /mnt/home; mount "$PART" /mnt/home ;;
+            /boot) mkdir -p /mnt/boot; mount "$PART" /mnt/boot ;;
+            /efi|/boot/efi) mkdir -p /mnt/boot/efi; mount "$PART" /mnt/boot/efi ;;
+            /data*)  # Auto-mount secondary disk partitions
+                local DATA_DIR="/mnt${MOUNT}"
+                mkdir -p "$DATA_DIR"
+                mount "$PART" "$DATA_DIR" || die "Failed to mount $PART on $DATA_DIR"
+                ;;
+            *)  # Any other custom mountpoint
+                mkdir -p "/mnt$MOUNT"
+                mount "$PART" "/mnt$MOUNT"
+                ;;
+        esac
+    done
 
+    mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
 
-# Final debug print
-echo "→ Detected P_EFI=${P_EFI:-'(none)'} P_BOOT=${P_BOOT:-'(none)'} P_ROOT=${P_ROOT:-'(none)'} P_HOME=${P_HOME:-'(none)'} P_SWAP=${P_SWAP:-'(none)'}"
+    echo "✅ All custom partitions formatted and mounted correctly."
 
-
-echo "✅ All custom partitions formatted and mounted correctly."
-
-
-echo "Generating /etc/fstab..."
-mkdir -p /mnt/etc
-genfstab -U /mnt > /mnt/etc/fstab || die "genfstab failed"
-echo "→ /etc/fstab content:"
-sed -n '1,200p' /mnt/etc/fstab
+    echo "Generating /etc/fstab..."
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "→ /etc/fstab content:"
+    cat /mnt/etc/fstab
 }
 #============================================================================================================================#
 # ENSURE FS SUPPORT FOR CUSTOM PARTITION SCHEME (Robust for multiple disks / reserved partitions)
