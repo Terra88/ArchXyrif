@@ -1457,66 +1457,70 @@ hyprland_theme() {
 
         echo "→ Running Hyprland theme setup inside chroot..."
 
-        arch-chroot /mnt /bin/bash -e <<EOF
+        arch-chroot /mnt /bin/bash -e <<'EOF'
 NEWUSER="$NEWUSER"
-HOME_DIR="/home/\$NEWUSER"
-CONFIG_DIR="\$HOME_DIR/.config"
-REPO_DIR="\$HOME_DIR/hyprland-setup"
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+REPO_DIR="$HOME_DIR/hyprland-setup"
 
 # Ensure home and .config exist
-mkdir -p "\$CONFIG_DIR"
-chown \$NEWUSER:\$NEWUSER "\$HOME_DIR" "\$CONFIG_DIR"
+mkdir -p "$CONFIG_DIR"
+chown $NEWUSER:$NEWUSER "$HOME_DIR" "$CONFIG_DIR"
 
 # Clone theme repository
-if [[ -d "\$REPO_DIR" ]]; then
-    rm -rf "\$REPO_DIR"
+if [[ -d "$REPO_DIR" ]]; then
+    rm -rf "$REPO_DIR"
 fi
-sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git "\$REPO_DIR"
+sudo -u $NEWUSER git clone https://github.com/terra88/hyprland-setup.git "$REPO_DIR"
 
-# Backup existing .config if not empty
-if [[ -d "\$CONFIG_DIR" && \$(ls -A "\$CONFIG_DIR") ]]; then
-    mv "\$CONFIG_DIR" "\$CONFIG_DIR.backup.\$(date +%s)"
-    mkdir -p "\$CONFIG_DIR"
+# Backup existing .config if non-empty
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "$CONFIG_DIR.backup.$(date +%s)"
+    mkdir -p "$CONFIG_DIR"
 fi
 
-# Extract config.zip into .config (folders inside config/ only)
-if [[ -f "\$REPO_DIR/config.zip" ]]; then
-    TEMP_DIR=\$(mktemp -d)
-    unzip -q "\$REPO_DIR/config.zip" -d "\$TEMP_DIR"
-    if [[ -d "\$TEMP_DIR/config" ]]; then
-        cp -r "\$TEMP_DIR/config/"* "\$CONFIG_DIR/"
-        echo "==> config.zip contents copied to .config"
+# Extract config.zip directly into .config
+if [[ -f "$REPO_DIR/config.zip" ]]; then
+    TEMP_DIR=$(mktemp -d)
+    unzip -q "$REPO_DIR/config.zip" -d "$TEMP_DIR"
+
+    # Move all top-level folders inside the zip's config/ folder directly into ~/.config
+    if [[ -d "$TEMP_DIR/config" ]]; then
+        for item in "$TEMP_DIR/config/"*; do
+            mv "$item" "$CONFIG_DIR/"
+        done
+        echo "==> config.zip contents copied directly to .config"
     else
         echo "⚠️ config/ folder not found inside zip, skipping."
     fi
-    rm -rf "\$TEMP_DIR"
+    rm -rf "$TEMP_DIR"
 else
     echo "⚠️ config.zip not found, skipping."
 fi
 
 # Extract wallpaper.zip into home directory
-if [[ -f "\$REPO_DIR/wallpaper.zip" ]]; then
-    unzip -o "\$REPO_DIR/wallpaper.zip" -d "\$HOME_DIR/"
+if [[ -f "$REPO_DIR/wallpaper.zip" ]]; then
+    unzip -o "$REPO_DIR/wallpaper.zip" -d "$HOME_DIR/"
     echo "==> wallpaper.zip extracted"
 fi
 
 # Copy wallpaper.sh and make executable
-if [[ -f "\$REPO_DIR/wallpaper.sh" ]]; then
-    cp -f "\$REPO_DIR/wallpaper.sh" "\$HOME_DIR/"
-    chmod +x "\$HOME_DIR/wallpaper.sh"
+if [[ -f "$REPO_DIR/wallpaper.sh" ]]; then
+    cp -f "$REPO_DIR/wallpaper.sh" "$HOME_DIR/"
+    chmod +x "$HOME_DIR/wallpaper.sh"
     echo "==> wallpaper.sh copied and made executable"
 fi
 
 # Fix ownership for the new user
-chown -R \$NEWUSER:\$NEWUSER "\$HOME_DIR"
+chown -R $NEWUSER:$NEWUSER "$HOME_DIR"
 
 # Cleanup cloned repository
-rm -rf "\$REPO_DIR"
-
+rm -rf "$REPO_DIR"
 EOF
+
         echo "Hyprland theme setup completed."
     fi
-}                      
+}               
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
