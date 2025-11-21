@@ -710,45 +710,48 @@ pacstrap /mnt "${PKGS[@]}"
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
+    sleep 1
+    clear
+    echo -e "#===================================================================================================#"
+    echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+    echo -e "#===================================================================================================#"
+    echo
 
-sleep 1
-clear
-echo -e "#===================================================================================================#"
-echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
-echo -e "#===================================================================================================#"
-echo
-# -------------------------------
-# Prompt for timezone, locale, hostname, and username
-# -------------------------------
-DEFAULT_TZ="Europe/Helsinki"
-read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-TZ="${TZ:-$DEFAULT_TZ}"
+    # -------------------------------
+    # Prompt for timezone, locale, hostname, and username
+    # -------------------------------
+    DEFAULT_TZ="Europe/Helsinki"
+    read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
+    TZ="${TZ:-$DEFAULT_TZ}"
 
-DEFAULT_LOCALE="fi_FI.UTF-8"
-read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+    DEFAULT_LOCALE="fi_FI.UTF-8"
+    read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
+    LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
 
-DEFAULT_KEYMAP="fi"
-read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
-KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+    DEFAULT_KEYMAP="fi"
+    read -r -p "Enter keyboard layout [${DEFAULT_KEYMAP}]: " KEYMAP
+    KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
 
-DEFAULT_HOSTNAME="archbox"
-read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
-HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
+    DEFAULT_HOSTNAME="archbox"
+    read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
+    HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
-DEFAULT_USER="user"
-read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
-NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-# -------------------------------
-# Prepare chroot (mount pseudo-filesystems etc.)
-# -------------------------------
-prepare_chroot
-# -------------------------------
-# Create postinstall.sh inside chroot
-# -------------------------------
-cat > /mnt/root/postinstall.sh <<'EOF'
+    DEFAULT_USER="user"
+    read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
+    NEWUSER="${NEWUSER:-$DEFAULT_USER}"
+
+    # -------------------------------
+    # Prepare chroot
+    # -------------------------------
+    prepare_chroot
+
+    # -------------------------------
+    # Create postinstall.sh inside chroot
+    # -------------------------------
+    cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
 #========================================================#
 # Variables injected by main installer
 #========================================================#
@@ -757,11 +760,13 @@ LANG_LOCALE="{{LANG_LOCALE}}"
 KEYMAP="{{KEYMAP}}"
 HOSTNAME="{{HOSTNAME}}"
 NEWUSER="{{NEWUSER}}"
+
 #========================================================#
 # 1) Timezone & hardware clock
 #========================================================#
 ln -sf "/usr/share/zoneinfo/${TZ}" /etc/localtime
 hwclock --systohc
+
 #========================================================#
 # 2) Locale
 #========================================================#
@@ -772,6 +777,7 @@ locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
 export LC_ALL="${LANG_LOCALE}"
+
 #========================================================#
 # 3) Hostname & /etc/hosts
 #========================================================#
@@ -781,6 +787,7 @@ cat > /etc/hosts <<HOSTS
 ::1         localhost
 127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
+
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
@@ -788,16 +795,16 @@ echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap ${KEYMAP}
 localectl set-x11-keymap ${KEYMAP}
+
 #========================================================#
 # 5) Initramfs
 #========================================================#
 mkinitcpio -P
+
 #========================================================#
-#========================================================#
-# 6) Root + user passwords (interactive with retries)
+# 6) Root + user passwords (interactive)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
-# Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
     local target="$1"
     local max_tries=3
@@ -821,36 +828,55 @@ set_password_interactive() {
 useradd -m -G wheel -s /bin/bash "${NEWUSER}" || true
 set_password_interactive "${NEWUSER}"
 set_password_interactive "root"
+
 #========================================================#
-# 7) Ensure user has sudo privileges
+# 7) Sudo privileges
 #========================================================#
 echo "${NEWUSER} ALL=(ALL:ALL) ALL" > /etc/sudoers.d/${NEWUSER}
 chmod 440 /etc/sudoers.d/${NEWUSER}
 sed -i 's/^# %wheel ALL=(ALL:ALL) ALL/%wheel ALL=(ALL:ALL) ALL/' /etc/sudoers
+
 #========================================================#
-# 8) Home directory setup
+# 8) Home directory setup & XDG dirs
 #========================================================#
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
+
+# Ensure .config exists
 mkdir -p "$CONFIG_DIR"
+
+# Backup existing .config if non-empty (optional)
+if [[ -d "$CONFIG_DIR" && $(ls -A "$CONFIG_DIR") ]]; then
+    mv "$CONFIG_DIR" "${CONFIG_DIR}.backup.$(date +%s)"
+    mkdir -p "$CONFIG_DIR"
+fi
+
+# Create standard XDG directories
+sudo -u "$NEWUSER" xdg-user-dirs-update --force
+
+# Fix ownership
 chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
+
 #========================================================#
 # 9) Enable basic services
 #========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
+
 echo "Postinstall inside chroot finished."
 EOF
+
 # -------------------------------
-# Inject actual values into postinstall.sh
+# Inject values
 # -------------------------------
 sed -i "s|{{TIMEZONE}}|${TZ}|g" /mnt/root/postinstall.sh
 sed -i "s|{{LANG_LOCALE}}|${LANG_LOCALE}|g" /mnt/root/postinstall.sh
 sed -i "s|{{KEYMAP}}|${KEYMAP}|g" /mnt/root/postinstall.sh
 sed -i "s|{{HOSTNAME}}|${HOSTNAME}|g" /mnt/root/postinstall.sh
 sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
+
 # -------------------------------
-# Make executable and run inside chroot
+# Execute
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
 arch-chroot /mnt /root/postinstall.sh
