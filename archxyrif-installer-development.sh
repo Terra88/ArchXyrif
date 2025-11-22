@@ -604,14 +604,15 @@ format_and_mount() {
             P_HOME="${PARTS[2]}"
         fi
     else
+        # ------------------ BIOS mapping (safe) ------------------
         P_BIOS_GRUB="${PARTS[0]}"
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
         if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${PARTS[3]}"
-            P_HOME="${PARTS[4]}"
+            P_SWAP="${PARTS[3]:-}"   # safe default, avoids unbound variable
+            P_HOME="${PARTS[4]:-}"   # safe default, avoids unbound variable
         else
-            P_HOME="${PARTS[3]}"
+            P_HOME="${PARTS[3]:-}"   # safe default, avoids unbound variable
         fi
     fi
 
