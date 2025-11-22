@@ -620,10 +620,8 @@ format_and_mount() {
     echo "P_EFI=$P_EFI, P_BOOT=$P_BOOT, P_ROOT=$P_ROOT, P_SWAP=$P_SWAP, P_HOME=$P_HOME"
 
     # --- Create all mount points upfront ---
-    mkdir -p /mnt
-    mkdir -p /mnt/boot
+    mkdir -p /mnt /mnt/boot /mnt/home
     [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
-    mkdir -p /mnt/home
 
     # --- EFI / Boot ---
     if [[ "$MODE" == "UEFI" ]]; then
@@ -641,28 +639,16 @@ format_and_mount() {
     # --- Root ---
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt  # raw BTRFS mount to create subvolumes
+        mount "$P_ROOT" /mnt
 
-        # always create @ for root
         btrfs subvolume create /mnt/@
-
-        # only create @home if HOME_FS is BTRFS
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            btrfs subvolume create /mnt/@home
-        fi
+        [[ "$HOME_FS" == "btrfs" ]] && btrfs subvolume create /mnt/@home
 
         umount /mnt
-
-        # mount root subvolume
         mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
 
-        # mount home subvolume if BTRFS
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            mkdir -p /mnt/home
-            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
-        fi
+        [[ "$HOME_FS" == "btrfs" ]] && mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
     else
-        # EXT4 root
         mkfs.ext4 -F -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
     fi
@@ -687,6 +673,7 @@ format_and_mount() {
     genfstab -U /mnt >> /mnt/etc/fstab
     echo "✅ Partitions formatted and mounted under /mnt"
 }
+
 
 #=========================================================================================================================================#
 # Install base system
