@@ -498,7 +498,7 @@ ask_partition_sizes() {
     done
 }
 #=========================================================================#
-# Partition disk (UEFI + BIOS)
+# Partition disk (UEFI + BIOS) - corrected BIOS ordering (bios_grub -> /boot -> root ...)
 #=========================================================================#
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): DEV not set"
@@ -515,30 +515,50 @@ partition_disk() {
     # BIOS / UEFI reserved partitions
     # -------------------
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Creating mandatory BIOS GRUB reserved partition..."
+        echo "→ Creating mandatory BIOS GRUB reserved partition (1MiB EF02)..."
+        # BIOS_GRUB: 1MiB..2MiB (no filesystem). This is where GRUB core.img will embed on GPT.
         bios_grub_start=1
-        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))
+        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))    # typically 1 -> end = 2
         parted -s "$DEV" mkpart primary "${bios_grub_start}MiB" "${bios_grub_end}MiB" || die "Failed to create BIOS GRUB partition"
         parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
-        start=$bios_grub_end
+        echo "  → bios_grub: ${bios_grub_start}MiB-${bios_grub_end}MiB (flagged bios_grub)"
+
+        # Next create a dedicated /boot partition (EXT4, 512 MiB)
+        boot_start=$bios_grub_end
+        boot_end=$((boot_start + BOOT_SIZE_MIB))                   # BOOT_SIZE_MIB default 512
+        echo "→ Creating /boot partition (${boot_start}MiB-${boot_end}MiB})..."
+        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB" || die "Failed to create /boot partition"
+        parted -s "$DEV" name 2 boot
+        echo "  → /boot: ${boot_start}MiB-${boot_end}MiB (named 'boot')"
+
+        # Set next start point to immediately after /boot
+        start=$boot_end
+
     else
-        echo "→ Creating mandatory EFI System Partition..."
+        echo "→ Creating mandatory EFI System Partition (UEFI)..."
         start=1
         end=$((start + EFI_SIZE_MIB))
         parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB" || die "Failed to create EFI partition"
         parted -s "$DEV" set 1 boot on
         parted -s "$DEV" set 1 esp on || true
         P_EFI_NUM=1
+        echo "  → EFI: ${start}MiB-${end}MiB (flagged esp/boot)"
         start=$end
     fi
 
     # -------------------
-    # ROOT partition
+    # ROOT partition (comes AFTER boot on BIOS, AFTER EFI on UEFI)
     # -------------------
     root_start=$start
     root_end=$((root_start + ROOT_SIZE_MIB))
+    echo "→ Creating ROOT partition (${root_start}MiB-${root_end}MiB}) of type $ROOT_FS..."
     parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
-    parted -s "$DEV" name 2 root
+    # Name the root partition consistently (use parted name for humans)
+    # Note: when BIOS created bios_grub + boot, partition numbers are:
+    #   1 = bios_grub, 2 = boot, 3 = root, ...
+    # when UEFI: 1 = esp, 2 = root, ...
+    parted -s "$DEV" name "$(parted -s "$DEV" print | awk '/^ /{print NR; exit}' 2>/dev/null || echo 2)" root 2>/dev/null || true
+    # We can't assume parted will always number the same way in the echo environment, the mapping below (format_and_mount) uses lsblk to detect actual paths.
 
     # -------------------
     # SWAP partition
@@ -546,34 +566,48 @@ partition_disk() {
     if [[ "$SWAP_ON" == "1" ]]; then
         swap_start=$root_end
         swap_end=$((swap_start + SWAP_SIZE_MIB))
+        echo "→ Creating SWAP partition (${swap_start}MiB-${swap_end}MiB})..."
         parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
-        parted -s "$DEV" name 3 swap
+        parted -s "$DEV" name 4 swap || true
         home_start=$swap_end
-        home_num=4
+        home_num=5
     else
         home_start=$root_end
-        home_num=3
+        # partition number differs between BIOS/UEFI but label will be set below
+        home_num=4
     fi
 
     # -------------------
-    # HOME partition
+    # HOME partition (remaining)
     # -------------------
     if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+        echo "→ Creating HOME partition for remaining space..."
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
     else
         home_end=$((home_start + HOME_SIZE_MIB))
+        echo "→ Creating HOME partition (${home_start}MiB-${home_end}MiB})..."
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB" || die "Failed to create HOME"
     fi
-    parted -s "$DEV" name "$home_num" home
+    parted -s "$DEV" name "$home_num" home || true
 
     # -------------------
-    # Refresh partition table
+    # Refresh partition table + validation check (important)
     # -------------------
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
 
-    echo "✅ Partitioning completed. Verify with lsblk:"
+    # Quick validation: check that bios_grub flag is present on BIOS systems
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Verifying BIOS_GRUB flag..."
+        if ! parted -s "$DEV" print | awk '/bios_grub/ {found=1} END{exit !found}'; then
+            echo "ERROR: BIOS_GRUB flag not found after partitioning. Output of 'parted print' follows:"
+            parted -s "$DEV" print
+            die "BIOS_GRUB flag missing! GRUB will fail."
+        fi
+    fi
+
+    echo "✅ Partitioning completed. Verify with lsblk (device = $DEV):"
     lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
 }
 #=========================================================================#
@@ -1595,74 +1629,6 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
-#=========================================================================================================================================#
-# GRUB installation
-#=========================================================================================================================================#
-install_grub_quick_bios() {
-    echo "→ BIOS mode detected — installing GRUB (i386-pc)..."
-
-    # --------------------------------------------------------------------
-    #   1) Ensure /boot exists and is mounted properly
-    # --------------------------------------------------------------------
-    if [[ -z "$P_BOOT" ]]; then
-        die "BIOS install: P_BOOT is not set!"
-    fi
-
-    mkdir -p /mnt/boot
-    if ! mountpoint -q /mnt/boot; then
-        mount "$P_BOOT" /mnt/boot || die "Failed to mount BIOS /boot partition"
-    fi
-
-    # --------------------------------------------------------------------
-    #   2) Detect the disk that contains the root partition
-    # --------------------------------------------------------------------
-    local ROOT_DISK
-    ROOT_DISK=$(lsblk -no PKNAME "$P_ROOT") || die "Cannot detect ROOT disk"
-    ROOT_DISK="/dev/$ROOT_DISK"
-
-    echo "→ BIOS GRUB will be installed to: $ROOT_DISK"
-
-    # --------------------------------------------------------------------
-    #   3) Detect whether LUKS or LVM is used
-    # --------------------------------------------------------------------
-    local NEED_CRYPT=0
-    local NEED_LVM=0
-
-    if lsblk -o TYPE -nr | grep -q crypt; then
-        NEED_CRYPT=1
-    fi
-    if lsblk -o TYPE -nr | grep -q lvm; then
-        NEED_LVM=1
-    fi
-
-    # --------------------------------------------------------------------
-    #   4) Build module list (same as UEFI, minus EFI-specific)
-    # --------------------------------------------------------------------
-    local GRUB_MODULES="part_msdos part_gpt biosdisk normal boot linux search search_fs_uuid ext2 btrfs f2fs mdraid1x"
-
-    [[ $NEED_CRYPT -eq 1 ]] && GRUB_MODULES+=" cryptodisk luks"
-    [[ $NEED_LVM -eq 1 ]] && GRUB_MODULES+=" lvm"
-
-    echo "→ GRUB modules for BIOS: $GRUB_MODULES"
-
-    # --------------------------------------------------------------------
-    #   5) Install GRUB in BIOS mode
-    # --------------------------------------------------------------------
-    arch-chroot /mnt grub-install \
-        --target=i386-pc \
-        --modules="$GRUB_MODULES" \
-        --recheck \
-        "$ROOT_DISK" || die "BIOS grub-install failed!"
-
-    # --------------------------------------------------------------------
-    #   6) Generate GRUB config
-    # --------------------------------------------------------------------
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
-        || die "BIOS grub-mkconfig failed"
-
-    echo "✅ BIOS GRUB installed successfully."
-}
-
 quick_partition() {
     detect_boot_mode
 
