@@ -1501,25 +1501,39 @@ fi
 sudo -u \$NEWUSER mkdir -p \"\$CONFIG_DIR\"
 
 # 5. Extract config.zip contents directly into .config/
-if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
+if [[ -f "$HOME_DIR/config.zip" ]]; then
+    
     # Use sudo -u \$NEWUSER and a temporary directory for safe extraction
-    TEMP_CONFIG_DIR=\"\$HOME_DIR/temp_config_extraction\"
-    sudo -u \$NEWUSER mkdir -p \"\$TEMP_CONFIG_DIR\"
+    TEMP_CONFIG_DIR="$HOME_DIR/temp_config_extraction"
     
-    # Extract the contents of 'config/' into the temporary directory
-    sudo -u \$NEWUSER unzip -o \"\$HOME_DIR/config.zip\" \"config/*\" -d \"\$TEMP_CONFIG_DIR\" 
+    # Run as the new user: create temp directory
+    sudo -u \$NEWUSER mkdir -p "\$TEMP_CONFIG_DIR"
     
-    if [[ -d \"\$TEMP_CONFIG_DIR/config\" ]]; then
-        # Copy contents from temp/config/ to the actual .config/
-        sudo -u \$NEWUSER cp -r \"\$TEMP_CONFIG_DIR/config/\"* \"\$CONFIG_DIR/\"
-        echo \"==> config.zip extracted into .config\"
+    # Run as the new user: Extract all contents of config.zip into the temporary directory
+    # If the zip contains "config/file.conf", it will be extracted to $TEMP_CONFIG_DIR/config/file.conf
+    sudo -u \$NEWUSER unzip -o "\$HOME_DIR/config.zip" -d "\$TEMP_CONFIG_DIR" 
+    
+    # Check if the expected top-level 'config' directory exists inside the temporary directory
+    if [[ -d "\$TEMP_CONFIG_DIR/config" ]]; then
+        # Use shopt -s dotglob to ensure hidden files/directories are copied
+        shopt -s dotglob
+        
+        # Copy the *CONTENTS* of $TEMP_CONFIG_DIR/config/ to the final $CONFIG_DIR/
+        # This is the key fix: copying 'config/'* ensures the contents go into .config, not .config/config
+        sudo -u \$NEWUSER cp -r "\$TEMP_CONFIG_DIR/config/"* "\$CONFIG_DIR/"
+        
+        # Revert shell option
+        shopt -u dotglob
+        
+        echo "==> config.zip contents extracted into .config"
     else
-        echo \"⚠️ config/ directory not found inside the zip.\"
+        echo "⚠️ config/ directory not found inside the zip. Check the zip's structure."
     fi
+    
     # Clean up temp directory
-    rm -rf \"\$TEMP_CONFIG_DIR\"
+    sudo -u \$NEWUSER rm -rf "\$TEMP_CONFIG_DIR"
 else
-    echo \"⚠️ config.zip not found, skipping config extraction.\"
+    echo "⚠️ config.zip not found, skipping config extraction."
 fi
 
 # 6. Extract wallpaper.zip to HOME_DIR
