@@ -1613,91 +1613,6 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
-#=========================================================================#
-# Quick GRUB installer (works for BIOS and UEFI)
-#=========================================================================#
-install_grub_quick() {
-    detect_boot_mode
-    local TARGET_DISKS=()
-    local MOUNTED_PARTS
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs"
-
-    echo "→ Detecting mounted partitions under /mnt..."
-    MOUNTED_PARTS=$(mount | grep '/mnt' | awk '{print $1}')
-
-    # Detect disks from mounted partitions
-    for PART in $MOUNTED_PARTS; do
-        local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n1)
-        [[ -n "$PARENT_DISK" ]] && TARGET_DISKS+=("/dev/$PARENT_DISK")
-    done
-
-    # Deduplicate
-    TARGET_DISKS=($(printf "%s\n" "${TARGET_DISKS[@]}" | sort -u))
-    [[ ${#TARGET_DISKS[@]} -eq 0 ]] && die "No target disks found for GRUB installation."
-
-    echo "→ Target disks: ${TARGET_DISKS[*]}"
-
-    #--------------------------------------#
-    # BIOS Mode
-    #--------------------------------------#
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Installing GRUB for BIOS mode..."
-
-        # Ensure /boot exists and P_BOOT is set
-        [[ -z "$P_BOOT" ]] && die "P_BOOT not set for BIOS install."
-        mkdir -p /mnt/boot
-        mount "$P_BOOT" /mnt/boot || die "Failed to mount /boot for BIOS"
-
-        for DISK in "${TARGET_DISKS[@]}"; do
-            echo "→ Installing GRUB on $DISK (BIOS)..."
-            arch-chroot /mnt grub-install \
-                --target=i386-pc \
-                --modules="$GRUB_MODULES" \
-                --recheck "$DISK" || die "grub-install failed on $DISK (BIOS)"
-        done
-
-        # Generate GRUB config
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed (BIOS)"
-        echo "✅ BIOS GRUB installed successfully."
-
-    #--------------------------------------#
-    # UEFI Mode
-    #--------------------------------------#
-    elif [[ "$MODE" == "UEFI" ]]; then
-        echo "→ Installing GRUB for UEFI mode..."
-
-        # Ensure /boot/efi exists and is mounted
-        mkdir -p /mnt/boot/efi
-        [[ -z "$P_EFI" ]] && P_EFI="${DEV}1"
-        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition"
-
-        # Install GRUB
-        arch-chroot /mnt grub-install \
-            --target=x86_64-efi \
-            --efi-directory=/boot/efi \
-            --bootloader-id=GRUB \
-            --modules="$GRUB_MODULES" \
-            --recheck \
-            --no-nvram || die "grub-install UEFI failed"
-
-        # Optional fallback for BOOTX64.EFI
-        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-        # Generate GRUB config
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed (UEFI)"
-
-        # Optional Secure Boot signing
-        if arch-chroot /mnt command -v sbctl &>/dev/null; then
-            echo "→ Secure Boot detected, signing GRUB and kernel"
-            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-            arch-chroot /mnt sbctl enroll-keys --microsoft || true
-            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
-            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-        fi
-
-        echo "✅ UEFI GRUB installed successfully."
-    fi
-}
 quick_partition() {
     detect_boot_mode
     echo "Available disks:"
@@ -1719,7 +1634,7 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
-    install_grub_quick
+    install_grub
     network_mirror_selection
     gpu_driver
     window_manager
