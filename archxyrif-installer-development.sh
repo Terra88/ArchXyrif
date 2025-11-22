@@ -501,230 +501,181 @@ ask_partition_sizes() {
 #=========================================================================#
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
+
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
-    local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
+    local start=1
+    local end boot_start boot_end root_start root_end swap_start swap_end home_start home_end
 
-    if [[ "$MODE" == "BIOS" ]]; then
-        parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_GRUB_SIZE_MIB))MiB
-        parted -s "$DEV" set 1 bios_grub on
-
-        boot_start=$((1+BIOS_GRUB_SIZE_MIB))
-        boot_end=$((boot_start + BOOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
-
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_start=$boot_end
-            swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-            root_start=$swap_end
-        else
-            root_start=$boot_end
-        fi
-
-        root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
-
-        home_start=$root_end
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
-        else
-            home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
-        fi
-
-    else
-        parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
+    if [[ "$MODE" == "UEFI" ]]; then
+        # EFI partition
+        end=$((start + EFI_SIZE_MIB))
+        parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB"
         parted -s "$DEV" set 1 boot on
+        P_EFI_NUM=1
 
-        root_start=$((1+EFI_SIZE_MIB))
+        # Root partition
+        root_start=$end
         root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" ${root_start}MiB ${root_end}MiB
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
+        parted -s "$DEV" name 2 root
 
+        # Swap if enabled
         if [[ "$SWAP_ON" == "1" ]]; then
             swap_start=$root_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
+            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
+            parted -s "$DEV" name 3 swap
             home_start=$swap_end
+            home_num=4
         else
             home_start=$root_end
+            home_num=3
         fi
 
+        # Home partition
         if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB 100%
+            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
         else
             home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
+            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
         fi
+        parted -s "$DEV" name "$home_num" home
+
+    else
+        # BIOS: bios_grub + /boot
+        end=$((start + BIOS_GRUB_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "${start}MiB" "${end}MiB"
+        parted -s "$DEV" set 1 bios_grub on
+
+        boot_start=$end
+        boot_end=$((boot_start + BOOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB"
+        parted -s "$DEV" name 2 boot
+
+        # Root partition
+        root_start=$boot_end
+        root_end=$((root_start + ROOT_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
+        parted -s "$DEV" name 3 root
+
+        # Swap if enabled
+        if [[ "$SWAP_ON" == "1" ]]; then
+            swap_start=$root_end
+            swap_end=$((swap_start + SWAP_SIZE_MIB))
+            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
+            parted -s "$DEV" name 4 swap
+            home_start=$swap_end
+            home_num=5
+        else
+            home_start=$root_end
+            home_num=4
+        fi
+
+        # Home partition
+        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
+        else
+            home_end=$((home_start + HOME_SIZE_MIB))
+            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
+        fi
+        parted -s "$DEV" name "$home_num" home
     fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
 
-    echo "✅ Partitioning completed. Verify with lsblk."
+    echo "✅ Partitioning completed. Verify with lsblk:"
+    lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
 }
 #=========================================================================================================================================#
 # Format & mount
 #=========================================================================================================================================#
 format_and_mount() {
-    # Robust formatting & mounting that detects partitions instead of assuming indexes.
     detect_boot_mode
-    local ps
-    ps=$(part_suffix "$DEV")
 
-    echo -e "\n→ Ensuring kernel sees partitions..."
+    [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
+
+    echo -e "\n→ Rescanning partitions on $DEV..."
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
 
-    echo "→ Current partitions for $DEV:"
-    lsblk -o NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINT -p "$DEV"
+    # Only get actual partitions on $DEV
+    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
 
-    # Build list of partitions
-    mapfile -t PARTS < <(lsblk -ln -o PATH -p "$DEV" | tail -n +2)
-    if [[ ${#PARTS[@]} -eq 0 ]]; then
-        die "No partitions found on $DEV"
-    fi
+    [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
 
-    P_EFI="" P_BOOT="" P_SWAP="" P_ROOT="" P_HOME=""
-
-    # detect EFI by fstype
-    for p in "${PARTS[@]}"; do
-        ft=$(blkid -o value -s TYPE "$p" 2>/dev/null || true)
-        if [[ "$ft" == "vfat" || "$ft" == "fat32" ]]; then
-            P_EFI="$p" && break
-        fi
-    done
-
-    # detect swap by fstype
-    for p in "${PARTS[@]}"; do
-        ft=$(blkid -o value -s TYPE "$p" 2>/dev/null || true)
-        if [[ "$ft" == "swap" ]]; then
-            P_SWAP="$p" && break
-        fi
-    done
-
-    # detect labels 'root' and 'home'
-    for p in "${PARTS[@]}"; do
-        lbl=$(blkid -o value -s LABEL "$p" 2>/dev/null || true)
-        if [[ -z "$P_ROOT" && "$lbl" == "root" ]]; then P_ROOT="$p"; fi
-        if [[ -z "$P_HOME" && "$lbl" == "home" ]]; then P_HOME="$p"; fi
-    done
-
-    # helpers
-    get_mib() {
-        local p="$1"; local bytes; bytes=$(lsblk -nb -o SIZE -p "$p" 2>/dev/null || echo 0); echo $(( bytes / 1024 / 1024 ))
-    }
-    size_tolerance() {
-        local req="$1"; local tol=$(( req/100 )); [[ $tol -lt 10 ]] && tol=10; echo $tol
-    }
-
-    local expect_root_mib=${ROOT_SIZE_MIB:-0}
-    local expect_home_mib=${HOME_SIZE_MIB:-0}
-    local expect_swap_mib=${SWAP_SIZE_MIB:-0}
-
-    if [[ $expect_home_mib -eq 0 ]]; then
-        disk_mib=$(lsblk -b -dn -o SIZE "$DEV"); disk_mib=$(( disk_mib / 1024 / 1024 ))
-        local reserved=$(( (MODE=="BIOS") ? BIOS_GRUB_SIZE_MIB : EFI_SIZE_MIB ))
-        expect_home_mib=$(( disk_mib - reserved - expect_root_mib - expect_swap_mib - 2 ))
-    fi
-
-    # match by size
-    for p in "${PARTS[@]}"; do
-        (( $(get_mib "$p") <= 4 )) && continue
-        mib=$(get_mib "$p")
-        if [[ -z "$P_ROOT" && $expect_root_mib -gt 0 ]]; then
-            tol=$(size_tolerance "$expect_root_mib"); low=$(( expect_root_mib - tol )); high=$(( expect_root_mib + tol ))
-            if (( mib >= low && mib <= high )); then P_ROOT="$p"; continue; fi
-        fi
-        if [[ -z "$P_SWAP" && "$SWAP_ON" == "1" && $expect_swap_mib -gt 0 ]]; then
-            tol=$(size_tolerance "$expect_swap_mib"); low=$(( expect_swap_mib - tol )); high=$(( expect_swap_mib + tol ))
-            if (( mib >= low && mib <= high )); then P_SWAP="$p"; continue; fi
-        fi
-    done
-
-    # fallbacks
-    find_closest() {
-        local target=$1; local best=""; local bestdiff=9999999
-        for p in "${PARTS[@]}"; do
-            (( $(get_mib "$p") <= 4 )) && continue
-            local mib=$(get_mib "$p"); local diff=$(( mib>target ? mib-target : target-mib ))
-            if (( diff < bestdiff )); then best="$p"; bestdiff=$diff; fi
-        done
-        echo "$best"
-    }
-
-    if [[ -z "$P_ROOT" ]]; then
-        P_ROOT=$(find_closest "$expect_root_mib")
-        echo "⚠ Selected closest for root: $P_ROOT"
-    fi
-    if [[ -z "$P_HOME" ]]; then
-        local cand=""; local maxmib=0
-        for p in "${PARTS[@]}"; do
-            [[ "$p" == "$P_ROOT" || "$p" == "$P_EFI" || "$p" == "$P_SWAP" ]] && continue
-            mib=$(get_mib "$p")
-            if (( mib > maxmib )); then cand="$p"; maxmib=$mib; fi
-        done
-        P_HOME="$cand"
-        echo "⚠ Selected largest remaining for home: $P_HOME ($maxmib MiB)"
+    # Assign partitions explicitly
+    if [[ "$MODE" == "UEFI" ]]; then
+        P_EFI="${PARTS[0]}"
+        P_ROOT="${PARTS[1]}"
+        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
+    else
+        # BIOS: assume 1=bios_grub, 2=/boot, 3=root, 4=swap?, 5=home?
+        P_BOOT="${PARTS[1]}"
+        P_ROOT="${PARTS[2]}"
+        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
     fi
 
     echo -e "\n→ Partition mapping:"
     echo "  P_EFI:  ${P_EFI:-<none>}"
+    echo "  P_BOOT: ${P_BOOT:-<none>}"
     echo "  P_ROOT: ${P_ROOT:-<none>}"
     echo "  P_SWAP: ${P_SWAP:-<none>}"
     echo "  P_HOME: ${P_HOME:-<none>}"
 
-    for v in P_ROOT P_HOME; do
-        eval cur="\$$v"
-        [[ -b "$cur" ]] || die "Expected block device $v ($cur) missing: partitioning/numbering mismatch."
-    done
-
-    # format & mount
-    if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
-        mkswap -L swap "$P_SWAP" || die "mkswap failed"; swapon "$P_SWAP" || die "swapon failed"
+    # --- Swap ---
+    if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
+        mkswap -L swap "$P_SWAP" || die "mkswap failed"
+        swapon "$P_SWAP" || die "swapon failed"
     fi
 
+    # --- Root & Home ---
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs failed"
         mount "$P_ROOT" /mnt || die "mount root failed"
         btrfs subvolume create /mnt/@ || true
+        umount /mnt
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
+
         if [[ "$HOME_FS" == "btrfs" ]]; then
-            btrfs subvolume create /mnt/@home || true; umount /mnt
-            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
-            mkdir -p /mnt/home; mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home || die "mount home subvol failed"
+            mount "$P_ROOT" /mnt || die "remount root for home subvol failed"
+            btrfs subvolume create /mnt/@home || true
+            umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount root subvol failed"
+            mkdir -p /mnt/home
+            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home || die "mount home subvol failed"
         else
-            umount /mnt; mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
             mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
-            mkdir -p /mnt/home; mount "$P_HOME" /mnt/home || die "mount home failed"
+            mkdir -p /mnt/home
+            mount "$P_HOME" /mnt/home || die "mount home failed"
         fi
     else
+        # root EXT4
         mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 root failed"
         mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
         mount "$P_ROOT" /mnt || die "mount root failed"
-        mkdir -p /mnt/home; mount "$P_HOME" /mnt/home || die "mount home failed"
+        mkdir -p /mnt/home
+        mount "$P_HOME" /mnt/home || die "mount home failed"
     fi
 
-    # boot/efi mount
-    mkdir -p /mnt/boot
+    # --- Boot / EFI ---
     if [[ "$MODE" == "BIOS" ]]; then
-        # find boot partition (label boot or ext4 not root/home)
-        for p in "${PARTS[@]}"; do
-            lbl=$(blkid -o value -s LABEL "$p" 2>/dev/null || true)
-            if [[ "$lbl" == "boot" ]] || ([[ "$(blkid -o value -s TYPE "$p" 2>/dev/null)" == "ext4" ]] && [[ "$p" != "$P_ROOT" && "$p" != "$P_HOME" ]]); then
-                P_BOOT="$p"; break
-            fi
-        done
-        [[ -n "$P_BOOT" ]] && mount "$P_BOOT" /mnt/boot || echo "→ No separate /boot mounted (likely on root)"
+        [[ -n "$P_BOOT" ]] && mount "$P_BOOT" /mnt/boot || echo "→ No separate /boot mounted"
     else
-        if [[ -n "$P_EFI" ]]; then mkdir -p /mnt/boot/efi; mount "$P_EFI" /mnt/boot/efi || die "mount efi failed"; else echo "→ No EFI found"; fi
+        [[ -n "$P_EFI" ]] && mkdir -p /mnt/boot/efi && mount "$P_EFI" /mnt/boot/efi || die "mount EFI failed"
     fi
 
+    # --- Final checks ---
     mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
     echo "✅ Partitions formatted and mounted under /mnt."
 
-    mkdir -p /mnt/etc; genfstab -U /mnt >> /mnt/etc/fstab; echo "→ /mnt/etc/fstab generated:"
+    # Generate fstab
+    mkdir -p /mnt/etc
+    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "→ /mnt/etc/fstab generated:"
     cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
