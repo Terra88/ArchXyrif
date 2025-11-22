@@ -599,10 +599,12 @@ format_and_mount() {
     detect_boot_mode
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
 
+    # Refresh partition table
     partprobe "$DEV"
     udevadm settle --timeout=5
     sleep 1
 
+    # Map partitions
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
 
@@ -619,7 +621,7 @@ format_and_mount() {
     echo "Partition mapping:"
     echo "P_EFI=$P_EFI, P_BOOT=$P_BOOT, P_ROOT=$P_ROOT, P_SWAP=$P_SWAP, P_HOME=$P_HOME"
 
-    # --- Create all mount points upfront ---
+    # --- Create base mount points ---
     mkdir -p /mnt /mnt/boot /mnt/home
     [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
 
@@ -641,14 +643,21 @@ format_and_mount() {
         mkfs.btrfs -f -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
 
+        # Create subvolumes
         btrfs subvolume create /mnt/@
         [[ "$HOME_FS" == "btrfs" ]] && btrfs subvolume create /mnt/@home
 
+        # Mount root subvolume
         umount /mnt
         mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
 
-        [[ "$HOME_FS" == "btrfs" ]] && mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        # Ensure /home exists and mount if BTRFS
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            mkdir -p /mnt/home
+            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        fi
     else
+        # EXT4 root
         mkfs.ext4 -F -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
     fi
@@ -656,7 +665,7 @@ format_and_mount() {
     # --- Home EXT4 ---
     if [[ "$HOME_FS" == "ext4" ]]; then
         mkfs.ext4 -F -L home "$P_HOME"
-        mkdir -p /mnt/home
+        mkdir -p /mnt/home   # ensure mount point exists
         mount "$P_HOME" /mnt/home
     fi
 
@@ -671,10 +680,9 @@ format_and_mount() {
     # --- Generate fstab ---
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
+
     echo "✅ Partitions formatted and mounted under /mnt"
 }
-
-
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
