@@ -1325,64 +1325,64 @@ window_manager() {
 # ---------- DM Selection ----------
 lm_dm() {
 
-sleep 1
-clear
-echo -e "#===================================================================================================#"
-echo -e "# -   Display Manager Selection                                                                     #"
-echo -e "#===================================================================================================#"
+    sleep 1
+    clear
+    echo -e "#===================================================================================================#"
+    echo -e "# -   Display Manager Selection                                                                     #"
+    echo -e "#===================================================================================================#"
 
     DM_MENU=()
-    DM_DEFAULT="6"
-    # ---------- Filtered DM options ----------
+    DM_AUR_PKGS=()
+    DM_SERVICE=""
+
+    # ---------- Build recommended DM menu based on selected WM ----------
     case "$SELECTED_WM" in
         gnome)
             DM_MENU=("1) GDM (required for GNOME Wayland)")
-            DM_DEFAULT="1"
             ;;
         kde)
             DM_MENU=("2) SDDM (recommended for KDE)" "1) GDM (works but not ideal)")
-            DM_DEFAULT="2"
             ;;
         niri)
             DM_MENU=("1) GDM (recommended)" "2) SDDM (works but sometimes session missing)" "4) Ly (TUI, always works)")
-            DM_DEFAULT="1"
             ;;
         hyprland|sway)
-            DM_MENU=("2) SDDM" "1) GDM" "4) Ly (TUI)")
-            DM_DEFAULT="2"
+            DM_MENU=("2) SDDM (recommended)" "1) GDM" "4) Ly (TUI)")
             ;;
         xfce)
             DM_MENU=("3) LightDM (recommended)" "1) GDM" "2) SDDM" "5) LXDM")
-            DM_DEFAULT="3"
             ;;
         cinnamon|mate)
             DM_MENU=("3) LightDM (recommended)" "1) GDM" "5) LXDM")
-            DM_DEFAULT="3"
             ;;
         none)
             DM_MENU=("6) Skip Display Manager")
-            DM_DEFAULT="6"
             ;;
         *)
             DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
-            DM_DEFAULT="6"
             ;;
-            
     esac
-    
+
+    # ---------- Add Skip DM option ONLY if it is not already there ----------
+    if ! printf "%s\n" "${DM_MENU[@]}" | grep -q "Skip"; then
+        next=$(( ${#DM_MENU[@]} + 1 ))
+        DM_MENU+=("${next}) Skip Display Manager")
+    fi
+
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
-        echo -e "$entry"
+        echo "$entry"
     done
-    echo "6) Skip Display Manager"
+
+    # ---------- Auto-set default: number of the FIRST entry ----------
+    DM_DEFAULT=$( echo "${DM_MENU[0]}" | cut -d')' -f1 )
 
     read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
     DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
 
     DM_PKGS=()
-    DM_AUR_PKGS=()
-    DM_SERVICE=""
-
+    
+    # ---------- Match selection ----------
     case "$DM_CHOICE" in
         1)
             DM_PKGS=(gdm)
@@ -1405,41 +1405,39 @@ echo -e "#======================================================================
             DM_PKGS=(lxdm)
             DM_SERVICE="lxdm.service"
             ;;
-        6|*)
+        *)
             echo "Skipping display manager installation."
             return
             ;;
-            
     esac
 
-    # ---------- Install DM packages ----------
+    # ---------- Install packages ----------
     if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
     fi
+
     if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
     fi
 
-    # ---------- Enable DM service ----------
+    # ---------- Enable service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-        echo -e "✅ Display manager service enabled: $DM_SERVICE"
+        echo "✅ Display manager service enabled: $DM_SERVICE"
     fi
 
     # ---------- Ly autologin ----------
-    if [[ "$DM_SERVICE" == "ly.service" ]]; then
-        if [[ -n "$USER_NAME" ]]; then
-            echo "Setting up Ly autologin for $USER_NAME..."
-            sudo mkdir -p /etc/systemd/system/ly.service.d
-            cat <<'EOF' | sudo tee /etc/systemd/system/ly.service.d/override.conf
-            
-
-[Service]
-ExecStart=
-ExecStart=/usr/bin/ly -a $USER_NAME
-EOF
-            sudo systemctl daemon-reload
-        fi
+    if [[ "$DM_SERVICE" == "ly.service" && -n "$USER_NAME" ]]; then
+        echo "Setting up Ly autologin for $USER_NAME..."
+        sudo mkdir -p /etc/systemd/system/ly.service.d
+    
+        printf "%s\n" \
+            "[Service]" \
+            "ExecStart=" \
+            "ExecStart=/usr/bin/ly -a $USER_NAME" \
+            | sudo tee /etc/systemd/system/ly.service.d/override.conf >/dev/null
+    
+        sudo systemctl daemon-reload
     fi
 }
 
