@@ -573,101 +573,163 @@ partition_disk() {
 # Format & mount
 #=========================================================================================================================================#
 format_and_mount() {
+    # Robust formatting & mounting that detects partitions instead of assuming indexes.
     detect_boot_mode
     local ps
     ps=$(part_suffix "$DEV")
 
-    echo "→ Detecting partitions..."
-    lsblk -o NAME,PATH,SIZE,FSTYPE -p "$DEV"
+    echo -e "\n→ Ensuring kernel sees partitions..."
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
+    sleep 1
 
-    if [[ "$MODE" == "BIOS" ]]; then
-        P_BIOS="${DEV}${ps}1"
-        P_BOOT="${DEV}${ps}2"
+    echo "→ Current partitions for $DEV:"
+    lsblk -o NAME,PATH,SIZE,TYPE,FSTYPE,MOUNTPOINT -p "$DEV"
 
-        if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${DEV}${ps}3"
-            P_ROOT="${DEV}${ps}4"
-            P_HOME="${DEV}${ps}5"
-        else
-            P_ROOT="${DEV}${ps}3"
-            P_HOME="${DEV}${ps}4"
-        fi
-
-        mkfs.ext4 -L boot "$P_BOOT"
-    else
-        P_EFI="${DEV}${ps}1"
-        P_ROOT="${DEV}${ps}2"
-
-        if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${DEV}${ps}3"
-            P_HOME="${DEV}${ps}4"
-        else
-            P_HOME="${DEV}${ps}3"
-        fi
-
-        mkfs.fat -F32 "$P_EFI"
+    # Build list of partitions
+    mapfile -t PARTS < <(lsblk -ln -o PATH -p "$DEV" | tail -n +2)
+    if [[ ${#PARTS[@]} -eq 0 ]]; then
+        die "No partitions found on $DEV"
     fi
 
-    # Safety validation so we can NEVER silently skip home formatting again
-    for P in P_ROOT P_HOME; do
-        eval VAL="\$$P"
-        [[ -b "$VAL" ]] || die "❌ ERROR: Expected partition $P ($VAL) does not exist. Partition numbering mismatch."
+    P_EFI="" P_BOOT="" P_SWAP="" P_ROOT="" P_HOME=""
+
+    # detect EFI by fstype
+    for p in "${PARTS[@]}"; do
+        ft=$(blkid -o value -s TYPE "$p" 2>/dev/null || true)
+        if [[ "$ft" == "vfat" || "$ft" == "fat32" ]]; then
+            P_EFI="$p" && break
+        fi
     done
 
-    # Swap
-    if [[ "$SWAP_ON" == "1" ]]; then
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
-    fi
-
-    # Filesystems
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-        btrfs subvolume create /mnt/@
-
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            btrfs subvolume create /mnt/@home
-            umount /mnt
-
-            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-            mkdir -p /mnt/home
-            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
-
-        else
-            # root=btrfs, home=ext4  ← FIXED
-            umount /mnt
-            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-
-            mkfs.ext4 -L home "$P_HOME"
-            mkdir -p /mnt/home
-            mount "$P_HOME" /mnt/home
+    # detect swap by fstype
+    for p in "${PARTS[@]}"; do
+        ft=$(blkid -o value -s TYPE "$p" 2>/dev/null || true)
+        if [[ "$ft" == "swap" ]]; then
+            P_SWAP="$p" && break
         fi
+    done
 
-    else
-        # root=ext4, home=ext4
-        mkfs.ext4 -L root "$P_ROOT"
-        mkfs.ext4 -L home "$P_HOME"
+    # detect labels 'root' and 'home'
+    for p in "${PARTS[@]}"; do
+        lbl=$(blkid -o value -s LABEL "$p" 2>/dev/null || true)
+        if [[ -z "$P_ROOT" && "$lbl" == "root" ]]; then P_ROOT="$p"; fi
+        if [[ -z "$P_HOME" && "$lbl" == "home" ]]; then P_HOME="$p"; fi
+    done
 
-        mount "$P_ROOT" /mnt
-        mkdir -p /mnt/home
-        mount "$P_HOME" /mnt/home
+    # helpers
+    get_mib() {
+        local p="$1"; local bytes; bytes=$(lsblk -nb -o SIZE -p "$p" 2>/dev/null || echo 0); echo $(( bytes / 1024 / 1024 ))
+    }
+    size_tolerance() {
+        local req="$1"; local tol=$(( req/100 )); [[ $tol -lt 10 ]] && tol=10; echo $tol
+    }
+
+    local expect_root_mib=${ROOT_SIZE_MIB:-0}
+    local expect_home_mib=${HOME_SIZE_MIB:-0}
+    local expect_swap_mib=${SWAP_SIZE_MIB:-0}
+
+    if [[ $expect_home_mib -eq 0 ]]; then
+        disk_mib=$(lsblk -b -dn -o SIZE "$DEV"); disk_mib=$(( disk_mib / 1024 / 1024 ))
+        local reserved=$(( (MODE=="BIOS") ? BIOS_GRUB_SIZE_MIB : EFI_SIZE_MIB ))
+        expect_home_mib=$(( disk_mib - reserved - expect_root_mib - expect_swap_mib - 2 ))
     fi
 
-    # Boot mount
+    # match by size
+    for p in "${PARTS[@]}"; do
+        (( $(get_mib "$p") <= 4 )) && continue
+        mib=$(get_mib "$p")
+        if [[ -z "$P_ROOT" && $expect_root_mib -gt 0 ]]; then
+            tol=$(size_tolerance "$expect_root_mib"); low=$(( expect_root_mib - tol )); high=$(( expect_root_mib + tol ))
+            if (( mib >= low && mib <= high )); then P_ROOT="$p"; continue; fi
+        fi
+        if [[ -z "$P_SWAP" && "$SWAP_ON" == "1" && $expect_swap_mib -gt 0 ]]; then
+            tol=$(size_tolerance "$expect_swap_mib"); low=$(( expect_swap_mib - tol )); high=$(( expect_swap_mib + tol ))
+            if (( mib >= low && mib <= high )); then P_SWAP="$p"; continue; fi
+        fi
+    done
+
+    # fallbacks
+    find_closest() {
+        local target=$1; local best=""; local bestdiff=9999999
+        for p in "${PARTS[@]}"; do
+            (( $(get_mib "$p") <= 4 )) && continue
+            local mib=$(get_mib "$p"); local diff=$(( mib>target ? mib-target : target-mib ))
+            if (( diff < bestdiff )); then best="$p"; bestdiff=$diff; fi
+        done
+        echo "$best"
+    }
+
+    if [[ -z "$P_ROOT" ]]; then
+        P_ROOT=$(find_closest "$expect_root_mib")
+        echo "⚠ Selected closest for root: $P_ROOT"
+    fi
+    if [[ -z "$P_HOME" ]]; then
+        local cand=""; local maxmib=0
+        for p in "${PARTS[@]}"; do
+            [[ "$p" == "$P_ROOT" || "$p" == "$P_EFI" || "$p" == "$P_SWAP" ]] && continue
+            mib=$(get_mib "$p")
+            if (( mib > maxmib )); then cand="$p"; maxmib=$mib; fi
+        done
+        P_HOME="$cand"
+        echo "⚠ Selected largest remaining for home: $P_HOME ($maxmib MiB)"
+    fi
+
+    echo -e "\n→ Partition mapping:"
+    echo "  P_EFI:  ${P_EFI:-<none>}"
+    echo "  P_ROOT: ${P_ROOT:-<none>}"
+    echo "  P_SWAP: ${P_SWAP:-<none>}"
+    echo "  P_HOME: ${P_HOME:-<none>}"
+
+    for v in P_ROOT P_HOME; do
+        eval cur="\$$v"
+        [[ -b "$cur" ]] || die "Expected block device $v ($cur) missing: partitioning/numbering mismatch."
+    done
+
+    # format & mount
+    if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
+        mkswap -L swap "$P_SWAP" || die "mkswap failed"; swapon "$P_SWAP" || die "swapon failed"
+    fi
+
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs failed"
+        mount "$P_ROOT" /mnt || die "mount root failed"
+        btrfs subvolume create /mnt/@ || true
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            btrfs subvolume create /mnt/@home || true; umount /mnt
+            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
+            mkdir -p /mnt/home; mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home || die "mount home subvol failed"
+        else
+            umount /mnt; mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
+            mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
+            mkdir -p /mnt/home; mount "$P_HOME" /mnt/home || die "mount home failed"
+        fi
+    else
+        mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 root failed"
+        mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
+        mount "$P_ROOT" /mnt || die "mount root failed"
+        mkdir -p /mnt/home; mount "$P_HOME" /mnt/home || die "mount home failed"
+    fi
+
+    # boot/efi mount
     mkdir -p /mnt/boot
     if [[ "$MODE" == "BIOS" ]]; then
-        mount "$P_BOOT" /mnt/boot
+        # find boot partition (label boot or ext4 not root/home)
+        for p in "${PARTS[@]}"; do
+            lbl=$(blkid -o value -s LABEL "$p" 2>/dev/null || true)
+            if [[ "$lbl" == "boot" ]] || ([[ "$(blkid -o value -s TYPE "$p" 2>/dev/null)" == "ext4" ]] && [[ "$p" != "$P_ROOT" && "$p" != "$P_HOME" ]]); then
+                P_BOOT="$p"; break
+            fi
+        done
+        [[ -n "$P_BOOT" ]] && mount "$P_BOOT" /mnt/boot || echo "→ No separate /boot mounted (likely on root)"
     else
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi
+        if [[ -n "$P_EFI" ]]; then mkdir -p /mnt/boot/efi; mount "$P_EFI" /mnt/boot/efi || die "mount efi failed"; else echo "→ No EFI found"; fi
     fi
 
-    mountpoint -q /mnt/home || die "❌ /mnt/home failed to mount!"
-    echo "✅ Partitions formatted and mounted."
+    mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
+    echo "✅ Partitions formatted and mounted under /mnt."
 
-    mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
+    mkdir -p /mnt/etc; genfstab -U /mnt >> /mnt/etc/fstab; echo "→ /mnt/etc/fstab generated:"
     cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
