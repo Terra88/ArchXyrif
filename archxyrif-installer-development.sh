@@ -616,13 +616,17 @@ format_and_mount() {
     echo "Partition mapping:"
     echo "P_EFI=$P_EFI, P_BOOT=$P_BOOT, P_ROOT=$P_ROOT, P_SWAP=$P_SWAP, P_HOME=$P_HOME"
 
+    # --- Create mount points early ---
+    mkdir -p /mnt
+    mkdir -p /mnt/boot
+    [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
+    mkdir -p /mnt/home
+
     # --- EFI / Boot ---
     if [[ "$MODE" == "UEFI" ]]; then
         mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
-        mkdir -p /mnt/boot/efi
     else
         mkfs.ext4 -F -L boot "$P_BOOT"
-        mkdir -p /mnt/boot
     fi
 
     # --- Swap ---
@@ -634,25 +638,34 @@ format_and_mount() {
     # --- Root ---
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
+        mount "$P_ROOT" /mnt  # mount raw partition to create subvolumes
+
+        # Create subvolumes
         btrfs subvolume create /mnt/@
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            btrfs subvolume create /mnt/@home
+        fi
+
         umount /mnt
+
+        # Mount root subvolume
         mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+
+        # Mount home if BTRFS
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            mkdir -p /mnt/home
+            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+        fi
     else
+        # Root EXT4
         mkfs.ext4 -F -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
     fi
 
-    # --- Home ---
-    mkdir -p /mnt/home
-    if [[ "$HOME_FS" == "btrfs" ]]; then
-        mount "$P_ROOT" /mnt  # root must be mounted to create subvol
-        btrfs subvolume create /mnt/@home
-        umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-        mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
-    else
+    # --- Home EXT4 on BTRFS root ---
+    if [[ "$HOME_FS" == "ext4" ]]; then
         mkfs.ext4 -F -L home "$P_HOME"
+        mkdir -p /mnt/home
         mount "$P_HOME" /mnt/home
     fi
 
