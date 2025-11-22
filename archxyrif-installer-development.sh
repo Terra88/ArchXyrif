@@ -550,7 +550,7 @@ partition_disk() {
             echo "→ Creating BIOS GPT partition layout..."
             
             # 1. BIOS_GRUB partition (1 MiB)
-            BIOS_START=0
+            BIOS_START=1
             BIOS_END=$((BIOS_START + BIOS_GRUB_SIZE_MIB))  # 0 → 1 MiB
             echo "→ Creating 1 MiB BIOS_GRUB partition at ${BIOS_START}MiB-${BIOS_END}MiB..."
             parted -s "$DEV" mkpart primary "${BIOS_START}MiB" "${BIOS_END}MiB" || die "Failed to create BIOS_GRUB"
