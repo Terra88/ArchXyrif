@@ -1663,18 +1663,24 @@ install_grub_quick() {
 
     echo "→ Target disks: ${TARGET_DISKS[*]}"
 
-    #---------------------------#
-    # BIOS Mode
-    #---------------------------#
-    if [[ "$MODE" == "BIOS" ]]; then
-        for DISK in "${TARGET_DISKS[@]}"; do
-            echo "→ Installing GRUB (BIOS) on $DISK..."
-            arch-chroot /mnt grub-install \
-                --target=i386-pc \
-                --modules="$GRUB_MODULES" \
-                --recheck "$DISK" || die "grub-install BIOS failed on $DISK"
-        done
+#---------------------------#
+# BIOS Mode
+#---------------------------#
+if [[ "$MODE" == "BIOS" ]]; then
+    # Ensure /boot is mounted
+    if ! mountpoint -q /mnt/boot; then
+        echo "→ Mounting /boot for BIOS GRUB..."
+        mount "${P_BOOT:-${DEV}2}" /mnt/boot || die "Failed to mount /boot for BIOS GRUB"
     fi
+
+    for DISK in "${TARGET_DISKS[@]}"; do
+        echo "→ Installing GRUB (BIOS) on $DISK..."
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --modules="$GRUB_MODULES" \
+            --recheck "$DISK" || die "grub-install BIOS failed on $DISK"
+    done
+fi
 
     #---------------------------#
     # UEFI Mode
