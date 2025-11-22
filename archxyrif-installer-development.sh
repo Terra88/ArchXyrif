@@ -593,7 +593,7 @@ partition_disk() {
     lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
 }
 #=========================================================================================================================================#
-# Format & mount (clean, corrected, fully documented)
+# Format & mount (final error-free merged version)
 #=========================================================================================================================================#
 format_and_mount() {
     detect_boot_mode
@@ -605,7 +605,7 @@ format_and_mount() {
     sleep 1
 
     # ---------------------------------------------------------------------
-    # 1. Map partitions based on detected boot mode
+    # 1. Map partitions based on mode
     # ---------------------------------------------------------------------
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
@@ -613,15 +613,18 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" ]]; then
         P_EFI="${PARTS[0]}"
         P_ROOT="${PARTS[1]}"
+
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${PARTS[2]}"
             P_HOME="${PARTS[3]}"
         else
             P_HOME="${PARTS[2]}"
         fi
+
     else
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
+
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${PARTS[3]}"
             P_HOME="${PARTS[4]}"
@@ -638,13 +641,14 @@ format_and_mount() {
     echo "  HOME: $P_HOME"
 
     # ---------------------------------------------------------------------
-    # 2. Create required mount points
+    # 2. Create base mount paths
     # ---------------------------------------------------------------------
-    mkdir -p /mnt /mnt/home /mnt/boot
-    [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
+    mkdir -p /mnt
+    mkdir -p /mnt/home
+    mkdir -p /mnt/boot
 
     # ---------------------------------------------------------------------
-    # 3. Format EFI / Boot
+    # 3. Format BOOT/EFI
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
         echo "→ Formatting EFI partition..."
@@ -655,7 +659,7 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # 4. Format SWAP (optional)
+    # 4. Format SWAP
     # ---------------------------------------------------------------------
     if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
         echo "→ Creating swap..."
@@ -664,61 +668,66 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # 5. Format ROOT
+    # 5. Format + Mount ROOT
     # ---------------------------------------------------------------------
     echo "→ Formatting ROOT ($ROOT_FS)..."
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
 
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
 
-        # First mount normally
+        # Initial mount to create subvols
         mount "$P_ROOT" /mnt
 
-        # Create root subvolume
+        # Create subvolumes
         btrfs subvolume create /mnt/@
 
-        # Unmount and mount proper subvolume
+        # Remount properly
         umount /mnt
         mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+
     else
         mkfs.ext4 -F -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
     fi
 
     # ---------------------------------------------------------------------
-    # 6. Format HOME
+    # *** IMPORTANT FIX ***
+    # After ROOT is mounted, we MUST create /mnt/boot/efi
+    # ---------------------------------------------------------------------
+    mkdir -p /mnt/boot
+    mkdir -p /mnt/boot/efi
+
+    # ---------------------------------------------------------------------
+    # 6. Format + Mount HOME
     # ---------------------------------------------------------------------
     echo "→ Formatting HOME ($HOME_FS)..."
 
     if [[ "$HOME_FS" == "ext4" ]]; then
-        # EXT4 home is simple
         mkfs.ext4 -F -L home "$P_HOME"
-        mkdir -p /mnt/home
         mount "$P_HOME" /mnt/home
 
     elif [[ "$HOME_FS" == "btrfs" ]]; then
-        # --- FIXED LOGIC FOR OPTION 2 ---
-        # Home is its OWN BTRFS PARTITION, not a subvolume of root
-
+        # Home BTRFS is its own partition — NOT on root partition (fixed)
         mkfs.btrfs -f -L home "$P_HOME"
 
-        # Temporarily mount home to create a subvolume
+        # Create its subvolume
         mount "$P_HOME" /mnt/home
         btrfs subvolume create /mnt/home/@home
         umount /mnt/home
 
-        # Mount real @home subvolume
-        mkdir -p /mnt/home
+        # Mount the real subvolume
         mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
     fi
 
     # ---------------------------------------------------------------------
-    # 7. Mount Boot or EFI
+    # 7. Mount EFI or BIOS boot
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
-        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI"
+        mount "$P_EFI" /mnt/boot/efi \
+            || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
     else
-        mount "$P_BOOT" /mnt/boot
+        mount "$P_BOOT" /mnt/boot \
+            || die "FAILED TO MOUNT BOOT ($P_BOOT → /mnt/boot)"
     fi
 
     # ---------------------------------------------------------------------
@@ -729,6 +738,7 @@ format_and_mount() {
 
     echo "✅ All partitions formatted and mounted successfully."
 }
+
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
