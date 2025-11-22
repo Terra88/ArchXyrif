@@ -716,7 +716,17 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
         mkdir -p /mnt/boot/efi
         mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
-    elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
+    elif [[ "$MODE" == "BIOS" ]]; then
+        # Ensure mount point exists
+        mkdir -p /mnt/boot
+    
+        # Ensure P_BOOT is set correctly
+        if [[ -z "$P_BOOT" ]]; then
+            # Try to guess the /boot partition by label
+            P_BOOT=$(lsblk -ln -o PATH,LABEL | awk '$2=="boot"{print $1}')
+            [[ -z "$P_BOOT" ]] && die "FAILED TO DETERMINE /boot partition"
+        fi
+    
         mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
     fi
 
