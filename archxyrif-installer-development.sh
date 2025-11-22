@@ -1595,10 +1595,80 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
+#=========================================================================================================================================#
+# GRUB installation
+#=========================================================================================================================================#
+install_grub_quick_bios() {
+    echo "→ BIOS mode detected — installing GRUB (i386-pc)..."
+
+    # --------------------------------------------------------------------
+    #   1) Ensure /boot exists and is mounted properly
+    # --------------------------------------------------------------------
+    if [[ -z "$P_BOOT" ]]; then
+        die "BIOS install: P_BOOT is not set!"
+    fi
+
+    mkdir -p /mnt/boot
+    if ! mountpoint -q /mnt/boot; then
+        mount "$P_BOOT" /mnt/boot || die "Failed to mount BIOS /boot partition"
+    fi
+
+    # --------------------------------------------------------------------
+    #   2) Detect the disk that contains the root partition
+    # --------------------------------------------------------------------
+    local ROOT_DISK
+    ROOT_DISK=$(lsblk -no PKNAME "$P_ROOT") || die "Cannot detect ROOT disk"
+    ROOT_DISK="/dev/$ROOT_DISK"
+
+    echo "→ BIOS GRUB will be installed to: $ROOT_DISK"
+
+    # --------------------------------------------------------------------
+    #   3) Detect whether LUKS or LVM is used
+    # --------------------------------------------------------------------
+    local NEED_CRYPT=0
+    local NEED_LVM=0
+
+    if lsblk -o TYPE -nr | grep -q crypt; then
+        NEED_CRYPT=1
+    fi
+    if lsblk -o TYPE -nr | grep -q lvm; then
+        NEED_LVM=1
+    fi
+
+    # --------------------------------------------------------------------
+    #   4) Build module list (same as UEFI, minus EFI-specific)
+    # --------------------------------------------------------------------
+    local GRUB_MODULES="part_msdos part_gpt biosdisk normal boot linux search search_fs_uuid ext2 btrfs f2fs mdraid1x"
+
+    [[ $NEED_CRYPT -eq 1 ]] && GRUB_MODULES+=" cryptodisk luks"
+    [[ $NEED_LVM -eq 1 ]] && GRUB_MODULES+=" lvm"
+
+    echo "→ GRUB modules for BIOS: $GRUB_MODULES"
+
+    # --------------------------------------------------------------------
+    #   5) Install GRUB in BIOS mode
+    # --------------------------------------------------------------------
+    arch-chroot /mnt grub-install \
+        --target=i386-pc \
+        --modules="$GRUB_MODULES" \
+        --recheck \
+        "$ROOT_DISK" || die "BIOS grub-install failed!"
+
+    # --------------------------------------------------------------------
+    #   6) Generate GRUB config
+    # --------------------------------------------------------------------
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
+        || die "BIOS grub-mkconfig failed"
+
+    echo "✅ BIOS GRUB installed successfully."
+}
+
 quick_partition() {
     detect_boot_mode
+
     echo "Available disks:"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
+
     while true; do
         read -rp "Enter target disk (e.g. /dev/sda): " DEV
         DEV="/dev/${DEV##*/}"
@@ -1616,7 +1686,19 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
-    install_grub
+
+    # ----------------------------------------------
+    # BOOTLOADER SELECTION (UEFI or BIOS)
+    # ----------------------------------------------
+    if [[ "$MODE" == "UEFI" ]]; then
+        echo "→ UEFI mode detected — using standard install_grub"
+        install_grub
+    else
+        echo "→ BIOS mode detected — using install_grub_quick_bios"
+        install_grub_quick_bios
+    fi
+
+    # Continue installation steps
     network_mirror_selection
     gpu_driver
     window_manager
@@ -1624,10 +1706,10 @@ quick_partition() {
     extra_pacman_pkg
     optional_aur
     hyprland_theme
-    
 
     echo -e "✅ Arch Linux installation complete."
 }
+
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #====================================== Custom Partition // Choose Filesystem Custom #====================================================#
