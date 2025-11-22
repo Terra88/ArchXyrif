@@ -626,43 +626,37 @@ format_and_mount() {
     fi
 
     echo "Partition mapping:"
-    echo "  BIOS_GRUB : ${P_BIOS_GRUB:-N/A}"
+    echo "  BIOS_GRUB : $P_BIOS_GRUB"
     echo "  EFI/BOOT  : ${P_EFI:-$P_BOOT}"
     echo "  ROOT      : $P_ROOT"
-    echo "  SWAP      : ${P_SWAP:-N/A}"
+    echo "  SWAP      : $P_SWAP"
     echo "  HOME      : $P_HOME"
 
     # ---------------------------------------------------------------------
-    # Create base mount points (conditionally)
+    # Create mount points
     # ---------------------------------------------------------------------
-    mkdir -p /mnt /mnt/home
-    [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
-    [[ "$MODE" == "BIOS" ]] && mkdir -p /mnt/boot
+    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi
 
     # ---------------------------------------------------------------------
     # Format EFI or /boot
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ Formatting EFI partition ($P_EFI)..."
+        echo "→ Formatting EFI partition..."
         mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
     else
-        echo "→ Formatting BIOS /boot ($P_BOOT)..."
+        echo "→ Formatting BIOS /boot partition..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
     fi
 
     # ---------------------------------------------------------------------
     # Format SWAP
     # ---------------------------------------------------------------------
-    if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" && -b "$P_SWAP" ]]; then
-        echo "→ Creating swap ($P_SWAP)..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
-    fi
+    [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]] && { mkswap -L swap "$P_SWAP"; swapon "$P_SWAP"; }
 
     # ---------------------------------------------------------------------
     # Format & mount ROOT
     # ---------------------------------------------------------------------
-    echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
+    echo "→ Formatting ROOT ($ROOT_FS)..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
@@ -675,20 +669,20 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # Mount EFI or /boot AFTER ROOT is mounted
+    # Mount EFI or BIOS /boot AFTER ROOT is mounted
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ Mounting EFI ($P_EFI) → /mnt/boot/efi"
-        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
     else
-        echo "→ Mounting /boot ($P_BOOT) → /mnt/boot"
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
+        mkdir -p /mnt/boot
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot ($P_BOOT → /mnt/boot)"
     fi
 
     # ---------------------------------------------------------------------
     # Format & mount HOME
     # ---------------------------------------------------------------------
-    echo "→ Formatting HOME ($HOME_FS) on $P_HOME..."
+    echo "→ Formatting HOME ($HOME_FS)..."
     mkdir -p /mnt/home
     if [[ "$HOME_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L home "$P_HOME"
@@ -698,7 +692,7 @@ format_and_mount() {
         mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
     else
         mkfs.ext4 -F -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home || die "Could not mount EXT4 home"
+        mount "$P_HOME" /mnt/home
     fi
 
     # ---------------------------------------------------------------------
