@@ -1652,19 +1652,7 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
-
-    # ----------------------------------------------
-    # BOOTLOADER SELECTION (UEFI or BIOS)
-    # ----------------------------------------------
-    if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ UEFI mode detected — using standard install_grub"
-        install_grub
-    else
-        echo "→ BIOS mode detected — using install_grub_quick_bios"
-        install_grub_quick_bios
-    fi
-
-    # Continue installation steps
+    install_grub
     network_mirror_selection
     gpu_driver
     window_manager
