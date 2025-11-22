@@ -697,27 +697,36 @@ format_and_mount() {
     mkdir -p /mnt/boot
     mkdir -p /mnt/boot/efi
 
-    # ---------------------------------------------------------------------
-    # 6. Format + Mount HOME
-    # ---------------------------------------------------------------------
-    echo "→ Formatting HOME ($HOME_FS)..."
+# ---------------------------------------------------------------------
+# 6. Format + Mount HOME
+# ---------------------------------------------------------------------
+echo "→ Formatting HOME ($HOME_FS)..."
 
-    if [[ "$HOME_FS" == "ext4" ]]; then
-        mkfs.ext4 -F -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home
+# Ensure mount point always exists (prevents ALL your current errors)
+mkdir -p /mnt/home
 
-    elif [[ "$HOME_FS" == "btrfs" ]]; then
-        # Home BTRFS is its own partition — NOT on root partition (fixed)
-        mkfs.btrfs -f -L home "$P_HOME"
+if [[ "$HOME_FS" == "ext4" ]]; then
 
-        # Create its subvolume
-        mount "$P_HOME" /mnt/home
-        btrfs subvolume create /mnt/home/@home
-        umount /mnt/home
+    mkfs.ext4 -F -L home "$P_HOME"
+    mkdir -p /mnt/home
+    mount "$P_HOME" /mnt/home || die "Could not mount EXT4 home"
 
-        # Mount the real subvolume
-        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
-    fi
+elif [[ "$HOME_FS" == "btrfs" ]]; then
+
+    mkfs.btrfs -f -L home "$P_HOME"
+
+    # temp mount to create subvol
+    mkdir -p /mnt/home
+    mount "$P_HOME" /mnt/home || die "Could not temp mount BTRFS home"
+    btrfs subvolume create /mnt/home/@home
+    umount /mnt/home
+
+    # real mount
+    mkdir -p /mnt/home
+    mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home \
+        || die "Could not mount BTRFS home subvol"
+
+fi
 
     # ---------------------------------------------------------------------
     # 7. Mount EFI or BIOS boot
