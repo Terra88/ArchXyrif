@@ -1613,6 +1613,60 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 #=========================================================================================================================================#
 # Quick Partition Main
 #=========================================================================================================================================#
+#=========================================================================#
+# GRUB installation (Quick Partition safe for BIOS + UEFI)
+#=========================================================================#
+install_grub_quick() {
+    detect_boot_mode
+
+    echo -e "\n🛈 Installing GRUB bootloader ($MODE mode)..."
+
+    # Create temporary mount points for safety
+    mkdir -p /mnt/boot /mnt/boot/efi
+
+    # BIOS mode
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ BIOS detected. Mounting /boot and installing GRUB..."
+
+        # Ensure /boot is mounted
+        [[ -n "$P_BOOT" ]] || die "P_BOOT not set for BIOS GRUB"
+        mount "$P_BOOT" /mnt/boot || die "Failed to mount /boot for BIOS GRUB"
+
+        # Install GRUB on the disk containing /boot
+        arch-chroot /mnt grub-install \
+            --target=i386-pc \
+            --recheck "$DEV" || die "grub-install (BIOS) failed"
+
+        # Generate GRUB config
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig (BIOS) failed"
+
+        echo "✅ BIOS GRUB installed successfully."
+
+    # UEFI mode
+    else
+        echo "→ UEFI detected. Mounting EFI and installing GRUB..."
+
+        # Ensure EFI partition is mounted
+        [[ -n "$P_EFI" ]] || die "P_EFI not set for UEFI GRUB"
+        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition"
+
+        # Install GRUB for UEFI
+        arch-chroot /mnt grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=GRUB \
+            --recheck \
+            --no-nvram || die "grub-install (UEFI) failed"
+
+        # Optional fallback
+        arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
+
+        # Generate GRUB config
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig (UEFI) failed"
+
+        echo "✅ UEFI GRUB installed successfully."
+    fi
+}
 quick_partition() {
     detect_boot_mode
     echo "Available disks:"
@@ -1634,7 +1688,7 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
-    install_grub
+    install_grub_quick
     network_mirror_selection
     gpu_driver
     window_manager
