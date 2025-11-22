@@ -545,40 +545,55 @@ partition_disk() {
         fi
         parted -s "$DEV" name "$home_num" home
 
-    else
-        # --- BIOS: reserve first 1MiB for GRUB ---
-        start=$BIOS_GRUB_SIZE_MIB
-        end=$((start + BOOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary ext4 "${start}MiB" "${end}MiB"
-        parted -s "$DEV" name 1 boot
-        start=$end
-
-        # --- Root partition ---
-        root_end=$((start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "${start}MiB" "${root_end}MiB"
-        parted -s "$DEV" name 2 root
-        start=$root_end
-
-        # --- Swap partition ---
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_end=$((start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap "${start}MiB" "${swap_end}MiB"
-            parted -s "$DEV" name 3 swap
-            start=$swap_end
-            home_num=4
         else
-            home_num=3
-        fi
-
-        # --- Home partition ---
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${start}MiB" 100%
-        else
-            home_end=$((start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${start}MiB" "${home_end}MiB"
-        fi
-        parted -s "$DEV" name "$home_num" home
-    fi
+            # --- BIOS GPT with 1 MiB bios_grub + 512 MiB /boot ---
+            echo "→ Creating BIOS GPT partition layout..."
+        
+            # 1. BIOS_GRUB partition (1 MiB)
+            BIOS_START=1
+            BIOS_END=$(( BIOS_START + BIOS_GRUB_SIZE_MIB ))  # BIOS_GRUB_SIZE_MIB=1
+            parted -s "$DEV" mkpart primary "${BIOS_START}MiB" "${BIOS_END}MiB"
+            parted -s "$DEV" set 1 bios_grub on
+            echo "→ BIOS_GRUB partition created (1 MiB, no FS)"
+        
+            # 2. /boot partition (512 MiB)
+            BOOT_START=$BIOS_END
+            BOOT_END=$(( BOOT_START + BOOT_SIZE_MIB ))       # BOOT_SIZE_MIB=512
+            parted -s "$DEV" mkpart primary ext4 "${BOOT_START}MiB" "${BOOT_END}MiB"
+            parted -s "$DEV" name 2 boot
+            echo "→ /boot partition created (512 MiB, EXT4)"
+        
+            # 3. Root partition
+            ROOT_START=$BOOT_END
+            ROOT_END=$(( ROOT_START + ROOT_SIZE_MIB ))
+            parted -s "$DEV" mkpart primary "$ROOT_FS" "${ROOT_START}MiB" "${ROOT_END}MiB"
+            parted -s "$DEV" name 3 root
+            echo "→ Root partition created ($ROOT_FS)"
+        
+            # 4. Swap (optional)
+            if [[ "$SWAP_ON" == "1" ]]; then
+                SWAP_START=$ROOT_END
+                SWAP_END=$(( SWAP_START + SWAP_SIZE_MIB ))
+                parted -s "$DEV" mkpart primary linux-swap "${SWAP_START}MiB" "${SWAP_END}MiB"
+                parted -s "$DEV" name 4 swap
+                HOME_START=$SWAP_END
+                HOME_NUM=5
+                echo "→ Swap partition created ($SWAP_SIZE_MIB MiB)"
+            else
+                HOME_START=$ROOT_END
+                HOME_NUM=4
+            fi
+        
+            # 5. Home partition (remaining space)
+            if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" 100%
+            else
+                HOME_END=$((HOME_START + HOME_SIZE_MIB))
+                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" "${HOME_END}MiB"
+            fi
+            parted -s "$DEV" name "$HOME_NUM" home
+            echo "→ Home partition created ($HOME_FS)"
+            fi
 
     # Refresh partition table
     partprobe "$DEV" || true
@@ -611,9 +626,10 @@ format_and_mount() {
         P_ROOT="${PARTS[1]}"
         [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
     else
-        P_BOOT="${PARTS[0]}"
-        P_ROOT="${PARTS[1]}"
-        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
+        # BIOS: skip first partition (bios_grub, no FS)
+        P_BOOT="${PARTS[1]}"  # <-- /boot is 2nd partition
+        P_ROOT="${PARTS[2]}"
+        [[ "$SWAP_ON" == "1" && ${#PARTS[@]} -ge 4 ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
     fi
 
     echo "Partition mapping:"
@@ -638,7 +654,7 @@ format_and_mount() {
     else
         echo "→ Formatting BIOS /boot..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"  # <-- fixed: now mounts 2nd partition
     fi
 
     # ---------------------------------------------------------------------
