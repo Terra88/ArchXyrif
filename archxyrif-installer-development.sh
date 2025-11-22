@@ -626,10 +626,9 @@ format_and_mount() {
         P_ROOT="${PARTS[1]}"
         [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
     else
-        # BIOS: skip first partition (bios_grub, no FS)
-        P_BOOT="${PARTS[1]}"  # <-- /boot is 2nd partition
-        P_ROOT="${PARTS[2]}"
-        [[ "$SWAP_ON" == "1" && ${#PARTS[@]} -ge 4 ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
+        P_BOOT="${PARTS[0]}"
+        P_ROOT="${PARTS[1]}"
+        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
     fi
 
     echo "Partition mapping:"
@@ -650,11 +649,11 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" ]]; then
         echo "→ Formatting EFI partition..."
         mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
-        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
+        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
     else
         echo "→ Formatting BIOS /boot..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"  # <-- fixed: now mounts 2nd partition
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot ($P_BOOT → /mnt/boot)"
     fi
 
     # ---------------------------------------------------------------------
@@ -662,8 +661,8 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
         echo "→ Creating swap..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
+        mkswap -L swap "$P_SWAP" || die "Failed to mkswap"
+        swapon "$P_SWAP" || die "Failed to enable swap"
     fi
 
     # ---------------------------------------------------------------------
@@ -671,37 +670,42 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     echo "→ Formatting ROOT ($ROOT_FS)..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-        btrfs subvolume create /mnt/@
+        mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs root failed"
+        mount "$P_ROOT" /mnt || die "Failed to mount ROOT temporarily"
+        btrfs subvolume create /mnt/@ || die "Failed to create ROOT subvolume"
         umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "Failed to mount ROOT subvolume"
     else
-        mkfs.ext4 -F -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
+        mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 root failed"
+        mount "$P_ROOT" /mnt || die "Failed to mount ROOT"
     fi
 
     # ---------------------------------------------------------------------
     # 6. Format + mount HOME
     # ---------------------------------------------------------------------
     echo "→ Formatting HOME ($HOME_FS)..."
-    mkdir -p /mnt/home
+    mkdir -p /mnt/home  # <-- safe to recreate before final mount
     if [[ "$HOME_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home
-        btrfs subvolume create /mnt/home/@home
+        mkfs.btrfs -f -L home "$P_HOME" || die "mkfs.btrfs home failed"
+        
+        # temporary mount to create subvolume
+        mount "$P_HOME" /mnt/home || die "Could not temp mount BTRFS home"
+        btrfs subvolume create /mnt/home/@home || die "Failed to create home subvolume"
         umount /mnt/home
-        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
+        
+        # real mount
+        mkdir -p /mnt/home  # ensure directory exists
+        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home || die "Could not mount BTRFS home subvol"
     else
-        mkfs.ext4 -F -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home
+        mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
+        mount "$P_HOME" /mnt/home || die "Could not mount home"
     fi
 
     # ---------------------------------------------------------------------
     # 7. Generate fstab
     # ---------------------------------------------------------------------
     mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
+    genfstab -U /mnt >> /mnt/etc/fstab || die "Failed to generate fstab"
 
     echo "✅ All partitions formatted and mounted successfully."
 }
