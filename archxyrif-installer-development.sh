@@ -493,10 +493,6 @@ ask_partition_sizes() {
             HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
         fi
 
-            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
-            home_end=$(( root_end + HOME_SIZE_MIB ))
-        fi
-
         echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
         break
     done
