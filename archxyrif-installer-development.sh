@@ -546,61 +546,70 @@ partition_disk() {
         parted -s "$DEV" name "$home_num" home
 
         else
-            # --- BIOS GPT with 1 MiB bios_grub + 512 MiB /boot ---
+                # ------------------- BIOS GPT layout ------------------- #
             echo "→ Creating BIOS GPT partition layout..."
-        
+            
             # 1. BIOS_GRUB partition (1 MiB)
-            BIOS_START=1
-            BIOS_END=$(( BIOS_START + BIOS_GRUB_SIZE_MIB ))  # BIOS_GRUB_SIZE_MIB=1
-            parted -s "$DEV" mkpart primary "${BIOS_START}MiB" "${BIOS_END}MiB"
-            parted -s "$DEV" set 1 bios_grub on
+            BIOS_START=0
+            BIOS_END=$((BIOS_START + BIOS_GRUB_SIZE_MIB))  # 0 → 1 MiB
+            echo "→ Creating 1 MiB BIOS_GRUB partition at ${BIOS_START}MiB-${BIOS_END}MiB..."
+            parted -s "$DEV" mkpart primary "${BIOS_START}MiB" "${BIOS_END}MiB" || die "Failed to create BIOS_GRUB"
+            parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag on BIOS_GRUB"
             echo "→ BIOS_GRUB partition created (1 MiB, no FS)"
-        
+            
             # 2. /boot partition (512 MiB)
             BOOT_START=$BIOS_END
-            BOOT_END=$(( BOOT_START + BOOT_SIZE_MIB ))       # BOOT_SIZE_MIB=512
-            parted -s "$DEV" mkpart primary ext4 "${BOOT_START}MiB" "${BOOT_END}MiB"
+            BOOT_END=$((BOOT_START + BOOT_SIZE_MIB))       # 512 MiB
+            echo "→ Creating /boot partition at ${BOOT_START}MiB-${BOOT_END}MiB..."
+            parted -s "$DEV" mkpart primary ext4 "${BOOT_START}MiB" "${BOOT_END}MiB" || die "Failed to create /boot"
             parted -s "$DEV" name 2 boot
-            echo "→ /boot partition created (512 MiB, EXT4)"
-        
+            echo "→ /boot partition created (512 MiB, ext4)"
+            
             # 3. Root partition
             ROOT_START=$BOOT_END
-            ROOT_END=$(( ROOT_START + ROOT_SIZE_MIB ))
-            parted -s "$DEV" mkpart primary "$ROOT_FS" "${ROOT_START}MiB" "${ROOT_END}MiB"
+            ROOT_END=$((ROOT_START + ROOT_SIZE_MIB))
+            echo "→ Creating root partition at ${ROOT_START}MiB-${ROOT_END}MiB..."
+            parted -s "$DEV" mkpart primary "$ROOT_FS" "${ROOT_START}MiB" "${ROOT_END}MiB" || die "Failed to create root"
             parted -s "$DEV" name 3 root
             echo "→ Root partition created ($ROOT_FS)"
-        
-            # 4. Swap (optional)
+            
+            # 4. Swap partition (optional)
             if [[ "$SWAP_ON" == "1" ]]; then
                 SWAP_START=$ROOT_END
-                SWAP_END=$(( SWAP_START + SWAP_SIZE_MIB ))
-                parted -s "$DEV" mkpart primary linux-swap "${SWAP_START}MiB" "${SWAP_END}MiB"
+                SWAP_END=$((SWAP_START + SWAP_SIZE_MIB))
+                echo "→ Creating swap partition at ${SWAP_START}MiB-${SWAP_END}MiB..."
+                parted -s "$DEV" mkpart primary linux-swap "${SWAP_START}MiB" "${SWAP_END}MiB" || die "Failed to create swap"
                 parted -s "$DEV" name 4 swap
                 HOME_START=$SWAP_END
                 HOME_NUM=5
-                echo "→ Swap partition created ($SWAP_SIZE_MIB MiB)"
+                echo "→ Swap partition created (${SWAP_SIZE_MIB} MiB)"
             else
                 HOME_START=$ROOT_END
                 HOME_NUM=4
             fi
-        
-            # 5. Home partition (remaining space)
+            
+            # 5. Home partition
             if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" 100%
+                echo "→ Creating home partition using remaining space..."
+                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" 100% || die "Failed to create home"
             else
                 HOME_END=$((HOME_START + HOME_SIZE_MIB))
-                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" "${HOME_END}MiB"
+                echo "→ Creating home partition at ${HOME_START}MiB-${HOME_END}MiB..."
+                parted -s "$DEV" mkpart primary "$HOME_FS" "${HOME_START}MiB" "${HOME_END}MiB" || die "Failed to create home"
             fi
             parted -s "$DEV" name "$HOME_NUM" home
             echo "→ Home partition created ($HOME_FS)"
-            fi
-
-    # Refresh partition table
+        fi
+    # 6. Refresh partition table and verify
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
-
-    echo "✅ Partitioning completed. Verify with lsblk:"
+    
+    echo "→ Verifying BIOS_GRUB flag..."
+    PARTTYPE=$(parted -s "$DEV" print | awk '/bios_grub/ {print $NF}')
+    [[ -z "$PARTTYPE" ]] && die "BIOS_GRUB partition flag missing! GRUB will fail."
+    
+    echo "✅ BIOS GPT partitioning complete. Current layout:"
     lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
 }
 #=========================================================================#
@@ -626,9 +635,9 @@ format_and_mount() {
         P_ROOT="${PARTS[1]}"
         [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
     else
-        P_BOOT="${PARTS[0]}"
-        P_ROOT="${PARTS[1]}"
-        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
+        P_BOOT="${PARTS[1]}"   # BIOS_GRUB = PARTS[0], skip it
+        P_ROOT="${PARTS[2]}"
+        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
     fi
 
     echo "Partition mapping:"
@@ -649,11 +658,11 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" ]]; then
         echo "→ Formatting EFI partition..."
         mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
-        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
+        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
     else
         echo "→ Formatting BIOS /boot..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot ($P_BOOT → /mnt/boot)"
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
     fi
 
     # ---------------------------------------------------------------------
@@ -661,8 +670,8 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
         echo "→ Creating swap..."
-        mkswap -L swap "$P_SWAP" || die "Failed to mkswap"
-        swapon "$P_SWAP" || die "Failed to enable swap"
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
     fi
 
     # ---------------------------------------------------------------------
@@ -670,42 +679,37 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     echo "→ Formatting ROOT ($ROOT_FS)..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs root failed"
-        mount "$P_ROOT" /mnt || die "Failed to mount ROOT temporarily"
-        btrfs subvolume create /mnt/@ || die "Failed to create ROOT subvolume"
+        mkfs.btrfs -f -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
         umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "Failed to mount ROOT subvolume"
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
     else
-        mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 root failed"
-        mount "$P_ROOT" /mnt || die "Failed to mount ROOT"
+        mkfs.ext4 -F -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
     fi
 
     # ---------------------------------------------------------------------
     # 6. Format + mount HOME
     # ---------------------------------------------------------------------
     echo "→ Formatting HOME ($HOME_FS)..."
-    mkdir -p /mnt/home  # <-- safe to recreate before final mount
+    mkdir -p /mnt/home
     if [[ "$HOME_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L home "$P_HOME" || die "mkfs.btrfs home failed"
-        
-        # temporary mount to create subvolume
-        mount "$P_HOME" /mnt/home || die "Could not temp mount BTRFS home"
-        btrfs subvolume create /mnt/home/@home || die "Failed to create home subvolume"
+        mkfs.btrfs -f -L home "$P_HOME"
+        mount "$P_HOME" /mnt/home
+        btrfs subvolume create /mnt/home/@home
         umount /mnt/home
-        
-        # real mount
-        mkdir -p /mnt/home  # ensure directory exists
-        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home || die "Could not mount BTRFS home subvol"
+        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
     else
-        mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
-        mount "$P_HOME" /mnt/home || die "Could not mount home"
+        mkfs.ext4 -F -L home "$P_HOME"
+        mount "$P_HOME" /mnt/home
     fi
 
     # ---------------------------------------------------------------------
     # 7. Generate fstab
     # ---------------------------------------------------------------------
     mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab || die "Failed to generate fstab"
+    genfstab -U /mnt >> /mnt/etc/fstab
 
     echo "✅ All partitions formatted and mounted successfully."
 }
@@ -918,7 +922,7 @@ install_grub() {
     ps=$(part_suffix "$DEV")
 
     # Start with minimal essential modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2"
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
     #--------------------------------------#
     # Add FS module (idempotent)
