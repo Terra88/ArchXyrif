@@ -505,22 +505,24 @@ partition_disk() {
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
 
     local start=1
-    local end boot_start boot_end root_start root_end swap_start swap_end home_start home_end
+    local end
+    local root_start root_end swap_start swap_end home_start home_end
+    local home_num
 
     if [[ "$MODE" == "UEFI" ]]; then
-        # EFI partition
+        # --- EFI partition ---
         end=$((start + EFI_SIZE_MIB))
         parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB"
         parted -s "$DEV" set 1 boot on
         P_EFI_NUM=1
 
-        # Root partition
+        # --- Root partition ---
         root_start=$end
         root_end=$((root_start + ROOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
         parted -s "$DEV" name 2 root
 
-        # Swap if enabled
+        # --- Swap partition ---
         if [[ "$SWAP_ON" == "1" ]]; then
             swap_start=$root_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
@@ -533,7 +535,7 @@ partition_disk() {
             home_num=3
         fi
 
-        # Home partition
+        # --- Home partition ---
         if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
             parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
         else
@@ -543,7 +545,7 @@ partition_disk() {
         parted -s "$DEV" name "$home_num" home
 
     else
-        # BIOS: bios_grub + /boot
+        # --- BIOS: bios_grub + /boot ---
         end=$((start + BIOS_GRUB_SIZE_MIB))
         parted -s "$DEV" mkpart primary "${start}MiB" "${end}MiB"
         parted -s "$DEV" set 1 bios_grub on
@@ -553,13 +555,13 @@ partition_disk() {
         parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB"
         parted -s "$DEV" name 2 boot
 
-        # Root partition
+        # --- Root partition ---
         root_start=$boot_end
         root_end=$((root_start + ROOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
         parted -s "$DEV" name 3 root
 
-        # Swap if enabled
+        # --- Swap partition ---
         if [[ "$SWAP_ON" == "1" ]]; then
             swap_start=$root_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
@@ -572,7 +574,7 @@ partition_disk() {
             home_num=4
         fi
 
-        # Home partition
+        # --- Home partition ---
         if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
             parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
         else
@@ -582,6 +584,7 @@ partition_disk() {
         parted -s "$DEV" name "$home_num" home
     fi
 
+    # Refresh partition table
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
