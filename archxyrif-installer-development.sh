@@ -1507,9 +1507,6 @@ optional_aur()
                     #EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
                 
 }
-#=========================================================================================================================================#
-# Hyprland Configuration Installer - from http://github.com/terra88/hyprland-setup
-#=========================================================================================================================================#
 hyprland_theme() {
     sleep 1
     clear
@@ -1524,16 +1521,15 @@ hyprland_theme() {
     if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
 
         echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-        arch-chroot /mnt pacman -S --needed --noconfirm unzip git  # Assuming these packages are available
+        arch-chroot /mnt pacman -S --needed --noconfirm unzip git  # Ensures packages are available
 
         read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
         if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
             echo "→ Running Hyprland theme setup inside chroot..."
 
             # Use a QUOTED Heredoc ('EOF_THEME_SETUP') to prevent outer shell expansion
-            # This ensures $NEWUSER and $HOME_DIR, etc., are passed literally.
             arch-chroot /mnt /bin/bash <<'EOF_THEME_SETUP'
-# IMPORTANT: NEWUSER is the only variable expanded by the outer shell before this runs.
+# IMPORTANT: NEWUSER is passed from the outer script context.
 NEWUSER="$NEWUSER"
 HOME_DIR="/home/$NEWUSER"
 CONFIG_DIR="$HOME_DIR/.config"
@@ -1548,7 +1544,8 @@ chmod 755 "$HOME_DIR"
 if [[ -d "$REPO_DIR" ]]; then
     rm -rf "$REPO_DIR"
 fi
-sudo -u $NEWUSER git clone https://github.com/terra88/hyprland-setup.git "$REPO_DIR" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
+# FIX: Use absolute path /usr/bin/git to bypass sudo PATH limitations
+sudo -u $NEWUSER /usr/bin/git clone https://github.com/terra88/hyprland-setup.git "$REPO_DIR" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
 
 # 3. Copy zip and script files to home directory
 sudo -u $NEWUSER cp -f "$REPO_DIR/config.zip" "$HOME_DIR/" 2>/dev/null || echo '⚠️ config.zip missing'
@@ -1575,7 +1572,6 @@ if [[ -f "$HOME_DIR/config.zip" ]]; then
         shopt -s dotglob
         
         # Copy the *CONTENTS* of $TEMP_CONFIG_DIR/config/ to the final $CONFIG_DIR/
-        # This prevents the unwanted $HOME_DIR/.config/config/ nesting
         sudo -u $NEWUSER cp -r "$TEMP_CONFIG_DIR/config/"* "$CONFIG_DIR/"
         
         # Revert shell option
