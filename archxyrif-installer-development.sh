@@ -1495,15 +1495,18 @@ if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
     echo '==> Existing .config backed up.'
 fi
 
-# Extract config.zip into /home and rename to .config
-if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
-    unzip -o \"\$HOME_DIR/config.zip\" -d \"\$HOME_DIR/\"
-    if [[ -d \"\$HOME_DIR/config\" ]]; then
-        mv \"\$HOME_DIR/config\" \"\$CONFIG_DIR\"
-        echo '==> config.zip contents moved to .config'
+# Extract config.zip directly into .config/
+if [[ -f "$HOME_DIR/config.zip" ]]; then
+    unzip -o "$HOME_DIR/config.zip" "config/*" -d "$HOME_DIR"
+    if [[ -d "$HOME_DIR/config" ]]; then
+        cp -r "$HOME_DIR/config/"* "$CONFIG_DIR/"
+        rm -rf "$HOME_DIR/config"
+        echo "==> config.zip extracted into .config"
     else
-        echo '⚠️ config/ folder not found inside zip, skipping.'
+        echo "⚠️ No config/ directory found inside the zip."
     fi
+else
+    echo "⚠️ config.zip not found, skipping."
 fi
 
 # Extract wallpaper.zip to HOME_DIR
