@@ -506,91 +506,69 @@ partition_disk() {
     calculate_swap_quick
 
     echo -e "\n🛈 Starting partitioning on $DEV..."
-
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
 
     local start end root_start root_end swap_start swap_end home_start home_end
     local home_num boot_start boot_end bios_grub_start bios_grub_end
 
-    if [[ "$MODE" == "UEFI" ]]; then
-        # --- EFI partition ---
-        start=1
-        end=$((start + EFI_SIZE_MIB))
-        parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB"
-        parted -s "$DEV" set 1 boot on
-        P_EFI_NUM=1
-
-        # --- ROOT partition ---
-        root_start=$end
-        root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
-        parted -s "$DEV" name 2 root
-
-        # --- SWAP partition ---
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_start=$root_end
-            swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
-            parted -s "$DEV" name 3 swap
-            home_start=$swap_end
-            home_num=4
-        else
-            home_start=$root_end
-            home_num=3
-        fi
-
-        # --- HOME partition ---
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
-        else
-            home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
-        fi
-        parted -s "$DEV" name "$home_num" home
-
-    else
-        # --- BIOS GRUB partition ---
+    # -------------------
+    # BIOS / UEFI reserved partitions
+    # -------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Creating mandatory BIOS GRUB reserved partition..."
         bios_grub_start=1
         bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "${bios_grub_start}MiB" "${bios_grub_end}MiB"
-        parted -s "$DEV" set 1 bios_grub on
-
-        # --- /boot partition ---
-        boot_start=$bios_grub_end
-        boot_end=$((boot_start + BOOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB"
-        parted -s "$DEV" name 2 boot
-
-        # --- ROOT partition ---
-        root_start=$boot_end
-        root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
-        parted -s "$DEV" name 3 root
-
-        # --- SWAP partition ---
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_start=$root_end
-            swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
-            parted -s "$DEV" name 4 swap
-            home_start=$swap_end
-            home_num=5
-        else
-            home_start=$root_end
-            home_num=4
-        fi
-
-        # --- HOME partition ---
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
-        else
-            home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
-        fi
-        parted -s "$DEV" name "$home_num" home
+        parted -s "$DEV" mkpart primary "${bios_grub_start}MiB" "${bios_grub_end}MiB" || die "Failed to create BIOS GRUB partition"
+        parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
+        start=$bios_grub_end
+    else
+        echo "→ Creating mandatory EFI System Partition..."
+        start=1
+        end=$((start + EFI_SIZE_MIB))
+        parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB" || die "Failed to create EFI partition"
+        parted -s "$DEV" set 1 boot on
+        parted -s "$DEV" set 1 esp on || true
+        P_EFI_NUM=1
+        start=$end
     fi
 
+    # -------------------
+    # ROOT partition
+    # -------------------
+    root_start=$start
+    root_end=$((root_start + ROOT_SIZE_MIB))
+    parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
+    parted -s "$DEV" name 2 root
+
+    # -------------------
+    # SWAP partition
+    # -------------------
+    if [[ "$SWAP_ON" == "1" ]]; then
+        swap_start=$root_end
+        swap_end=$((swap_start + SWAP_SIZE_MIB))
+        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
+        parted -s "$DEV" name 3 swap
+        home_start=$swap_end
+        home_num=4
+    else
+        home_start=$root_end
+        home_num=3
+    fi
+
+    # -------------------
+    # HOME partition
+    # -------------------
+    if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
+    else
+        home_end=$((home_start + HOME_SIZE_MIB))
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB" || die "Failed to create HOME"
+    fi
+    parted -s "$DEV" name "$home_num" home
+
+    # -------------------
     # Refresh partition table
+    # -------------------
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
@@ -611,17 +589,7 @@ format_and_mount() {
     sleep 1
 
     # ---------------------------------------------------------------------
-    # 0. Initialize all partition variables
-    # ---------------------------------------------------------------------
-    P_BIOS_GRUB=""
-    P_BOOT=""
-    P_EFI=""
-    P_ROOT=""
-    P_SWAP=""
-    P_HOME=""
-
-    # ---------------------------------------------------------------------
-    # 1. Map partitions
+    # 1. Map partitions according to MODE and SWAP
     # ---------------------------------------------------------------------
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
@@ -716,17 +684,7 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
         mkdir -p /mnt/boot/efi
         mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
-    elif [[ "$MODE" == "BIOS" ]]; then
-        # Ensure mount point exists
-        mkdir -p /mnt/boot
-    
-        # Ensure P_BOOT is set correctly
-        if [[ -z "$P_BOOT" ]]; then
-            # Try to guess the /boot partition by label
-            P_BOOT=$(lsblk -ln -o PATH,LABEL | awk '$2=="boot"{print $1}')
-            [[ -z "$P_BOOT" ]] && die "FAILED TO DETERMINE /boot partition"
-        fi
-    
+    elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
         mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
     fi
 
@@ -738,6 +696,7 @@ format_and_mount() {
 
     echo "✅ All partitions formatted and mounted successfully."
 }
+
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
