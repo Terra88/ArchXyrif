@@ -1580,7 +1580,7 @@ quick_partition() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
     
 
     echo -e "✅ Arch Linux installation complete."
@@ -2027,7 +2027,7 @@ custom_partition() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
@@ -2567,7 +2567,7 @@ luks_lvm_post_install_steps() {
     lm_dm
     extra_pacman_pkg
     optional_aur
-    hyprland_optional
+    hyprland_theme
     
     echo "→ LUKS+LVM post-install done."
 }
