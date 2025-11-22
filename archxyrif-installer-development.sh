@@ -93,6 +93,7 @@ LUKS_MAPPER_NAME=""
 LVM_VG_NAME=""
 LVM_ROOT_LV_NAME=""
 # Global partition variables (will be set in format_and_mount)
+P_BIOS_GRUB=""
 P_EFI=""
 P_BOOT=""
 P_SWAP=""
