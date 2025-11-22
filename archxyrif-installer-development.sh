@@ -594,89 +594,78 @@ partition_disk() {
 #=========================================================================================================================================#
 format_and_mount() {
     detect_boot_mode
-
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
 
-    echo -e "\n→ Rescanning partitions on $DEV..."
-    partprobe "$DEV" || true
-    udevadm settle --timeout=5 || true
+    partprobe "$DEV"
+    udevadm settle --timeout=5
     sleep 1
 
-    # Only get actual partitions on $DEV
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
-
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
 
-    # Assign partitions explicitly
     if [[ "$MODE" == "UEFI" ]]; then
         P_EFI="${PARTS[0]}"
         P_ROOT="${PARTS[1]}"
         [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
     else
-        # BIOS: assume 1=bios_grub, 2=/boot, 3=root, 4=swap?, 5=home?
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
         [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
     fi
 
-    echo -e "\n→ Partition mapping:"
-    echo "  P_EFI:  ${P_EFI:-<none>}"
-    echo "  P_BOOT: ${P_BOOT:-<none>}"
-    echo "  P_ROOT: ${P_ROOT:-<none>}"
-    echo "  P_SWAP: ${P_SWAP:-<none>}"
-    echo "  P_HOME: ${P_HOME:-<none>}"
+    echo "Partition mapping:"
+    echo "P_EFI=$P_EFI, P_BOOT=$P_BOOT, P_ROOT=$P_ROOT, P_SWAP=$P_SWAP, P_HOME=$P_HOME"
+
+    # --- EFI / Boot ---
+    if [[ "$MODE" == "UEFI" ]]; then
+        mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
+        mkdir -p /mnt/boot/efi
+    else
+        mkfs.ext4 -F -L boot "$P_BOOT"
+        mkdir -p /mnt/boot
+    fi
 
     # --- Swap ---
     if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
-        mkswap -L swap "$P_SWAP" || die "mkswap failed"
-        swapon "$P_SWAP" || die "swapon failed"
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
     fi
 
-    # --- Root & Home ---
+    # --- Root ---
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs failed"
-        mount "$P_ROOT" /mnt || die "mount root failed"
-        btrfs subvolume create /mnt/@ || true
+        mkfs.btrfs -f -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
         umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount subvol failed"
-
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            mount "$P_ROOT" /mnt || die "remount root for home subvol failed"
-            btrfs subvolume create /mnt/@home || true
-            umount /mnt
-            mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount root subvol failed"
-            mkdir -p /mnt/home
-            mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home || die "mount home subvol failed"
-        else
-            mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
-            mkdir -p /mnt/home
-            mount "$P_HOME" /mnt/home || die "mount home failed"
-        fi
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
     else
-        # root EXT4
-        mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 root failed"
-        mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 home failed"
-        mount "$P_ROOT" /mnt || die "mount root failed"
-        mkdir -p /mnt/home
-        mount "$P_HOME" /mnt/home || die "mount home failed"
+        mkfs.ext4 -F -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
     fi
 
-    # --- Boot / EFI ---
-    if [[ "$MODE" == "BIOS" ]]; then
-        [[ -n "$P_BOOT" ]] && mount "$P_BOOT" /mnt/boot || echo "→ No separate /boot mounted"
+    # --- Home ---
+    mkdir -p /mnt/home
+    if [[ "$HOME_FS" == "btrfs" ]]; then
+        mount "$P_ROOT" /mnt  # root must be mounted to create subvol
+        btrfs subvolume create /mnt/@home
+        umount /mnt
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+        mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
     else
-        [[ -n "$P_EFI" ]] && mkdir -p /mnt/boot/efi && mount "$P_EFI" /mnt/boot/efi || die "mount EFI failed"
+        mkfs.ext4 -F -L home "$P_HOME"
+        mount "$P_HOME" /mnt/home
     fi
 
-    # --- Final checks ---
-    mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
-    echo "✅ Partitions formatted and mounted under /mnt."
+    # --- EFI / Boot mount ---
+    if [[ "$MODE" == "UEFI" ]]; then
+        mount "$P_EFI" /mnt/boot/efi || die "mount EFI failed"
+    else
+        mount "$P_BOOT" /mnt/boot
+    fi
 
     # Generate fstab
-    mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-    echo "→ /mnt/etc/fstab generated:"
-    cat /mnt/etc/fstab
+    echo "✅ Partitions formatted and mounted under /mnt"
 }
 #=========================================================================================================================================#
 # Install base system
