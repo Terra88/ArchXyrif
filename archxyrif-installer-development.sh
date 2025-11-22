@@ -1445,70 +1445,73 @@ optional_aur()
 #=========================================================================================================================================#
 # Hyprland Configuration Installer - from http://github.com/terra88/hyprland-setup
 #=========================================================================================================================================#
-hyprland_theme(){
-sleep 1
-clear
-echo
-echo -e "#===================================================================================================#"
-echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                             #"
-echo -e "#===================================================================================================#"
-echo
-sleep 1
+hyprland_theme() {
+    sleep 1
+    clear
+    echo
+    echo -e "#===================================================================================================#"
+    echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                     #"
+    echo -e "#===================================================================================================#"
+    echo
+    sleep 1
 
-# Only proceed if Hyprland was selected (WM_CHOICE == 1)
-if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
+    # Only proceed if Hyprland was selected (WM_CHOICE == 1)
+    if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
 
-    echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
-    arch-chroot /mnt pacman -S --needed --noconfirm unzip git 
+        echo "🔧 Installing unzip and git inside chroot to ensure theme download works..."
+        arch-chroot /mnt pacman -S --needed --noconfirm unzip git  # Assuming these packages are available
 
-    read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
-    if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
-        echo "→ Running Hyprland theme setup inside chroot..."
+        read -r -p "Do you want to install the Hyprland theme from GitHub? [y/N]: " INSTALL_HYPR_THEME
+        if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
+            echo "→ Running Hyprland theme setup inside chroot..."
 
-echo "→ Running Hyprland theme setup inside chroot..."
-
-arch-chroot /mnt /bin/bash <<EOF_THEME_SETUP
+            # Use a QUOTED Heredoc ('EOF_THEME_SETUP') to prevent outer shell expansion
+            # This ensures $NEWUSER and $HOME_DIR, etc., are passed literally.
+            arch-chroot /mnt /bin/bash <<'EOF_THEME_SETUP'
+# IMPORTANT: NEWUSER is the only variable expanded by the outer shell before this runs.
 NEWUSER="$NEWUSER"
-HOME_DIR="/home/\$NEWUSER"
-CONFIG_DIR="\$HOME_DIR/.config"
-REPO_DIR="\$HOME_DIR/hyprland-setup"
+HOME_DIR="/home/$NEWUSER"
+CONFIG_DIR="$HOME_DIR/.config"
+REPO_DIR="$HOME_DIR/hyprland-setup"
 
 # 1. Ensure home directory exists and is correctly owned
-mkdir -p "\$HOME_DIR"
-chown -R \$NEWUSER:\$NEWUSER "\$HOME_DIR"
-chmod 755 "\$HOME_DIR"
+mkdir -p "$HOME_DIR"
+chown -R $NEWUSER:$NEWUSER "$HOME_DIR"
+chmod 755 "$HOME_DIR"
 
 # 2. Clone theme repo as the new user
-if [[ -d "\$REPO_DIR" ]]; then
-    rm -rf "\$REPO_DIR"
+if [[ -d "$REPO_DIR" ]]; then
+    rm -rf "$REPO_DIR"
 fi
-sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git "\$REPO_DIR" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
+sudo -u $NEWUSER git clone https://github.com/terra88/hyprland-setup.git "$REPO_DIR" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
 
 # 3. Copy zip and script files to home directory
-sudo -u \$NEWUSER cp -f "\$REPO_DIR/config.zip" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ config.zip missing'
-sudo -u \$NEWUSER cp -f "\$REPO_DIR/wallpaper.zip" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f "\$REPO_DIR/wallpaper.sh" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+sudo -u $NEWUSER cp -f "$REPO_DIR/config.zip" "$HOME_DIR/" 2>/dev/null || echo '⚠️ config.zip missing'
+sudo -u $NEWUSER cp -f "$REPO_DIR/wallpaper.zip" "$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+sudo -u $NEWUSER cp -f "$REPO_DIR/wallpaper.sh" "$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
 
 # 4. Backup existing .config and ensure the new one exists
-if [[ -d "\$CONFIG_DIR" && \$(ls -A "\$CONFIG_DIR") ]]; then
-    sudo -u \$NEWUSER mv "\$CONFIG_DIR" "\$CONFIG_DIR.backup.\$(date +%s)"
+if [[ -d "$CONFIG_DIR" && "$(ls -A "$CONFIG_DIR")" ]]; then
+    sudo -u $NEWUSER mv "$CONFIG_DIR" "$CONFIG_DIR.backup.$(date +%s)"
     echo '==> Existing .config backed up.'
 fi
-sudo -u \$NEWUSER mkdir -p "\$CONFIG_DIR"
+sudo -u $NEWUSER mkdir -p "$CONFIG_DIR"
 
 # 5. Extract config.zip contents directly into .config/
-if [[ -f "\$HOME_DIR/config.zip" ]]; then
-    TEMP_CONFIG_DIR="\$HOME_DIR/temp_config_extraction"
+if [[ -f "$HOME_DIR/config.zip" ]]; then
+    # Define TEMP_CONFIG_DIR locally within the chroot environment
+    TEMP_CONFIG_DIR="$HOME_DIR/temp_config_extraction"
     
-    sudo -u \$NEWUSER mkdir -p "\$TEMP_CONFIG_DIR"
-    sudo -u \$NEWUSER unzip -o "\$HOME_DIR/config.zip" -d "\$TEMP_CONFIG_DIR" 
+    sudo -u $NEWUSER mkdir -p "$TEMP_CONFIG_DIR"
+    sudo -u $NEWUSER unzip -o "$HOME_DIR/config.zip" -d "$TEMP_CONFIG_DIR" 
     
-    if [[ -d "\$TEMP_CONFIG_DIR/config" ]]; then
+    if [[ -d "$TEMP_CONFIG_DIR/config" ]]; then
         # Use shopt -s dotglob to ensure hidden files/directories are copied
         shopt -s dotglob
         
         # Copy the *CONTENTS* of $TEMP_CONFIG_DIR/config/ to the final $CONFIG_DIR/
-        sudo -u \$NEWUSER cp -r "\$TEMP_CONFIG_DIR/config/"* "\$CONFIG_DIR/"
+        # This prevents the unwanted $HOME_DIR/.config/config/ nesting
+        sudo -u $NEWUSER cp -r "$TEMP_CONFIG_DIR/config/"* "$CONFIG_DIR/"
         
         # Revert shell option
         shopt -u dotglob
@@ -1518,37 +1521,37 @@ if [[ -f "\$HOME_DIR/config.zip" ]]; then
         echo "⚠️ config/ directory not found inside the zip. Check the zip's structure."
     fi
     
-    sudo -u \$NEWUSER rm -rf "\$TEMP_CONFIG_DIR"
+    sudo -u $NEWUSER rm -rf "$TEMP_CONFIG_DIR"
 else
     echo "⚠️ config.zip not found, skipping config extraction."
 fi
 
 # 6. Extract wallpaper.zip to HOME_DIR
-if [[ -f "\$HOME_DIR/wallpaper.zip" ]]; then
-    sudo -u \$NEWUSER unzip -o "\$HOME_DIR/wallpaper.zip" -d "\$HOME_DIR" && echo '==> wallpaper.zip extracted'
+if [[ -f "$HOME_DIR/wallpaper.zip" ]]; then
+    sudo -u $NEWUSER unzip -o "$HOME_DIR/wallpaper.zip" -d "$HOME_DIR" && echo '==> wallpaper.zip extracted'
 fi
 
 # 7. Copy wallpaper.sh and make executable
-if [[ -f "\$HOME_DIR/wallpaper.sh" ]]; then
-    sudo -u \$NEWUSER chmod +x "\$HOME_DIR/wallpaper.sh"
+if [[ -f "$HOME_DIR/wallpaper.sh" ]]; then
+    sudo -u $NEWUSER chmod +x "$HOME_DIR/wallpaper.sh"
     echo '==> wallpaper.sh copied and made executable'
 fi
 
 # 8. Set secure permissions on .config (final check)
-if [[ -d "\$CONFIG_DIR" ]]; then
-    sudo -u \$NEWUSER find "\$CONFIG_DIR" -type d -exec chmod 700 {} \;
-    sudo -u \$NEWUSER find "\$CONFIG_DIR" -type f -exec chmod 600 {} \;
+if [[ -d "$CONFIG_DIR" ]]; then
+    sudo -u $NEWUSER find "$CONFIG_DIR" -type d -exec chmod 700 {} \;
+    sudo -u $NEWUSER find "$CONFIG_DIR" -type f -exec chmod 600 {} \;
 fi
 
 # 9. Cleanup cloned repo and zip files
-sudo -u \$NEWUSER rm -rf "\$REPO_DIR" "\$HOME_DIR/config.zip" "\$HOME_DIR/wallpaper.zip"
+sudo -u $NEWUSER rm -rf "$REPO_DIR" "$HOME_DIR/config.zip" "$HOME_DIR/wallpaper.zip"
 EOF_THEME_SETUP
 
-echo "✅ Hyprland theme setup completed."
-    else
-        echo "Skipping Hyprland theme setup."
+            echo "✅ Hyprland theme setup completed."
+        else
+            echo "Skipping Hyprland theme setup."
+        fi
     fi
-fi
 }
 #=========================================================================================================================================#
 # Quick Partition Main
