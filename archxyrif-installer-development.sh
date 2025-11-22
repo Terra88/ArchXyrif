@@ -604,15 +604,14 @@ format_and_mount() {
             P_HOME="${PARTS[2]}"
         fi
     else
-        # ------------------ BIOS mapping (safe) ------------------
         P_BIOS_GRUB="${PARTS[0]}"
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
         if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${PARTS[3]:-}"   # safe default, avoids unbound variable
-            P_HOME="${PARTS[4]:-}"   # safe default, avoids unbound variable
+            P_SWAP="${PARTS[3]:-}"
+            P_HOME="${PARTS[4]:-}"
         else
-            P_HOME="${PARTS[3]:-}"   # safe default, avoids unbound variable
+            P_HOME="${PARTS[3]:-}"
         fi
     fi
 
@@ -638,6 +637,7 @@ format_and_mount() {
     elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
         echo "→ Formatting BIOS /boot partition..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
     fi
 
     # ---------------------------------------------------------------------
@@ -652,6 +652,8 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     # 5. Format & mount ROOT
     # ---------------------------------------------------------------------
+    [[ -z "$P_ROOT" ]] && die "ROOT partition not found"
+
     echo "→ Formatting ROOT ($ROOT_FS)..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
@@ -668,15 +670,18 @@ format_and_mount() {
     # 6. Format & mount HOME
     # ---------------------------------------------------------------------
     mkdir -p /mnt/home
-    if [[ "$HOME_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home
-        btrfs subvolume create /mnt/home/@home
-        umount /mnt/home
-        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
-    else
-        mkfs.ext4 -F -L home "$P_HOME"
-        mount "$P_HOME" /mnt/home
+    if [[ -n "$P_HOME" ]]; then
+        echo "→ Formatting HOME ($HOME_FS)..."
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            mkfs.btrfs -f -L home "$P_HOME"
+            mount "$P_HOME" /mnt/home
+            btrfs subvolume create /mnt/home/@home
+            umount /mnt/home
+            mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
+        else
+            mkfs.ext4 -F -L home "$P_HOME"
+            mount "$P_HOME" /mnt/home
+        fi
     fi
 
     # ---------------------------------------------------------------------
@@ -685,8 +690,6 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
         mkdir -p /mnt/boot/efi
         mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
-    elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
     fi
 
     # ---------------------------------------------------------------------
@@ -697,7 +700,6 @@ format_and_mount() {
 
     echo "✅ All partitions formatted and mounted successfully."
 }
-
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
