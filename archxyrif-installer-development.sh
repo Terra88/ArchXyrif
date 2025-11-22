@@ -1614,58 +1614,100 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 # Quick Partition Main
 #=========================================================================================================================================#
 #=========================================================================#
-# GRUB installation (Quick Partition safe for BIOS + UEFI)
+# Quick GRUB installer for quick_partition (BIOS + UEFI)
 #=========================================================================#
 install_grub_quick() {
     detect_boot_mode
+    local TARGET_DISKS=()
+    local MOUNTED_PARTS
 
-    echo -e "\n🛈 Installing GRUB bootloader ($MODE mode)..."
+    echo "→ Detecting mounted partitions under /mnt..."
+    MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
+    [[ -z "$MOUNTED_PARTS" ]] && die "No partitions mounted under /mnt!"
 
-    # Create temporary mount points for safety
-    mkdir -p /mnt/boot /mnt/boot/efi
+    # Minimal essential GRUB modules
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
-    # BIOS mode
+    # Add filesystem modules dynamically
+    add_fs_module() {
+        local fs="$1"
+        case "$fs" in
+            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
+            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
+            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
+            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
+            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
+        esac
+    }
+
+    # Detect filesystems under /mnt
+    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
+    for line in "${fs_lines[@]}"; do
+        fs=$(awk '{print $2}' <<< "$line")
+        [[ -n "$fs" ]] && add_fs_module "$fs"
+    done
+
+    echo "→ Final GRUB modules: $GRUB_MODULES"
+
+    # Detect physical disks for GRUB install
+    for PART in $MOUNTED_PARTS; do
+        local PARENT_DISK
+        PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
+        [[ -n "$PARENT_DISK" ]] && TARGET_DISKS+=("/dev/$PARENT_DISK")
+    done
+
+    # Deduplicate disks
+    TARGET_DISKS=($(printf "%s\n" "${TARGET_DISKS[@]}" | sort -u))
+
+    [[ ${#TARGET_DISKS[@]} -eq 0 ]] && die "No target disks found for GRUB install"
+
+    echo "→ Target disks: ${TARGET_DISKS[*]}"
+
+    #---------------------------#
+    # BIOS Mode
+    #---------------------------#
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ BIOS detected. Mounting /boot and installing GRUB..."
+        for DISK in "${TARGET_DISKS[@]}"; do
+            echo "→ Installing GRUB (BIOS) on $DISK..."
+            arch-chroot /mnt grub-install \
+                --target=i386-pc \
+                --modules="$GRUB_MODULES" \
+                --recheck "$DISK" || die "grub-install BIOS failed on $DISK"
+        done
+    fi
 
-        # Ensure /boot is mounted
-        [[ -n "$P_BOOT" ]] || die "P_BOOT not set for BIOS GRUB"
-        mount "$P_BOOT" /mnt/boot || die "Failed to mount /boot for BIOS GRUB"
+    #---------------------------#
+    # UEFI Mode
+    #---------------------------#
+    if [[ "$MODE" == "UEFI" ]]; then
+        mkdir -p /mnt/boot/efi
+        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
 
-        # Install GRUB on the disk containing /boot
-        arch-chroot /mnt grub-install \
-            --target=i386-pc \
-            --recheck "$DEV" || die "grub-install (BIOS) failed"
-
-        # Generate GRUB config
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig (BIOS) failed"
-
-        echo "✅ BIOS GRUB installed successfully."
-
-    # UEFI mode
-    else
-        echo "→ UEFI detected. Mounting EFI and installing GRUB..."
-
-        # Ensure EFI partition is mounted
-        [[ -n "$P_EFI" ]] || die "P_EFI not set for UEFI GRUB"
-        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition"
-
-        # Install GRUB for UEFI
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=GRUB \
+            --modules="$GRUB_MODULES" \
             --recheck \
-            --no-nvram || die "grub-install (UEFI) failed"
+            --no-nvram || die "grub-install UEFI failed"
 
         # Optional fallback
         arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
 
         # Generate GRUB config
-        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig (UEFI) failed"
+        arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
 
-        echo "✅ UEFI GRUB installed successfully."
+        # Secure Boot signing
+        if arch-chroot /mnt command -v sbctl &>/dev/null; then
+            echo "→ Secure Boot detected, signing GRUB and kernel"
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft || true
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+        fi
     fi
+
+    echo "✅ Quick GRUB installation completed ($MODE mode)"
 }
 quick_partition() {
     detect_boot_mode
