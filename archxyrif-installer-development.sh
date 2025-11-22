@@ -477,20 +477,21 @@ ask_partition_sizes() {
         read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
 
         if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
-            # Use all remaining space
             HOME_SIZE_GIB=$remaining_home_gib
-            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
+            HOME_SIZE_MIB=0      # special meaning: use 100%
             home_end="100%"
         else
             [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-
-            # Limit to remaining space
+        
             if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
                 echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
                 HOME_SIZE_GIB=$remaining_home_gib
             else
                 HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
             fi
+        
+            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+        fi
 
             HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
             home_end=$(( root_end + HOME_SIZE_MIB ))
