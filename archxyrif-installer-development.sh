@@ -643,7 +643,7 @@ format_and_mount() {
         # always create @ for root
         btrfs subvolume create /mnt/@
 
-        # only create @home if HOME_FS is btrfs
+        # only create @home if HOME_FS is BTRFS
         if [[ "$HOME_FS" == "btrfs" ]]; then
             btrfs subvolume create /mnt/@home
         fi
@@ -679,10 +679,12 @@ format_and_mount() {
         mount "$P_BOOT" /mnt/boot
     fi
 
-    # Generate fstab
+    # --- Generate fstab ---
+    mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
     echo "✅ Partitions formatted and mounted under /mnt"
 }
+
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
