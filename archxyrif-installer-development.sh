@@ -1468,58 +1468,49 @@ if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
     if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
         echo "→ Running Hyprland theme setup inside chroot..."
 
-       arch-chroot /mnt /bin/bash -c "
-NEWUSER=\"$NEWUSER\"
-HOME_DIR=\"/home/\$NEWUSER\"
-CONFIG_DIR=\"\$HOME_DIR/.config\"
-REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
+echo "→ Running Hyprland theme setup inside chroot..."
+
+arch-chroot /mnt /bin/bash <<EOF_THEME_SETUP
+NEWUSER="$NEWUSER"
+HOME_DIR="/home/\$NEWUSER"
+CONFIG_DIR="\$HOME_DIR/.config"
+REPO_DIR="\$HOME_DIR/hyprland-setup"
 
 # 1. Ensure home directory exists and is correctly owned
-mkdir -p \"\$HOME_DIR\"
-chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
-chmod 755 \"\$HOME_DIR\"
+mkdir -p "\$HOME_DIR"
+chown -R \$NEWUSER:\$NEWUSER "\$HOME_DIR"
+chmod 755 "\$HOME_DIR"
 
 # 2. Clone theme repo as the new user
-if [[ -d \"\$REPO_DIR\" ]]; then
-    rm -rf \"\$REPO_DIR\"
+if [[ -d "\$REPO_DIR" ]]; then
+    rm -rf "\$REPO_DIR"
 fi
-sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
+sudo -u \$NEWUSER git clone https://github.com/terra88/hyprland-setup.git "\$REPO_DIR" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
 
 # 3. Copy zip and script files to home directory
-# These copy operations are run as root, so we ensure the destination is owned by \$NEWUSER.
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+sudo -u \$NEWUSER cp -f "\$REPO_DIR/config.zip" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ config.zip missing'
+sudo -u \$NEWUSER cp -f "\$REPO_DIR/wallpaper.zip" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
+sudo -u \$NEWUSER cp -f "\$REPO_DIR/wallpaper.sh" "\$HOME_DIR/" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
 
 # 4. Backup existing .config and ensure the new one exists
-if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-    # Perform backup move as the new user
-    sudo -u \$NEWUSER mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
+if [[ -d "\$CONFIG_DIR" && \$(ls -A "\$CONFIG_DIR") ]]; then
+    sudo -u \$NEWUSER mv "\$CONFIG_DIR" "\$CONFIG_DIR.backup.\$(date +%s)"
     echo '==> Existing .config backed up.'
 fi
-# Ensure the .config directory exists before extraction
-sudo -u \$NEWUSER mkdir -p \"\$CONFIG_DIR\"
+sudo -u \$NEWUSER mkdir -p "\$CONFIG_DIR"
 
 # 5. Extract config.zip contents directly into .config/
-if [[ -f "$HOME_DIR/config.zip" ]]; then
+if [[ -f "\$HOME_DIR/config.zip" ]]; then
+    TEMP_CONFIG_DIR="\$HOME_DIR/temp_config_extraction"
     
-    # Use sudo -u \$NEWUSER and a temporary directory for safe extraction
-    TEMP_CONFIG_DIR="$HOME_DIR/temp_config_extraction"
-    
-    # Run as the new user: create temp directory
     sudo -u \$NEWUSER mkdir -p "\$TEMP_CONFIG_DIR"
-    
-    # Run as the new user: Extract all contents of config.zip into the temporary directory
-    # If the zip contains "config/file.conf", it will be extracted to $TEMP_CONFIG_DIR/config/file.conf
     sudo -u \$NEWUSER unzip -o "\$HOME_DIR/config.zip" -d "\$TEMP_CONFIG_DIR" 
     
-    # Check if the expected top-level 'config' directory exists inside the temporary directory
     if [[ -d "\$TEMP_CONFIG_DIR/config" ]]; then
         # Use shopt -s dotglob to ensure hidden files/directories are copied
         shopt -s dotglob
         
         # Copy the *CONTENTS* of $TEMP_CONFIG_DIR/config/ to the final $CONFIG_DIR/
-        # This is the key fix: copying 'config/'* ensures the contents go into .config, not .config/config
         sudo -u \$NEWUSER cp -r "\$TEMP_CONFIG_DIR/config/"* "\$CONFIG_DIR/"
         
         # Revert shell option
@@ -1530,40 +1521,33 @@ if [[ -f "$HOME_DIR/config.zip" ]]; then
         echo "⚠️ config/ directory not found inside the zip. Check the zip's structure."
     fi
     
-    # Clean up temp directory
     sudo -u \$NEWUSER rm -rf "\$TEMP_CONFIG_DIR"
 else
     echo "⚠️ config.zip not found, skipping config extraction."
 fi
 
 # 6. Extract wallpaper.zip to HOME_DIR
-if [[ -f \"\$HOME_DIR/wallpaper.zip\" ]]; then
-    # Run unzip as the new user to ensure correct ownership
-    sudo -u \$NEWUSER unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
+if [[ -f "\$HOME_DIR/wallpaper.zip" ]]; then
+    sudo -u \$NEWUSER unzip -o "\$HOME_DIR/wallpaper.zip" -d "\$HOME_DIR" && echo '==> wallpaper.zip extracted'
 fi
 
 # 7. Copy wallpaper.sh and make executable
-if [[ -f \"\$HOME_DIR/wallpaper.sh\" ]]; then
-    # Change permissions as the new user
-    sudo -u \$NEWUSER chmod +x \"\$HOME_DIR/wallpaper.sh\"
+if [[ -f "\$HOME_DIR/wallpaper.sh" ]]; then
+    sudo -u \$NEWUSER chmod +x "\$HOME_DIR/wallpaper.sh"
     echo '==> wallpaper.sh copied and made executable'
 fi
 
 # 8. Set secure permissions on .config (final check)
-# Run as the user to ensure permissions are set correctly on their files
-if [[ -d \"\$CONFIG_DIR\" ]]; then
-    sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
-    sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
+if [[ -d "\$CONFIG_DIR" ]]; then
+    sudo -u \$NEWUSER find "\$CONFIG_DIR" -type d -exec chmod 700 {} \;
+    sudo -u \$NEWUSER find "\$CONFIG_DIR" -type f -exec chmod 600 {} \;
 fi
 
 # 9. Cleanup cloned repo and zip files
-sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\" \"\$HOME_DIR/config.zip\" \"\$HOME_DIR/wallpaper.zip\"
+sudo -u \$NEWUSER rm -rf "\$REPO_DIR" "\$HOME_DIR/config.zip" "\$HOME_DIR/wallpaper.zip"
+EOF_THEME_SETUP
 
-# Note: The final chown -R \$NEWUSER:\$NEWUSER \"\$HOME_DIR\" from the original script
-# is now unnecessary as all file creation/extraction is done via sudo -u \$NEWUSER.
-"
-
-        echo "✅ Hyprland theme setup completed."
+echo "✅ Hyprland theme setup completed."
     else
         echo "Skipping Hyprland theme setup."
     fi
