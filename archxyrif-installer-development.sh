@@ -429,9 +429,9 @@ select_swap()
     esac
     echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
 }
-#=========================================================================================================================================#
-# Ask partition sizes
-#=========================================================================================================================================#
+#=========================================================================#
+# Ask partition sizes (fixed)
+#=========================================================================#
 ask_partition_sizes() {
     detect_boot_mode
     calculate_swap_quick
@@ -447,12 +447,11 @@ ask_partition_sizes() {
     while true; do
         lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
 
-        # Maximum root size = total disk - swap - reserved (EFI/BIOS) - minimal home
         local reserved_gib
         if [[ "$MODE" == "UEFI" ]]; then
             reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
         else
-            reserved_gib=$(( BOOT_SIZE_MIB / 1024 ))
+            reserved_gib=$(( BOOT_SIZE_MIB / 1024 + BIOS_GRUB_SIZE_MIB / 1024 ))
         fi
 
         local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
@@ -478,18 +477,18 @@ ask_partition_sizes() {
 
         if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
             HOME_SIZE_GIB=$remaining_home_gib
-            HOME_SIZE_MIB=0      # special meaning: use 100%
+            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
             home_end="100%"
         else
             [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-        
+
             if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
                 echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
                 HOME_SIZE_GIB=$remaining_home_gib
             else
                 HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
             fi
-        
+
             HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
         fi
 
@@ -497,9 +496,9 @@ ask_partition_sizes() {
         break
     done
 }
-#=========================================================================================================================================#
-# Partition disk
-#=========================================================================================================================================#
+#=========================================================================#
+# Partition disk (fixed)
+#=========================================================================#
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
     parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
@@ -507,12 +506,9 @@ partition_disk() {
     local root_start root_end swap_start swap_end boot_start boot_end home_start home_end
 
     if [[ "$MODE" == "BIOS" ]]; then
-        # Create tiny bios_grub partition (no FS) + /boot ext4 + optional swap + root + home
-        # Create tiny bios_grub partition (no FS)
         parted -s "$DEV" mkpart primary 1MiB $((1+BIOS_GRUB_SIZE_MIB))MiB
         parted -s "$DEV" set 1 bios_grub on
-        
-        # /boot ext4
+
         boot_start=$((1+BIOS_GRUB_SIZE_MIB))
         boot_end=$((boot_start + BOOT_SIZE_MIB))
         parted -s "$DEV" mkpart primary ext4 ${boot_start}MiB ${boot_end}MiB
@@ -521,7 +517,6 @@ partition_disk() {
             swap_start=$boot_end
             swap_end=$((swap_start + SWAP_SIZE_MIB))
             parted -s "$DEV" mkpart primary linux-swap ${swap_start}MiB ${swap_end}MiB
-
             root_start=$swap_end
         else
             root_start=$boot_end
@@ -537,8 +532,8 @@ partition_disk() {
             home_end=$((home_start + HOME_SIZE_MIB))
             parted -s "$DEV" mkpart primary "$HOME_FS" ${home_start}MiB ${home_end}MiB
         fi
+
     else
-        # UEFI — keep existing behavior (EFI FAT32 + root + optional swap + home)
         parted -s "$DEV" mkpart primary fat32 1MiB $((1+EFI_SIZE_MIB))MiB
         parted -s "$DEV" set 1 boot on
 
