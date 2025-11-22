@@ -611,22 +611,17 @@ format_and_mount() {
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
 
     if [[ "$MODE" == "UEFI" ]]; then
-        # UEFI mapping stays exactly the same
         P_EFI="${PARTS[0]}"
         P_ROOT="${PARTS[1]}"
-
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${PARTS[2]}"
             P_HOME="${PARTS[3]}"
         else
             P_HOME="${PARTS[2]}"
         fi
-
     else
-        # BIOS mapping: PARTS[0] = bios_grub (tiny, do not format/mount)
-        # PARTS[1] = /boot
-        P_BOOT="${PARTS[1]}"    # /boot partition (ext4)
-        P_ROOT="${PARTS[2]}"    # root
+        P_BOOT="${PARTS[1]}"    # BIOS /boot
+        P_ROOT="${PARTS[2]}"
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${PARTS[3]}"
             P_HOME="${PARTS[4]}"
@@ -636,19 +631,16 @@ format_and_mount() {
     fi
 
     echo "Partition mapping:"
-    [[ "$MODE" == "UEFI" ]] && echo "  EFI : $P_EFI"
-    [[ "$MODE" == "BIOS" ]] && echo "  BOOT: $P_BOOT"
+    echo "  EFI : $P_EFI"
+    echo "  BOOT: $P_BOOT"
     echo "  ROOT: $P_ROOT"
-    [[ -n "$P_SWAP" ]] && echo "  SWAP: $P_SWAP"
+    echo "  SWAP: $P_SWAP"
     echo "  HOME: $P_HOME"
 
     # ---------------------------------------------------------------------
     # 2. Create base mount paths
     # ---------------------------------------------------------------------
-    mkdir -p /mnt
-    mkdir -p /mnt/home
-    [[ "$MODE" == "UEFI" || "$MODE" == "BIOS" ]] && mkdir -p /mnt/boot
-    [[ "$MODE" == "UEFI" ]] && mkdir -p /mnt/boot/efi
+    mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi
 
     # ---------------------------------------------------------------------
     # 3. Format BOOT/EFI
@@ -657,8 +649,7 @@ format_and_mount() {
         echo "→ Formatting EFI partition..."
         mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
     else
-        # BIOS: only format /boot, bios_grub is tiny 1 MiB, do NOT format
-        echo "→ Formatting /boot partition..."
+        echo "→ Formatting BIOS /boot partition as ext4..."
         mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
     fi
 
@@ -675,7 +666,6 @@ format_and_mount() {
     # 5. Format + Mount ROOT
     # ---------------------------------------------------------------------
     echo "→ Formatting ROOT ($ROOT_FS)..."
-
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
         mount "$P_ROOT" /mnt
@@ -692,11 +682,10 @@ format_and_mount() {
     # ---------------------------------------------------------------------
     echo "→ Formatting HOME ($HOME_FS)..."
     mkdir -p /mnt/home
-
     if [[ "$HOME_FS" == "ext4" ]]; then
         mkfs.ext4 -F -L home "$P_HOME"
         mount "$P_HOME" /mnt/home || die "Could not mount EXT4 home"
-    elif [[ "$HOME_FS" == "btrfs" ]]; then
+    else
         mkfs.btrfs -f -L home "$P_HOME"
         mount "$P_HOME" /mnt/home || die "Could not temp mount BTRFS home"
         btrfs subvolume create /mnt/home/@home
@@ -705,7 +694,7 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # 7. Mount EFI or /boot
+    # 7. Mount EFI or BOOT
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
         mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
