@@ -577,9 +577,13 @@ format_and_mount() {
     local ps
     ps=$(part_suffix "$DEV")
 
+    echo "→ Detecting partitions..."
+    lsblk -o NAME,PATH,SIZE,FSTYPE -p "$DEV"
+
     if [[ "$MODE" == "BIOS" ]]; then
-        P_BIOS="${DEV}${ps}1"   # bios_grub (no fs)
-        P_BOOT="${DEV}${ps}2"  # ext4 /boot
+        P_BIOS="${DEV}${ps}1"
+        P_BOOT="${DEV}${ps}2"
+
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${DEV}${ps}3"
             P_ROOT="${DEV}${ps}4"
@@ -589,11 +593,11 @@ format_and_mount() {
             P_HOME="${DEV}${ps}4"
         fi
 
-        # Format /boot as ext4
         mkfs.ext4 -L boot "$P_BOOT"
     else
         P_EFI="${DEV}${ps}1"
         P_ROOT="${DEV}${ps}2"
+
         if [[ "$SWAP_ON" == "1" ]]; then
             P_SWAP="${DEV}${ps}3"
             P_HOME="${DEV}${ps}4"
@@ -604,45 +608,53 @@ format_and_mount() {
         mkfs.fat -F32 "$P_EFI"
     fi
 
-    # Swap handling
-    if [[ "$SWAP_ON" == "1" && -n "${P_SWAP:-}" ]]; then
+    # Safety validation so we can NEVER silently skip home formatting again
+    for P in P_ROOT P_HOME; do
+        eval VAL="\$$P"
+        [[ -b "$VAL" ]] || die "❌ ERROR: Expected partition $P ($VAL) does not exist. Partition numbering mismatch."
+    done
+
+    # Swap
+    if [[ "$SWAP_ON" == "1" ]]; then
         mkswap -L swap "$P_SWAP"
         swapon "$P_SWAP"
-    else
-        echo "→ Swap disabled"
     fi
 
-    # Root & Home formatting & mounting
+    # Filesystems
     if [[ "$ROOT_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L root "$P_ROOT"
-        # create subvolumes only for btrfs root; handle home separately if not btrfs
         mount "$P_ROOT" /mnt
         btrfs subvolume create /mnt/@
-        # If home is also btrfs, create @home
+
         if [[ "$HOME_FS" == "btrfs" ]]; then
             btrfs subvolume create /mnt/@home
             umount /mnt
+
             mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
             mkdir -p /mnt/home
             mount -o subvol=@home,defaults,noatime,compress=zstd "$P_ROOT" /mnt/home
+
         else
-            # root btrfs + home ext4
+            # root=btrfs, home=ext4  ← FIXED
             umount /mnt
             mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+
             mkfs.ext4 -L home "$P_HOME"
             mkdir -p /mnt/home
             mount "$P_HOME" /mnt/home
         fi
+
     else
-        # root is ext4: format root and home as ext4
+        # root=ext4, home=ext4
         mkfs.ext4 -L root "$P_ROOT"
         mkfs.ext4 -L home "$P_HOME"
+
         mount "$P_ROOT" /mnt
         mkdir -p /mnt/home
         mount "$P_HOME" /mnt/home
     fi
 
-    # Mount boot partition(s)
+    # Boot mount
     mkdir -p /mnt/boot
     if [[ "$MODE" == "BIOS" ]]; then
         mount "$P_BOOT" /mnt/boot
@@ -651,14 +663,11 @@ format_and_mount() {
         mount "$P_EFI" /mnt/boot/efi
     fi
 
-    mountpoint -q /mnt/home || die "/mnt/home failed to mount!"
-    echo "✅ Partitions formatted and mounted under /mnt."
+    mountpoint -q /mnt/home || die "❌ /mnt/home failed to mount!"
+    echo "✅ Partitions formatted and mounted."
 
-    echo "Generating /etc/fstab..."
-    
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
-    echo "Partition Table and Mountpoints:"
     cat /mnt/etc/fstab
 }
 #=========================================================================================================================================#
