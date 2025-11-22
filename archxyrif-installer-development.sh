@@ -609,7 +609,7 @@ format_and_mount() {
     sleep 1
 
     # ---------------------------------------------------------------------
-    # Map partitions dynamically
+    # 1. Map partitions dynamically
     # ---------------------------------------------------------------------
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
@@ -617,28 +617,41 @@ format_and_mount() {
     if [[ "$MODE" == "UEFI" ]]; then
         P_EFI="${PARTS[0]}"
         P_ROOT="${PARTS[1]}"
-        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[2]}" && P_HOME="${PARTS[3]}" || P_HOME="${PARTS[2]}"
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${PARTS[2]}"
+            P_HOME="${PARTS[3]}"
+        else
+            P_HOME="${PARTS[2]}"
+        fi
     else
         P_BIOS_GRUB="${PARTS[0]}"
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
-        [[ "$SWAP_ON" == "1" ]] && P_SWAP="${PARTS[3]}" && P_HOME="${PARTS[4]}" || P_HOME="${PARTS[3]}"
+        if [[ "$SWAP_ON" == "1" ]]; then
+            P_SWAP="${PARTS[3]}"
+            P_HOME="${PARTS[4]}"
+        else
+            P_HOME="${PARTS[3]}"
+        fi
     fi
 
+    # ---------------------------------------------------------------------
+    # 2. Print partition mapping safely
+    # ---------------------------------------------------------------------
     echo "Partition mapping:"
-    echo "  BIOS_GRUB : $P_BIOS_GRUB"
+    [[ "$MODE" == "BIOS" ]] && echo "  BIOS_GRUB : $P_BIOS_GRUB"
     echo "  EFI/BOOT  : ${P_EFI:-$P_BOOT}"
     echo "  ROOT      : $P_ROOT"
-    echo "  SWAP      : $P_SWAP"
+    [[ -n "$P_SWAP" ]] && echo "  SWAP      : $P_SWAP"
     echo "  HOME      : $P_HOME"
 
     # ---------------------------------------------------------------------
-    # Create mount points
+    # 3. Create base mount points
     # ---------------------------------------------------------------------
     mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi
 
     # ---------------------------------------------------------------------
-    # Format EFI or /boot
+    # 4. Format EFI or /boot
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" ]]; then
         echo "→ Formatting EFI partition..."
@@ -649,12 +662,16 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # Format SWAP
+    # 5. Format SWAP
     # ---------------------------------------------------------------------
-    [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]] && { mkswap -L swap "$P_SWAP"; swapon "$P_SWAP"; }
+    if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
+        echo "→ Creating swap..."
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
+    fi
 
     # ---------------------------------------------------------------------
-    # Format & mount ROOT
+    # 6. Format + mount ROOT
     # ---------------------------------------------------------------------
     echo "→ Formatting ROOT ($ROOT_FS)..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
@@ -669,21 +686,10 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # Mount EFI or BIOS /boot AFTER ROOT is mounted
+    # 7. Format + mount HOME
     # ---------------------------------------------------------------------
-    if [[ "$MODE" == "UEFI" ]]; then
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
-    else
-        mkdir -p /mnt/boot
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot ($P_BOOT → /mnt/boot)"
-    fi
-
-    # ---------------------------------------------------------------------
-    # Format & mount HOME
-    # ---------------------------------------------------------------------
-    echo "→ Formatting HOME ($HOME_FS)..."
     mkdir -p /mnt/home
+    echo "→ Formatting HOME ($HOME_FS)..."
     if [[ "$HOME_FS" == "btrfs" ]]; then
         mkfs.btrfs -f -L home "$P_HOME"
         mount "$P_HOME" /mnt/home
@@ -696,7 +702,17 @@ format_and_mount() {
     fi
 
     # ---------------------------------------------------------------------
-    # Generate fstab
+    # 8. Mount EFI or BIOS boot
+    # ---------------------------------------------------------------------
+    if [[ "$MODE" == "UEFI" ]]; then
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
+    else
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot ($P_BOOT → /mnt/boot)"
+    fi
+
+    # ---------------------------------------------------------------------
+    # 9. Generate fstab
     # ---------------------------------------------------------------------
     mkdir -p /mnt/etc
     genfstab -U /mnt >> /mnt/etc/fstab
