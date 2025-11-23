@@ -581,30 +581,30 @@ install_grub() {
     # -----------------------------------------------------------------------------------
 
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-
+    
         echo "→ Enabling GRUB cryptodisk support..."
-
+    
         arch-chroot /mnt bash -c "
             sed -i '/^GRUB_ENABLE_CRYPTODISK/d' /etc/default/grub
             echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
         "
-
+    
         echo "→ Configuring kernel parameters for encrypted root..."
-
+    
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
-
+    
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
-
-            if [[ -n \"$LVM_VG_NAME\" ]]; then
-                crypt_params=\"$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}\"
+    
+            if [[ -n "$LVM_VG_NAME" ]]; then
+                crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
-                crypt_params=\"$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}\"
+                crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
             fi
-
-            # Append cryptodisk boot params cleanly
-            arch-chroot /mnt sed -i \
-                \"s|^GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\(.*\\)\\\"|GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\1 ${crypt_params}\\\"|\" \
-                /etc/default/grub
+    
+            # Append parameters safely
+            arch-chroot /mnt bash -c "
+                sed -i \"s|^GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\(.*\\)\\\"|GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\1 ${crypt_params}\\\"|\" /etc/default/grub
+            "
         fi
     fi
 
