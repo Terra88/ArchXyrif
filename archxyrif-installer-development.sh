@@ -562,95 +562,106 @@ echo "✅ System configured."
 # GRUB installation
 #=========================================================================================================================================#
 install_grub() {
+
     detect_boot_mode
+
     echo "🛈 Installing Bootloader (GRUB)..."
+
     # -----------------------------------------------------------------------------------
     # SMART DISK SELECTION
     # -----------------------------------------------------------------------------------
-    # 1. Custom Wizard sets 'BOOT_LOADER_DISK'.
-    # 2. Quick Wizard sets 'DEV'.
-    # We prefer BOOT_LOADER_DISK if it exists.
+
     local TARGET_DISK="${BOOT_LOADER_DISK:-$DEV}"
-    if [[ -z "$TARGET_DISK" ]]; then
-        die "install_grub: No target disk defined. (DEV and BOOT_LOADER_DISK are empty)"
-    fi
+    [[ -z "$TARGET_DISK" ]] && die "install_grub: No target disk defined."
+
     echo "→ Target Disk: $TARGET_DISK"
+
     # -----------------------------------------------------------------------------------
-    # 1. Encryption Configuration
+    # 1. Enable Cryptodisk BEFORE grub-install
     # -----------------------------------------------------------------------------------
+
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-        echo "→ Configuring GRUB for Encrypted Root..."
-        # Enable Cryptodisk (Used by grub-mkconfig, but required for the LUKS path)
-        arch-chroot /mnt bash -c "grep -q 'GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
-        # Kernel Parameters
+
+        echo "→ Enabling GRUB cryptodisk support..."
+
+        arch-chroot /mnt bash -c "
+            sed -i '/^GRUB_ENABLE_CRYPTODISK/d' /etc/default/grub
+            echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+        "
+
+        echo "→ Configuring kernel parameters for encrypted root..."
+
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
-            # Use LVM volume name if LVM is present, otherwise use the LUKS mapper name directly.
+
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
-            if [[ -n "$LVM_VG_NAME" ]]; then
-                # Example: root=/dev/mapper/vgname-rootlv
-                crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
+
+            if [[ -n \"$LVM_VG_NAME\" ]]; then
+                crypt_params=\"$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}\"
             else
-                # Example: root=/dev/mapper/cryptoroot
-                crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
+                crypt_params=\"$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}\"
             fi
-            
-            # Use sed to append the parameters to the default command line
+
+            # Append cryptodisk boot params cleanly
             arch-chroot /mnt sed -i \
-                "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${crypt_params}\"|" \
+                \"s|^GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\(.*\\)\\\"|GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\1 ${crypt_params}\\\"|\" \
                 /etc/default/grub
         fi
     fi
+
     # -----------------------------------------------------------------------------------
-    # 2. Define Modules
+    # 2. Define GRUB Modules (includes cryptodisk + luks)
     # -----------------------------------------------------------------------------------
-    # Safe list for all setups (includes LUKS/LVM support)
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
+
+    local GRUB_MODULES=\"part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm\"
+
     # -----------------------------------------------------------------------------------
-    # 3. Install GRUB Binary
+    # 3. Install GRUB
     # -----------------------------------------------------------------------------------
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)..."
+
+    if [[ \"$MODE\" == \"BIOS\" ]]; then
+
+        echo \"→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)...\"
+
         arch-chroot /mnt grub-install \
             --target=i386-pc \
-            --modules="$GRUB_MODULES" \
-            --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
-    else # UEFI Mode
-        echo "→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation."
-        
-        if ! mountpoint -q /mnt/boot/efi; then
-             die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
-        fi
+            --modules=\"$GRUB_MODULES\" \
+            --recheck \"$TARGET_DISK\" \
+            || die \"GRUB BIOS install failed on $TARGET_DISK\"
 
-        # FIX: The combination of TARGET_DISK (required for EFI) and 
-        # --skip-fs-probe (required to ignore the LUKS header) prevents the crash.
+    else
+        echo \"→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation...\"
+
+        mountpoint -q /mnt/boot/efi || die \"EFI partition not mounted at /mnt/boot/efi.\"
+
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=Arch \
-            --modules="$GRUB_MODULES" \
-            --recheck \
-            --removable \
+            --modules=\"$GRUB_MODULES\" \
             --skip-fs-probe \
-            "$TARGET_DISK" || die "GRUB UEFI install failed" # <-- This is the fixed command
-        
-        # Optional: Secure Boot Signing
+            --recheck \
+            \"$TARGET_DISK\" \
+            || die \"GRUB UEFI install failed\"
+
+        # Secure Boot (optional)
         if arch-chroot /mnt command -v sbctl &>/dev/null; then
-        
-                echo "→ Secure Boot detected, signing GRUB and kernel..."
-                arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-                arch-chroot /mnt sbctl enroll-keys --microsoft || true
-                # Note: Path is now EFI/Arch/grubx64.efi due to --bootloader-id=Arch
-                arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true 
-                arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-            fi
+            echo \"→ Secure Boot detected, signing GRUB and kernel...\"
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft || true
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
         fi
+    fi
+
     # -----------------------------------------------------------------------------------
-    # 4. Generate Configuration
+    # 4. Generate grub.cfg
     # -----------------------------------------------------------------------------------
-    echo "→ Generating grub.cfg..."
-    # The GRUB_ENABLE_CRYPTODISK=y setting is finally read here.
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
-    echo "✅ GRUB installation complete."
+    echo \"→ Generating grub.cfg...\"
+
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
+        || die \"Failed to generate grub.cfg\"
+
+    echo \"✅ GRUB installation complete.\"
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
