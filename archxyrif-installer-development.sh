@@ -610,26 +610,33 @@ install_grub() {
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
             --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
-    else
-        echo "→ Installing GRUB to ESP (UEFI Mode)..."
-        if ! mountpoint -q /mnt/boot/efi; then
-             die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
+    else # UEFI Mode
+            echo "→ Installing GRUB to ESP (UEFI Mode)..."
+            
+            if ! mountpoint -q /mnt/boot/efi; then
+                 die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
+            fi
+    
+            # >>> FIX: Added --removable flag for robustness in complex/encrypted layouts
+            arch-chroot /mnt grub-install \
+                --target=x86_64-efi \
+                --efi-directory=/boot/efi \
+                --bootloader-id=Arch \
+                --modules="$GRUB_MODULES" \
+                --recheck \
+                --removable || die "GRUB UEFI install failed" 
+                # <<<
+    
+            # Optional: Secure Boot Signing
+            if arch-chroot /mnt command -v sbctl &>/dev/null; then
+                echo "→ Secure Boot detected, signing GRUB and kernel..."
+                arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+                arch-chroot /mnt sbctl enroll-keys --microsoft || true
+                # Note: Path is now EFI/Arch/grubx64.efi due to --bootloader-id=Arch
+                arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true 
+                arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+            fi
         fi
-        arch-chroot /mnt grub-install \
-            --target=x86_64-efi \
-            --efi-directory=/boot/efi \
-            --bootloader-id=Arch \
-            --modules="$GRUB_MODULES" \
-            --recheck || die "GRUB UEFI install failed"
-        # Optional: Secure Boot Signing
-        if arch-chroot /mnt command -v sbctl &>/dev/null; then
-            echo "→ Secure Boot detected, signing GRUB and kernel..."
-            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-            arch-chroot /mnt sbctl enroll-keys --microsoft || true
-            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true
-            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-        fi
-    fi
     # -----------------------------------------------------------------------------------
     # 4. Generate Configuration (THE FIX: This now runs for BIOS AND UEFI)
     # -----------------------------------------------------------------------------------
