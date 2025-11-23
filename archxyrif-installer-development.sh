@@ -121,13 +121,24 @@ part_suffix() {
 #==========LANGLOCALHELPER============#
 # Helper function to check if a file/path exists in the mounted system
 check_file_exists() {
-    local path="/mnt$1"
-    if [ ! -e "$path" ]; then
-        echo "Error: '${2}' is not a recognized configuration value." >&2
-        echo "The required file/directory was not found at: $path" >&2
-        return 1
+    local mounted_path="/mnt$1"
+    local live_path="$1"
+    local config_name="$2"
+    
+    # 1. Check if the file exists on the mounted target system (/mnt)
+    if [ -e "$mounted_path" ]; then
+        return 0
     fi
-    return 0
+    
+    # 2. If not on /mnt, check if it exists on the live environment (safe for config files like TZ/Keymaps)
+    if [ -e "$live_path" ]; then
+        return 0
+    fi
+
+    # If neither exists
+    echo "Error: '${config_name}' is not a recognized configuration value." >&2
+    echo "The required file/directory was not found at: ${mounted_path} (target) or ${live_path} (live)." >&2
+    return 1
 }
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
