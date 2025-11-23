@@ -118,6 +118,17 @@ part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
+#==========LANGLOCALHELPER============#
+# Helper function to check if a file/path exists in the mounted system
+check_file_exists() {
+    local path="/mnt$1"
+    if [ ! -e "$path" ]; then
+        echo "Error: '${2}' is not a recognized configuration value." >&2
+        echo "The required file/directory was not found at: $path" >&2
+        return 1
+    fi
+    return 0
+}
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
@@ -422,48 +433,63 @@ echo
 # Prompt for timezone, locale, hostname, and username
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
-echo "#===================================================#"
-echo "#-Select a Time Zone Region:                        #"                        
-echo "#===================================================#"
-echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
-echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
-echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
-echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
-echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
 
-# Read the user's menu choice
-read -r -p "Enter choice [5]: " TZ_CHOICE
-TZ_CHOICE="${TZ_CHOICE:-5}"
+echo "#===================================================#"
+echo "#-Select a Time Zone Region:                         #"
+echo "#===================================================#"
 
-# Set the time zone based on the choice
-# Set the time zone based on the choice
-case $TZ_CHOICE in
-    1)
-        read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
-        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-        ;;
-    2)
-        read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT
-        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-        ;;
-    3)
-        read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT
-        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-        ;;
-    4)
-        read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT
-        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-        ;;
-    5|*)
-        TZ="${DEFAULT_TZ}"
-        echo "Using default Time Zone: ${TZ}"
-        ;;
-esac
+# Start the validation loop
+while true; do
+    # Display the menu options *inside* the loop so the user sees it on repeated attempts
+    echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
+    echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
+    echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
+    echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
+    echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
+
+    # Read the user's menu choice
+    read -r -p "Enter choice [5]: " TZ_CHOICE
+    TZ_CHOICE="${TZ_CHOICE:-5}"
+
+    # 1. Set the TZ variable based on the choice
+    case $TZ_CHOICE in
+        1)
+            read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        2)
+            read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        3)
+            read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        4)
+            read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        5|*)
+            TZ="${DEFAULT_TZ}"
+            echo "Using default Time Zone: ${TZ}"
+            ;;
+    esac # <-- The 'esac' must close the case statement here
+
+    # 2. Validate the resulting TZ variable
+    if check_file_exists "/usr/share/zoneinfo/${TZ}" "Time Zone (${TZ})"; then
+        echo "✅ Time Zone set to: ${TZ}"
+        break # Exit the loop if valid
+    else
+        echo "⚠️ Invalid Time Zone entered. Please try again or use the default."
+        # The loop will restart, prompting for the choice again.
+    fi
+done
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
 echo "#===================================================#"
 echo "#-Select a System Locale (LANG):                    #"
 echo "#===================================================#"
+while true; do
 echo "1) 🇺🇸 English (US) - en_US.UTF-8"
 echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
 echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
@@ -486,12 +512,21 @@ case $LOCALE_CHOICE in
         ;;
     5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
 esac
+if [[ -z "${LANG_LOCALE}" || ${#LANG_LOCALE} -lt 5 ]]; then
+        echo "⚠️ Locale cannot be empty or too short. Please try again."
+        LOCALE_CHOICE=""
+        continue
+    fi
+    echo "✅ LANG set to: ${LANG_LOCALE}"
+    break
+done
 echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
 echo "#===================================================#"
 echo "#-Select a Keyboard Keymap:                         #"
 echo "#===================================================#"
+while true; do
 echo "1) 🇺🇸 US (standard QWERTY)"
 echo "2) 🇬🇧 UK"
 echo "3) 🇫🇷 FR (AZERTY)"
@@ -514,6 +549,14 @@ case $KEYMAP_CHOICE in
         ;;
     5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
 esac
+if check_file_exists "/usr/share/kbd/keymaps/${KEYMAP}.map.gz" "Keymap (${KEYMAP})"; then
+        echo "✅ Keymap set to: ${KEYMAP}"
+        break # Exit the loop if valid
+    else
+        echo "⚠️ Invalid Keymap entered. Please try again or use the default."
+        KEYMAP_CHOICE=""
+    fi
+done
 echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
@@ -539,6 +582,23 @@ prepare_chroot
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# --- New Trap Function for Better Error Messages ---
+error_handler() {
+    local exit_code="$?"
+    local command="${BASH_COMMAND}"
+    # Check if the exit code is non-zero (i.e., a command failed)
+    if [ "$exit_code" != "0" ]; then
+        echo "❌ FATAL CONFIGURATION ERROR!" >&2
+        echo "The script halted with exit code $exit_code on command:" >&2
+        echo "--> $command" >&2
+        echo "" >&2
+        echo "Please verify the values injected into postinstall.sh (TZ, LANG_LOCALE, KEYMAP, etc.)" >&2
+        sleep 5
+    fi
+}
+trap error_handler EXIT
+# --------------------------------------------------
 #========================================================#
 # Variables injected by main installer
 #========================================================#
