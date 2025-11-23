@@ -466,7 +466,8 @@ echo "1) 🇺🇸 English (US) - en_US.UTF-8"
 echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
 echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
 echo "4) 🇩🇪 German (Germany) - de_DE.UTF-8"
-echo "5) Use Default: ${DEFAULT_LOCALE} 🇫🇮(Finland)"
+echo "5) Default 🇫🇮(Finland): ${DEFAULT_LOCALE}"
+echo "6) Custom Locale (e.g., ja_JP.UTF-8, pt_BR.UTF-8)" # <-- NEW OPTION
 
 read -r -p "Enter choice [5]: " LOCALE_CHOICE
 LOCALE_CHOICE="${LOCALE_CHOICE:-5}"
@@ -476,6 +477,11 @@ case $LOCALE_CHOICE in
     2) LANG_LOCALE="en_GB.UTF-8" ;;
     3) LANG_LOCALE="fr_FR.UTF-8" ;;
     4) LANG_LOCALE="de_DE.UTF-8" ;;
+    6)
+        # Custom input, with fallback to default
+        read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
+        LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}"
+        ;;
     5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
 esac
 echo "Set LANG to: ${LANG_LOCALE}"
@@ -487,7 +493,8 @@ echo "1) 🇺🇸 US (standard QWERTY)"
 echo "2) 🇬🇧 UK"
 echo "3) 🇫🇷 FR (AZERTY)"
 echo "4) 🇩🇪 DE"
-echo "5) Use Default: ${DEFAULT_KEYMAP} 🇫🇮(Finnish)"
+echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
+echo "6) Custom Keymap (e.g., dvorak, se, es)" # <-- NEW OPTION
 
 read -r -p "Enter choice [5]: " KEYMAP_CHOICE
 KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
@@ -497,6 +504,11 @@ case $KEYMAP_CHOICE in
     2) KEYMAP="uk" ;;
     3) KEYMAP="fr" ;;
     4) KEYMAP="de" ;;
+    6)
+        # Custom input, with fallback to default
+        read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
+        KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+        ;;
     5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
 esac
 echo "Set KEYMAP to: ${KEYMAP}"
