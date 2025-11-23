@@ -422,8 +422,9 @@ echo
 # Prompt for timezone, locale, hostname, and username
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
-
-echo "Select a Time Zone Region:"
+echo "#===================================================#"
+echo "#-Select a Time Zone Region:                        #"                        
+echo "#===================================================#"
 echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
 echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
 echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
@@ -460,8 +461,9 @@ case $TZ_CHOICE in
 esac
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
-
-echo "Select a System Locale (LANG):"
+echo "#===================================================#"
+echo "#-Select a System Locale (LANG):                    #"
+echo "#===================================================#"
 echo "1) 🇺🇸 English (US) - en_US.UTF-8"
 echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
 echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
@@ -487,8 +489,9 @@ esac
 echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
-
-echo "Select a Keyboard Keymap:"
+echo "#===================================================#"
+echo "#-Select a Keyboard Keymap:                         #"
+echo "#===================================================#"
 echo "1) 🇺🇸 US (standard QWERTY)"
 echo "2) 🇬🇧 UK"
 echo "3) 🇫🇷 FR (AZERTY)"
@@ -514,10 +517,16 @@ esac
 echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
+echo "#===================================================#"
+echo "#-Input Hostname(ComputerName):                     #"
+echo "#===================================================#"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
 HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
 DEFAULT_USER="user"
+echo "#===================================================#"
+echo "#-Input Username:                                   #"
+echo "#===================================================#"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # -------------------------------
