@@ -369,326 +369,7 @@ detect_boot_mode() {
         echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
-#=========================================================================================================================================#
-# Swap calculation
-#=========================================================================================================================================#
-calculate_swap_quick() {
-    local ram_kb ram_mib
-    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    ram_mib=$(( (ram_kb + 1023) / 1024 ))
-    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
-    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
-}
-#=========================================================================================================================================#
-# Select Filesystem
-#=========================================================================================================================================#
-select_filesystem() 
-{
-  
-    clear
-    echo -e "#===============================================================================#"
-    echo -e "|  Filesystem Selection Options                                                 |"
-    echo -e "#===============================================================================#"
-    echo -e "| 1) EXT4 (root + home)                                                         |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 2) BTRFS (root + home)                                                        |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
-    echo -e "#===============================================================================#"
-    read -rp "Select filesystem [default=1]: " FS_CHOICE
-    FS_CHOICE="${FS_CHOICE:-1}"
-    case "$FS_CHOICE" in
-        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
-        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
-        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
-        *) echo "Invalid choice"; exit 1 ;;
-    esac    
-}
-#=========================================================================================================================================#
-# Select Swap
-#=========================================================================================================================================#
-select_swap()
-{
-  
-   clear
-    echo -e "#===============================================================================#"
-    echo -e "| Swap On / Off                                                                 |"
-    echo -e "#===============================================================================#"
-    echo -e "| 1) Swap On                                                                    |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 2) Swap Off                                                                   |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 3) exit                                                                       |"
-    echo -e "#===============================================================================#"
-     read -rp "Select option [default=1]: " SWAP_ON
-    SWAP_ON="${SWAP_ON:-1}"
-    case "$SWAP_ON" in
-        1) SWAP_ON="1" ;;
-        2) SWAP_ON="0" ;;
-        3) echo "Exiting"; exit 1 ;;
-        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
-    esac
-    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
-}
-#=========================================================================#
-# Ask partition sizes (fixed)
-#=========================================================================#
-ask_partition_sizes() {
-    detect_boot_mode
-    calculate_swap_quick
 
-    local disk_bytes disk_mib disk_gib_val disk_gib_int
-    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
-    disk_mib=$(( disk_bytes / 1024 / 1024 ))
-    disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
-    disk_gib_int=${disk_gib_val%.*}
-
-    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
-
-    while true; do
-        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
-
-        local reserved_gib
-        if [[ "$MODE" == "UEFI" ]]; then
-            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
-        else
-            reserved_gib=$(( BOOT_SIZE_MIB / 1024 + BIOS_GRUB_SIZE_MIB / 1024 ))
-        fi
-
-        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
-        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
-        ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
-        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-
-        if (( ROOT_SIZE_GIB > max_root_gib )); then
-            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
-            ROOT_SIZE_GIB=$max_root_gib
-        fi
-
-        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
-
-        # Remaining space for home
-        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
-        if (( remaining_home_gib < 1 )); then
-            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
-            continue
-        fi
-
-        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
-
-        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
-            HOME_SIZE_GIB=$remaining_home_gib
-            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
-            home_end="100%"
-        else
-            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-
-            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
-                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
-                HOME_SIZE_GIB=$remaining_home_gib
-            else
-                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
-            fi
-
-            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
-        fi
-
-        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
-        break
-    done
-}
-#=========================================================================#
-# Partition disk (Fixed: Unified Layout, No separate /boot)
-#=========================================================================#
-partition_disk() {
-    [[ -z "$DEV" ]] && die "partition_disk(): DEV not set"
-    detect_boot_mode
-    calculate_swap_quick
-
-    echo -e "\n🛈 Starting partitioning on $DEV..."
-    # Wipe old signatures to prevent conflict
-    wipefs -af "$DEV"
-    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
-
-    local start end root_start root_end swap_start swap_end home_start home_end
-
-    # ---------------------------------------------------------
-    # PARTITION 1: Boot Loader/Manager
-    # ---------------------------------------------------------
-    if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Creating BIOS GRUB mandatory partition (1MiB)..."
-        # Create 1MiB partition for GRUB embedding
-        parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create BIOS GRUB"
-        parted -s "$DEV" set 1 bios_grub on
-        parted -s "$DEV" name 1 bios_grub  # Set PARTLABEL
-        start=2
-    else
-        echo "→ Creating EFI System Partition (${EFI_SIZE_MIB}MiB)..."
-        end=$((1 + EFI_SIZE_MIB))
-        parted -s "$DEV" mkpart primary fat32 1MiB "${end}MiB" || die "Failed to create EFI"
-        parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" set 1 esp on
-        parted -s "$DEV" name 1 efi      # Set PARTLABEL
-        start=$end
-    fi
-
-    # ---------------------------------------------------------
-    # PARTITION 2: ROOT (Contains /boot folder)
-    # ---------------------------------------------------------
-    root_start=$start
-    root_end=$((root_start + ROOT_SIZE_MIB))
-    
-    echo "→ Creating ROOT partition..."
-    parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
-    parted -s "$DEV" name 2 root         # Set PARTLABEL
-
-    # ---------------------------------------------------------
-    # PARTITION 3: SWAP (Optional)
-    # ---------------------------------------------------------
-    if [[ "$SWAP_ON" == "1" ]]; then
-        swap_start=$root_end
-        swap_end=$((swap_start + SWAP_SIZE_MIB))
-        echo "→ Creating SWAP partition..."
-        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
-        parted -s "$DEV" name 3 swap     # Set PARTLABEL
-        home_start=$swap_end
-        home_num=4
-    else
-        home_start=$root_end
-        home_num=3
-    fi
-
-    # ---------------------------------------------------------
-    # PARTITION 3/4: HOME (Optional)
-    # ---------------------------------------------------------
-    if [[ "$HOME_SIZE_MIB" -ne 0 ]]; then
-        echo "→ Creating HOME partition..."
-        # If size is 0 (auto), it takes 100% of remaining
-        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
-        parted -s "$DEV" name "$home_num" home # Set PARTLABEL
-    fi
-
-    partprobe "$DEV" || true
-    udevadm settle --timeout=5 || true
-    echo "✅ Partitioning completed."
-}
-#=========================================================================#
-# Format & mount (Fixed: Robust PARTLABEL detection)
-#=========================================================================#
-format_and_mount() {
-    [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
-    detect_boot_mode
-
-    echo -e "\n🛈 Refreshing partition table..."
-    partprobe "$DEV"
-    udevadm settle
-    sleep 2
-
-    # Reset variables
-    P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
-
-    # 1. Map partitions using PARTLABEL (Name)
-    # This is safer than filesystem labels because mkfs hasn't run yet.
-    while read -r part path name; do
-        # Convert name to lowercase
-        name="${name,,}"
-        case "$name" in
-            bios_grub) P_BIOS_GRUB="$path" ;;
-            efi)       P_EFI="$path" ;;
-            root)      P_ROOT="$path" ;;
-            swap)      P_SWAP="$path" ;;
-            home)      P_HOME="$path" ;;
-        esac
-    done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
-
-    # Fallback: If labels failed, map by index (Standardized Layout)
-    # Layout is always: [1:Boot/EFI] -> [2:Root] -> [3:Swap/Home]
-    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
-    
-    if [[ -z "$P_ROOT" ]]; then
-        echo "⚠ Auto-detection by label failed, falling back to position..."
-        if [[ "$MODE" == "UEFI" ]]; then
-            [[ -z "$P_EFI" ]] && P_EFI="${PARTS[0]}"
-        else
-            [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
-        fi
-        
-        # ROOT is ALWAYS partition index 1 (the second partition) in this fixed layout
-        P_ROOT="${PARTS[1]}" 
-        
-        # Simple mapping for Swap/Home based on user selection
-        if [[ "$SWAP_ON" == "1" ]]; then
-            [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
-            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
-        else
-            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 2 ]] && P_HOME="${PARTS[2]}"
-        fi
-    fi
-
-    echo "Detected Mapping:"
-    echo " ROOT: $P_ROOT"
-    [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
-    [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
-
-    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition."
-
-    # Safety Check
-    if mountpoint -q /mnt; then
-        umount -R /mnt || true
-    fi
-
-    # 2. Format & Mount ROOT
-    echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-        btrfs subvolume create /mnt/@
-        btrfs subvolume create /mnt/@home
-        umount /mnt
-        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
-    else
-        mkfs.ext4 -F -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-    fi
-
-    mkdir -p /mnt/boot /mnt/home /mnt/etc
-
-    # 3. Format & Mount EFI (UEFI Only)
-    if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
-        echo "→ Formatting EFI on $P_EFI..."
-        mkfs.fat -F32 -n EFI "$P_EFI"
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi
-    fi
-
-    # 4. Swap
-    if [[ -n "$P_SWAP" ]]; then
-        echo "→ Activating SWAP on $P_SWAP..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
-    fi
-
-    # 5. Home
-    if [[ -n "$P_HOME" ]]; then
-        echo "→ Formatting HOME on $P_HOME..."
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            # If root was btrfs, we might just use subvolumes, but if partition exists:
-             mkfs.btrfs -f -L home "$P_HOME"
-             mount -o compress=zstd "$P_HOME" /mnt/home
-        else
-             mkfs.ext4 -F -L home "$P_HOME"
-             mount "$P_HOME" /mnt/home
-        fi
-    elif [[ "$ROOT_FS" == "btrfs" ]]; then
-        # Mount @home subvolume if we don't have a separate partition
-        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home
-    fi
-
-    # 6. Fstab
-    genfstab -U /mnt >> /mnt/etc/fstab
-
-    echo "✅ Formatting and mounting complete."
-}
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
@@ -1644,10 +1325,335 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
             echo "Skipping Hyprland theme setup."
         fi
     fi
-}      
+}
 #=========================================================================================================================================#
-# Quick Partition Main
 #=========================================================================================================================================#
+# Quick Partition - Section:
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+# Swap calculation
+#=========================================================================================================================================#
+calculate_swap_quick() {
+    local ram_kb ram_mib
+    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    ram_mib=$(( (ram_kb + 1023) / 1024 ))
+    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
+    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
+}
+#=========================================================================================================================================#
+# Select Filesystem
+#=========================================================================================================================================#
+select_filesystem() 
+{
+  
+    clear
+    echo -e "#===============================================================================#"
+    echo -e "|  Filesystem Selection Options                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) EXT4 (root + home)                                                         |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) BTRFS (root + home)                                                        |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
+    echo -e "#===============================================================================#"
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    FS_CHOICE="${FS_CHOICE:-1}"
+    case "$FS_CHOICE" in
+        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
+        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
+        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac    
+}
+#=========================================================================================================================================#
+# Select Swap
+#=========================================================================================================================================#
+select_swap()
+{
+  
+   clear
+    echo -e "#===============================================================================#"
+    echo -e "| Swap On / Off                                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) Swap On                                                                    |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) Swap Off                                                                   |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) exit                                                                       |"
+    echo -e "#===============================================================================#"
+     read -rp "Select option [default=1]: " SWAP_ON
+    SWAP_ON="${SWAP_ON:-1}"
+    case "$SWAP_ON" in
+        1) SWAP_ON="1" ;;
+        2) SWAP_ON="0" ;;
+        3) echo "Exiting"; exit 1 ;;
+        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
+    esac
+    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
+}
+#=========================================================================#
+# Ask partition sizes (fixed)
+#=========================================================================#
+ask_partition_sizes() {
+    detect_boot_mode
+    calculate_swap_quick
+
+    local disk_bytes disk_mib disk_gib_val disk_gib_int
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+    disk_gib_int=${disk_gib_val%.*}
+
+    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
+
+    while true; do
+        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+
+        local reserved_gib
+        if [[ "$MODE" == "UEFI" ]]; then
+            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
+        else
+            reserved_gib=$(( BOOT_SIZE_MIB / 1024 + BIOS_GRUB_SIZE_MIB / 1024 ))
+        fi
+
+        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
+        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
+        ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
+        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+        if (( ROOT_SIZE_GIB > max_root_gib )); then
+            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
+            ROOT_SIZE_GIB=$max_root_gib
+        fi
+
+        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+
+        # Remaining space for home
+        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
+        if (( remaining_home_gib < 1 )); then
+            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
+            continue
+        fi
+
+        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
+
+        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
+            HOME_SIZE_GIB=$remaining_home_gib
+            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
+            home_end="100%"
+        else
+            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
+                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
+                HOME_SIZE_GIB=$remaining_home_gib
+            else
+                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
+            fi
+
+            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+        fi
+
+        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
+        break
+    done
+}
+#=========================================================================#
+# Partition disk (Fixed: Unified Layout, No separate /boot)
+#=========================================================================#
+partition_disk() {
+    [[ -z "$DEV" ]] && die "partition_disk(): DEV not set"
+    detect_boot_mode
+    calculate_swap_quick
+
+    echo -e "\n🛈 Starting partitioning on $DEV..."
+    # Wipe old signatures to prevent conflict
+    wipefs -af "$DEV"
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
+
+    local start end root_start root_end swap_start swap_end home_start home_end
+
+    # ---------------------------------------------------------
+    # PARTITION 1: Boot Loader/Manager
+    # ---------------------------------------------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Creating BIOS GRUB mandatory partition (1MiB)..."
+        # Create 1MiB partition for GRUB embedding
+        parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create BIOS GRUB"
+        parted -s "$DEV" set 1 bios_grub on
+        parted -s "$DEV" name 1 bios_grub  # Set PARTLABEL
+        start=2
+    else
+        echo "→ Creating EFI System Partition (${EFI_SIZE_MIB}MiB)..."
+        end=$((1 + EFI_SIZE_MIB))
+        parted -s "$DEV" mkpart primary fat32 1MiB "${end}MiB" || die "Failed to create EFI"
+        parted -s "$DEV" set 1 boot on
+        parted -s "$DEV" set 1 esp on
+        parted -s "$DEV" name 1 efi      # Set PARTLABEL
+        start=$end
+    fi
+
+    # ---------------------------------------------------------
+    # PARTITION 2: ROOT (Contains /boot folder)
+    # ---------------------------------------------------------
+    root_start=$start
+    root_end=$((root_start + ROOT_SIZE_MIB))
+    
+    echo "→ Creating ROOT partition..."
+    parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
+    parted -s "$DEV" name 2 root         # Set PARTLABEL
+
+    # ---------------------------------------------------------
+    # PARTITION 3: SWAP (Optional)
+    # ---------------------------------------------------------
+    if [[ "$SWAP_ON" == "1" ]]; then
+        swap_start=$root_end
+        swap_end=$((swap_start + SWAP_SIZE_MIB))
+        echo "→ Creating SWAP partition..."
+        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
+        parted -s "$DEV" name 3 swap     # Set PARTLABEL
+        home_start=$swap_end
+        home_num=4
+    else
+        home_start=$root_end
+        home_num=3
+    fi
+
+    # ---------------------------------------------------------
+    # PARTITION 3/4: HOME (Optional)
+    # ---------------------------------------------------------
+    if [[ "$HOME_SIZE_MIB" -ne 0 ]]; then
+        echo "→ Creating HOME partition..."
+        # If size is 0 (auto), it takes 100% of remaining
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
+        parted -s "$DEV" name "$home_num" home # Set PARTLABEL
+    fi
+
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
+    echo "✅ Partitioning completed."
+}
+#=========================================================================#
+# Format & mount (Fixed: Robust PARTLABEL detection)
+#=========================================================================#
+format_and_mount() {
+    [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
+    detect_boot_mode
+
+    echo -e "\n🛈 Refreshing partition table..."
+    partprobe "$DEV"
+    udevadm settle
+    sleep 2
+
+    # Reset variables
+    P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
+
+    # 1. Map partitions using PARTLABEL (Name)
+    # This is safer than filesystem labels because mkfs hasn't run yet.
+    while read -r part path name; do
+        # Convert name to lowercase
+        name="${name,,}"
+        case "$name" in
+            bios_grub) P_BIOS_GRUB="$path" ;;
+            efi)       P_EFI="$path" ;;
+            root)      P_ROOT="$path" ;;
+            swap)      P_SWAP="$path" ;;
+            home)      P_HOME="$path" ;;
+        esac
+    done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
+
+    # Fallback: If labels failed, map by index (Standardized Layout)
+    # Layout is always: [1:Boot/EFI] -> [2:Root] -> [3:Swap/Home]
+    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
+    
+    if [[ -z "$P_ROOT" ]]; then
+        echo "⚠ Auto-detection by label failed, falling back to position..."
+        if [[ "$MODE" == "UEFI" ]]; then
+            [[ -z "$P_EFI" ]] && P_EFI="${PARTS[0]}"
+        else
+            [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
+        fi
+        
+        # ROOT is ALWAYS partition index 1 (the second partition) in this fixed layout
+        P_ROOT="${PARTS[1]}" 
+        
+        # Simple mapping for Swap/Home based on user selection
+        if [[ "$SWAP_ON" == "1" ]]; then
+            [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
+        else
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 2 ]] && P_HOME="${PARTS[2]}"
+        fi
+    fi
+
+    echo "Detected Mapping:"
+    echo " ROOT: $P_ROOT"
+    [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
+    [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
+
+    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition."
+
+    # Safety Check
+    if mountpoint -q /mnt; then
+        umount -R /mnt || true
+    fi
+
+    # 2. Format & Mount ROOT
+    echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
+        umount /mnt
+        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
+    else
+        mkfs.ext4 -F -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+    fi
+
+    mkdir -p /mnt/boot /mnt/home /mnt/etc
+
+    # 3. Format & Mount EFI (UEFI Only)
+    if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
+        echo "→ Formatting EFI on $P_EFI..."
+        mkfs.fat -F32 -n EFI "$P_EFI"
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi
+    fi
+
+    # 4. Swap
+    if [[ -n "$P_SWAP" ]]; then
+        echo "→ Activating SWAP on $P_SWAP..."
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
+    fi
+
+    # 5. Home
+    if [[ -n "$P_HOME" ]]; then
+        echo "→ Formatting HOME on $P_HOME..."
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            # If root was btrfs, we might just use subvolumes, but if partition exists:
+             mkfs.btrfs -f -L home "$P_HOME"
+             mount -o compress=zstd "$P_HOME" /mnt/home
+        else
+             mkfs.ext4 -F -L home "$P_HOME"
+             mount "$P_HOME" /mnt/home
+        fi
+    elif [[ "$ROOT_FS" == "btrfs" ]]; then
+        # Mount @home subvolume if we don't have a separate partition
+        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home
+    fi
+
+    # 6. Fstab
+    genfstab -U /mnt >> /mnt/etc/fstab
+
+    echo "✅ Formatting and mounting complete."
+}
+#===============================#
+#=QUICK PARTITION MAIN FUNCTION=#
+#===============================#
 quick_partition() {
     detect_boot_mode
 
@@ -1685,7 +1691,7 @@ quick_partition() {
 
 #=========================================================================================================================================#
 #=========================================================================================================================================#
-#====================================== Custom Partition // Choose Filesystem Custom #====================================================#
+#====================================== Custom Partition // Choose Filesystem Custom : SECTION #==========================================#
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
