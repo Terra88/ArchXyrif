@@ -422,16 +422,84 @@ echo
 # Prompt for timezone, locale, hostname, and username
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
-read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-TZ="${TZ:-$DEFAULT_TZ}"
 
-DEFAULT_LOCALE="en_US.UTF-8"
-read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+echo "Select a Time Zone Region:"
+echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
+echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
+echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
+echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
+echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
+
+# Read the user's menu choice
+read -r -p "Enter choice [5]: " TZ_CHOICE
+TZ_CHOICE="${TZ_CHOICE:-5}"
+
+# Set the time zone based on the choice
+# Set the time zone based on the choice
+case $TZ_CHOICE in
+    1)
+        read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
+        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+        ;;
+    2)
+        read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT
+        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+        ;;
+    3)
+        read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT
+        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+        ;;
+    4)
+        read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT
+        TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+        ;;
+    5|*)
+        TZ="${DEFAULT_TZ}"
+        echo "Using default Time Zone: ${TZ}"
+        ;;
+esac
+
+DEFAULT_LOCALE="fi_FI.UTF-8"
+
+echo "Select a System Locale (LANG):"
+echo "1) 🇺🇸 English (US) - en_US.UTF-8"
+echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
+echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
+echo "4) 🇩🇪 German (Germany) - de_DE.UTF-8"
+echo "5) Use Default: ${DEFAULT_LOCALE} 🇫🇮(Finland)"
+
+read -r -p "Enter choice [5]: " LOCALE_CHOICE
+LOCALE_CHOICE="${LOCALE_CHOICE:-5}"
+
+case $LOCALE_CHOICE in
+    1) LANG_LOCALE="en_US.UTF-8" ;;
+    2) LANG_LOCALE="en_GB.UTF-8" ;;
+    3) LANG_LOCALE="fr_FR.UTF-8" ;;
+    4) LANG_LOCALE="de_DE.UTF-8" ;;
+    5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
+esac
+echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
-read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
-KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+
+echo "Select a Keyboard Keymap:"
+echo "1) 🇺🇸 US (standard QWERTY)"
+echo "2) 🇬🇧 UK"
+echo "3) 🇫🇷 FR (AZERTY)"
+echo "4) 🇩🇪 DE"
+echo "5) Use Default: ${DEFAULT_KEYMAP} 🇫🇮(Finnish)"
+
+read -r -p "Enter choice [5]: " KEYMAP_CHOICE
+KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
+
+case $KEYMAP_CHOICE in
+    1) KEYMAP="us" ;;
+    2) KEYMAP="uk" ;;
+    3) KEYMAP="fr" ;;
+    4) KEYMAP="de" ;;
+    5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
+esac
+echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
