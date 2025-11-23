@@ -13,7 +13,7 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-
+# -
 #=========================================================================================================================================#
 # Preparation
 #=========================================================================================================================================#
@@ -65,9 +65,7 @@ set -euo pipefail
 #=========================================================================================================================================#
 # GLOBAL VARIABLES:
 #=========================================================================================================================================#
-#----------------------------------------------#
 #-------------------MAPPER---------------------#
-#----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
 MNT=""
@@ -93,6 +91,7 @@ LUKS_MAPPER_NAME=""
 LVM_VG_NAME=""
 LVM_ROOT_LV_NAME=""
 # Global partition variables (will be set in format_and_mount)
+P_BIOS_GRUB=""
 P_EFI=""
 P_BOOT=""
 P_SWAP=""
@@ -352,9 +351,9 @@ EOF
 }
 # define once to keep consistent call structure
 CHROOT_CMD=(arch-chroot /mnt)
-#=========================================================================================================================================#
+#=========================================================================#
 # Detect boot mode
-#=========================================================================================================================================#
+#=========================================================================#
 detect_boot_mode() {
     if [[ -d /sys/firmware/efi ]]; then
         MODE="UEFI"
@@ -363,391 +362,11 @@ detect_boot_mode() {
         echo -e "${CYAN}UEFI detected.${RESET}"
     else
         MODE="BIOS"
-        BIOS_BOOT_PART_CREATED=true
+        BIOS_BOOT_PART_CREATED=false
         BOOT_SIZE_MIB=$BOOT_SIZE_MIB
         echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
-#=========================================================================================================================================#
-# Swap calculation
-#=========================================================================================================================================#
-calculate_swap_quick() {
-    local ram_kb ram_mib
-    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
-    ram_mib=$(( (ram_kb + 1023) / 1024 ))
-    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
-    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
-}
-#=========================================================================================================================================#
-# Select Filesystem
-#=========================================================================================================================================#
-select_filesystem() 
-{
-  
-    clear
-    echo -e "#===============================================================================#"
-    echo -e "|  Filesystem Selection Options                                                 |"
-    echo -e "#===============================================================================#"
-    echo -e "| 1) EXT4 (root + home)                                                         |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 2) BTRFS (root + home)                                                        |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
-    echo -e "#===============================================================================#"
-    read -rp "Select filesystem [default=1]: " FS_CHOICE
-    FS_CHOICE="${FS_CHOICE:-1}"
-    case "$FS_CHOICE" in
-        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
-        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
-        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
-        *) echo "Invalid choice"; exit 1 ;;
-    esac    
-}
-#=========================================================================================================================================#
-# Select Swap
-#=========================================================================================================================================#
-select_swap()
-{
-  
-   clear
-    echo -e "#===============================================================================#"
-    echo -e "| Swap On / Off                                                                 |"
-    echo -e "#===============================================================================#"
-    echo -e "| 1) Swap On                                                                    |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 2) Swap Off                                                                   |"
-    echo -e "|-------------------------------------------------------------------------------|"
-    echo -e "| 3) exit                                                                       |"
-    echo -e "#===============================================================================#"
-     read -rp "Select option [default=1]: " SWAP_ON
-    SWAP_ON="${SWAP_ON:-1}"
-    case "$SWAP_ON" in
-        1) SWAP_ON="1" ;;
-        2) SWAP_ON="0" ;;
-        3) echo "Exiting"; exit 1 ;;
-        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
-    esac
-    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
-}
-#=========================================================================#
-# Ask partition sizes (fixed)
-#=========================================================================#
-ask_partition_sizes() {
-    detect_boot_mode
-    calculate_swap_quick
-
-    local disk_bytes disk_mib disk_gib_val disk_gib_int
-    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
-    disk_mib=$(( disk_bytes / 1024 / 1024 ))
-    disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
-    disk_gib_int=${disk_gib_val%.*}
-
-    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
-
-    while true; do
-        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
-
-        local reserved_gib
-        if [[ "$MODE" == "UEFI" ]]; then
-            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
-        else
-            reserved_gib=$(( BOOT_SIZE_MIB / 1024 + BIOS_GRUB_SIZE_MIB / 1024 ))
-        fi
-
-        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
-        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
-        ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
-        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-
-        if (( ROOT_SIZE_GIB > max_root_gib )); then
-            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
-            ROOT_SIZE_GIB=$max_root_gib
-        fi
-
-        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
-
-        # Remaining space for home
-        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
-        if (( remaining_home_gib < 1 )); then
-            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
-            continue
-        fi
-
-        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
-
-        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
-            HOME_SIZE_GIB=$remaining_home_gib
-            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
-            home_end="100%"
-        else
-            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
-
-            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
-                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
-                HOME_SIZE_GIB=$remaining_home_gib
-            else
-                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
-            fi
-
-            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
-        fi
-
-        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
-        break
-    done
-}
-#=========================================================================#
-# Partition disk (fixed)
-#=========================================================================#
-partition_disk() {
-    [[ -z "$DEV" ]] && die "partition_disk(): missing device argument"
-
-    parted -s "$DEV" mklabel gpt || die "Failed to create GPT"
-
-    local start=1
-    local end
-    local root_start root_end swap_start swap_end home_start home_end
-    local home_num
-
-    if [[ "$MODE" == "UEFI" ]]; then
-        # --- EFI partition ---
-        end=$((start + EFI_SIZE_MIB))
-        parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB"
-        parted -s "$DEV" set 1 boot on
-        P_EFI_NUM=1
-
-        # --- Root partition ---
-        root_start=$end
-        root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
-        parted -s "$DEV" name 2 root
-
-        # --- Swap partition ---
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_start=$root_end
-            swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
-            parted -s "$DEV" name 3 swap
-            home_start=$swap_end
-            home_num=4
-        else
-            home_start=$root_end
-            home_num=3
-        fi
-
-        # --- Home partition ---
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
-        else
-            home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
-        fi
-        parted -s "$DEV" name "$home_num" home
-
-    else
-        # --- BIOS: bios_grub + /boot ---
-        end=$((start + BIOS_GRUB_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "${start}MiB" "${end}MiB"
-        parted -s "$DEV" set 1 bios_grub on
-
-        boot_start=$end
-        boot_end=$((boot_start + BOOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB"
-        parted -s "$DEV" name 2 boot
-
-        # --- Root partition ---
-        root_start=$boot_end
-        root_end=$((root_start + ROOT_SIZE_MIB))
-        parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB"
-        parted -s "$DEV" name 3 root
-
-        # --- Swap partition ---
-        if [[ "$SWAP_ON" == "1" ]]; then
-            swap_start=$root_end
-            swap_end=$((swap_start + SWAP_SIZE_MIB))
-            parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
-            parted -s "$DEV" name 4 swap
-            home_start=$swap_end
-            home_num=5
-        else
-            home_start=$root_end
-            home_num=4
-        fi
-
-        # --- Home partition ---
-        if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
-        else
-            home_end=$((home_start + HOME_SIZE_MIB))
-            parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB"
-        fi
-        parted -s "$DEV" name "$home_num" home
-    fi
-
-    # Refresh partition table
-    partprobe "$DEV" || true
-    udevadm settle --timeout=5 || true
-    sleep 1
-
-    echo "✅ Partitioning completed. Verify with lsblk:"
-    lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
-}
-#=========================================================================================================================================#
-# Format & mount (final error-free merged version)
-#=========================================================================================================================================#
-format_and_mount() {
-    detect_boot_mode
-    [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
-
-    echo "🛈 Refreshing partition table..."
-    partprobe "$DEV"
-    udevadm settle --timeout=5
-    sleep 1
-
-    # ---------------------------------------------------------------------
-    # 1. Map partitions based on mode
-    # ---------------------------------------------------------------------
-    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
-    [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
-
-    if [[ "$MODE" == "UEFI" ]]; then
-        P_EFI="${PARTS[0]}"
-        P_ROOT="${PARTS[1]}"
-
-        if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${PARTS[2]}"
-            P_HOME="${PARTS[3]}"
-        else
-            P_HOME="${PARTS[2]}"
-        fi
-
-    else
-        P_BOOT="${PARTS[1]}"
-        P_ROOT="${PARTS[2]}"
-
-        if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${PARTS[3]}"
-            P_HOME="${PARTS[4]}"
-        else
-            P_HOME="${PARTS[3]}"
-        fi
-    fi
-
-    echo "Partition mapping:"
-    echo "  EFI : $P_EFI"
-    echo "  BOOT: $P_BOOT"
-    echo "  ROOT: $P_ROOT"
-    echo "  SWAP: $P_SWAP"
-    echo "  HOME: $P_HOME"
-
-    # ---------------------------------------------------------------------
-    # 2. Create base mount paths
-    # ---------------------------------------------------------------------
-    mkdir -p /mnt
-    mkdir -p /mnt/home
-    mkdir -p /mnt/boot
-
-    # ---------------------------------------------------------------------
-    # 3. Format BOOT/EFI
-    # ---------------------------------------------------------------------
-    if [[ "$MODE" == "UEFI" ]]; then
-        echo "→ Formatting EFI partition..."
-        mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
-    else
-        echo "→ Formatting BIOS boot partition..."
-        mkfs.ext4 -F -L boot "$P_BOOT"
-    fi
-
-    # ---------------------------------------------------------------------
-    # 4. Format SWAP
-    # ---------------------------------------------------------------------
-    if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
-        echo "→ Creating swap..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
-    fi
-
-    # ---------------------------------------------------------------------
-    # 5. Format + Mount ROOT
-    # ---------------------------------------------------------------------
-    echo "→ Formatting ROOT ($ROOT_FS)..."
-
-    if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-
-        # Initial mount to create subvols
-        mount "$P_ROOT" /mnt
-
-        # Create subvolumes
-        btrfs subvolume create /mnt/@
-
-        # Remount properly
-        umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
-
-    else
-        mkfs.ext4 -F -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-    fi
-
-    # ---------------------------------------------------------------------
-    # *** IMPORTANT FIX ***
-    # After ROOT is mounted, we MUST create /mnt/boot/efi
-    # ---------------------------------------------------------------------
-    mkdir -p /mnt/boot
-    mkdir -p /mnt/boot/efi
-
-# ---------------------------------------------------------------------
-# 6. Format + Mount HOME
-# ---------------------------------------------------------------------
-echo "→ Formatting HOME ($HOME_FS)..."
-
-# Ensure mount point always exists (prevents ALL your current errors)
-mkdir -p /mnt/home
-
-if [[ "$HOME_FS" == "ext4" ]]; then
-
-    mkfs.ext4 -F -L home "$P_HOME"
-    mkdir -p /mnt/home
-    mount "$P_HOME" /mnt/home || die "Could not mount EXT4 home"
-
-elif [[ "$HOME_FS" == "btrfs" ]]; then
-
-    mkfs.btrfs -f -L home "$P_HOME"
-
-    # temp mount to create subvol
-    mkdir -p /mnt/home
-    mount "$P_HOME" /mnt/home || die "Could not temp mount BTRFS home"
-    btrfs subvolume create /mnt/home/@home
-    umount /mnt/home
-
-    # real mount
-    mkdir -p /mnt/home
-    mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home \
-        || die "Could not mount BTRFS home subvol"
-
-fi
-
-    # ---------------------------------------------------------------------
-    # 7. Mount EFI or BIOS boot
-    # ---------------------------------------------------------------------
-    if [[ "$MODE" == "UEFI" ]]; then
-        mount "$P_EFI" /mnt/boot/efi \
-            || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
-    else
-        mount "$P_BOOT" /mnt/boot \
-            || die "FAILED TO MOUNT BOOT ($P_BOOT → /mnt/boot)"
-    fi
-
-    # ---------------------------------------------------------------------
-    # 8. Generate fstab
-    # ---------------------------------------------------------------------
-    mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
-
-    echo "✅ All partitions formatted and mounted successfully."
-}
-
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
@@ -789,12 +408,10 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
-
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
-
 sleep 1
 clear
 echo -e "#===================================================================================================#"
@@ -945,181 +562,111 @@ echo "✅ System configured."
 # GRUB installation
 #=========================================================================================================================================#
 install_grub() {
+
     detect_boot_mode
-    local ps
-    # 1. Determine the list of disks involved in the installation
-    # This finds all physical disks that have a partition currently mounted in /mnt.
-    # It ensures that all disks contributing to the root or boot filesystem are targeted.
-    local TARGET_DISKS=()
-    # Get all physical devices that contain partitions currently mounted in /mnt
-    # Using 'mount' to find all mounted partitions, then 'lsblk' to find their parent disk.
-    local MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
-    ps=$(part_suffix "$DEV")
 
-    # Start with minimal essential modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid f2fs cryptodisk luks lvm ext2"
+    echo "🛈 Installing Bootloader (GRUB)..."
 
-    #--------------------------------------#
-    # Add FS module (idempotent)
-    #--------------------------------------#
-    add_fs_module() {
-        local fs="$1"
-        case "$fs" in
-            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
-            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
-            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
-            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
-            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
-            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
-        esac
-    }
+    # -----------------------------------------------------------------------------------
+    # SMART DISK SELECTION
+    # -----------------------------------------------------------------------------------
 
-    #--------------------------------------#
-    # Detect RAID (mdadm)
-    #--------------------------------------#
-    echo "→ Detecting RAID arrays..."
-    if lsblk -l -o TYPE -nr /mnt | grep -q "raid"; then
-        echo "→ Found md RAID."
-        GRUB_MODULES+=" mdraid1x"
-    fi
+    local TARGET_DISK="${BOOT_LOADER_DISK:-$DEV}"
+    [[ -z "$TARGET_DISK" ]] && die "install_grub: No target disk defined."
 
-    #--------------------------------------#
-    # Detect LUKS (outermost layer)
-    #--------------------------------------#
-    echo "→ Detecting LUKS containers..."
-    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
-    for line in "${luks_lines[@]}"; do
-        echo "→ LUKS container: $line"
-        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
-    done
+    echo "→ Target Disk: $TARGET_DISK"
 
-    #--------------------------------------#
-    # Detect LVM (next layer)
-    #--------------------------------------#
-    echo "→ Detecting LVM volumes..."
-    if lsblk -o TYPE -nr | grep -q "lvm"; then
-        echo "→ Found LVM."
-        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
-    fi
+    # -----------------------------------------------------------------------------------
+    # 1. Enable Cryptodisk BEFORE grub-install
+    # -----------------------------------------------------------------------------------
 
-    #--------------------------------------#
-    # Detect filesystems under /mnt (final layer)
-    #--------------------------------------#
-    echo "→ Detecting filesystems..."
-    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
-    for line in "${fs_lines[@]}"; do
-        fs=$(awk '{print $2}' <<< "$line")
-        [[ -n "$fs" ]] && add_fs_module "$fs"
-    done
+    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
 
-    echo "→ Final GRUB modules: $GRUB_MODULES"
+        echo "→ Enabling GRUB cryptodisk support..."
 
-    for PART in $MOUNTED_PARTS; do
-    # Find the parent device (e.g., /dev/sda for /dev/sda3, or for LVM volumes)
-    local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
-    if [[ -n "$PARENT_DISK" ]]; then
-        local FULL_DISK="/dev/$PARENT_DISK"
-        # Deduplicate the list
-        if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
-            TARGET_DISKS+=("$FULL_DISK")
+        arch-chroot /mnt bash -c "
+            sed -i '/^GRUB_ENABLE_CRYPTODISK/d' /etc/default/grub
+            echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
+        "
+
+        echo "→ Configuring kernel parameters for encrypted root..."
+
+        if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
+
+            local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
+
+            if [[ -n "$LVM_VG_NAME" ]]; then
+                crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
+            else
+                crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
+            fi
+
+            arch-chroot /mnt bash -c "
+                sed -i \"s|^GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\(.*\\)\\\"|GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\1 ${crypt_params}\\\"|\" /etc/default/grub
+            "
         fi
     fi
-done
 
-    if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
-        echo "ERROR: Could not find any physical disk devices mounted under /mnt."
-        return 1
-    fi
+    # -----------------------------------------------------------------------------------
+    # 2. GRUB Modules
+    # -----------------------------------------------------------------------------------
 
-    echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
-    
-# --------------------------------------#
-# BIOS MODE
-# --------------------------------------#
-if [[ "$MODE" == "BIOS" ]]; then
-    
-    echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
-    
-    # Iterate over all physical disks involved in the install
-    for DISK in "${TARGET_DISKS[@]}"; do
-        echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
-        
-        # We must use $DISK here to target the physical drive
+    # -----------------------------------------------------------------------------------
+    # 3. Install GRUB
+    # -----------------------------------------------------------------------------------
+
+    if [[ "$MODE" == "BIOS" ]]; then
+
+        echo "→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)..."
+
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
-            --recheck "$DISK" || {
-                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
-                return 1
-            }
-    done
-    
-elif [[ "$MODE" == "UEFI" ]]; then
-    echo "→ Installing GRUB for UEFI..."
+            --recheck "$TARGET_DISK" \
+            || die "GRUB BIOS install failed on $TARGET_DISK"
 
-    # Ensure EFI partition is mounted
-    if ! mountpoint -q /mnt/boot/efi; then
-        mkdir -p /mnt/boot/efi
-        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
+    else
+        echo "→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation..."
+
+        mountpoint -q /mnt/boot/efi || die "EFI partition not mounted at /mnt/boot/efi."
+
+        arch-chroot /mnt grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=Arch \
+            --modules="$GRUB_MODULES" \
+            --skip-fs-probe \
+            --recheck \
+            "$TARGET_DISK" \
+            || die "GRUB UEFI install failed"
+
+        # Secure Boot (optional)
+        if arch-chroot /mnt command -v sbctl &>/dev/null; then
+            echo "→ Secure Boot detected, signing GRUB and kernel..."
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft || true
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+        fi
     fi
 
-    # Ensure GRUB knows about encrypted disks
-    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-        # Add cryptodisk support to /etc/default/grub
-        arch-chroot /mnt bash -c "grep -q '^GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
-        echo "→ GRUB_ENABLE_CRYPTODISK=y added to /etc/default/grub"
+    # -----------------------------------------------------------------------------------
+    # 4. Generate grub.cfg
+    # -----------------------------------------------------------------------------------
 
-        # Append kernel parameter for encrypted root
-        GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
-        arch-chroot /mnt sed -i \
-            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
-            /etc/default/grub
-        echo "→ Added cryptdevice=UUID to GRUB_CMDLINE_LINUX_DEFAULT"
-    fi
+    echo "→ Generating grub.cfg..."
 
-    # Install GRUB
-    arch-chroot /mnt grub-install \
-        --target=x86_64-efi \
-        --efi-directory=/boot/efi \
-        --bootloader-id=GRUB \
-        --modules="$GRUB_MODULES" \
-        --recheck \
-        --no-nvram || die "grub-install UEFI failed"
+    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
+        || die "Failed to generate grub.cfg"
 
-    # Optional fallback for BOOTX64.EFI
-    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-    # Clean old Arch entries
-    LABEL="Arch Linux"
-    for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-        efibootmgr -b "$num" -B || true
-    done
-
-    # Create new EFI boot entry
-    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
-
-    # Generate GRUB config
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-    # Optional: Secure Boot signing
-    if arch-chroot /mnt command -v sbctl &>/dev/null; then
-        echo "→ Secure Boot detected, signing GRUB and kernel"
-        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-        arch-chroot /mnt sbctl enroll-keys --microsoft || true
-        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
-        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-    fi
-
-    echo "✅ UEFI GRUB installed with LUKS+LVM support"
-fi
+    echo "✅ GRUB installation complete."
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
 #=========================================================================================================================================#
-network_mirror_selection()
-{
-
+network_mirror_selection(){
 sleep 1
 clear
 echo
@@ -1131,12 +678,10 @@ echo
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
     }
-
 echo -e "#========================================================#"
 echo -e "#                   MIRROR SELECTION                     #" 
 echo -e "#========================================================#"
 echo
-
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -1149,7 +694,6 @@ echo "8) Custom country code (2-letter ISO, e.g., FR)"
 echo "9) Skip (use default mirrors)"
 read -r -p "Select your region [1-9, default=1]: " MIRROR_CHOICE
 MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
-
 case "$MIRROR_CHOICE" in
     1) SELECTED_COUNTRY="United States" ;;
     2) SELECTED_COUNTRY="Canada" ;;
@@ -1164,7 +708,6 @@ case "$MIRROR_CHOICE" in
         ;;
     9|*) echo "Skipping mirror optimization, using default mirrors."; SELECTED_COUNTRY="" ;;
 esac
-
 if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "Optimizing mirrors for: $SELECTED_COUNTRY"
     arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate \
@@ -1172,12 +715,10 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
-
 #=========================================================================================================================================#
 # Graphics Driver Selection Menu
 #=========================================================================================================================================#
-gpu_driver()
-{    
+gpu_driver(){    
      sleep 1
      clear
      echo
@@ -1185,7 +726,6 @@ gpu_driver()
      echo -e "# - GPU DRIVER INSTALLATION & MULTILIB                                                              #"
      echo -e "#===================================================================================================#"
      echo
-
      echo "1) Intel"
      echo "2) NVIDIA"
      echo "3) AMD"
@@ -1206,7 +746,6 @@ gpu_driver()
              ;;
          5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
      esac
-     
      if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
          echo "🔧 Ensuring multilib repository is enabled..."
          "${CHROOT_CMD[@]}" bash -c '
@@ -1229,7 +768,6 @@ window_manager() {
     echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
     echo -e "#===================================================================================================#"
     echo
-
     echo "1) Hyprland (Wayland)"
     echo "2) KDE Plasma (X11/Wayland)"
     echo "3) GNOME (X11/Wayland)"
@@ -1239,13 +777,12 @@ window_manager() {
     echo "7) Mate"
     echo "8) Sway (Wayland)"
     echo "9) Skip selection"
-
     read -r -p "Select your preferred WM/DE [1-9, default=9]: " WM_CHOICE
     WM_CHOICE="${WM_CHOICE:-6}"
-
+    
     WM_PKGS=()
     WM_AUR_PKGS=()
-
+    
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
         1)
@@ -1294,7 +831,6 @@ window_manager() {
             echo "Skipping window manager installation."
             ;;
     esac
-
     # ---------- Auto-add mandatory dependencies ----------
     case "$SELECTED_WM" in
         hyprland)
@@ -1310,7 +846,6 @@ window_manager() {
             WM_PKGS+=(qt6-wayland)
             ;;
     esac
-
     # ---------- Install only WM/DE packages ----------
     if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
@@ -1321,68 +856,61 @@ window_manager() {
 
     echo "→ WM/DE packages installation completed. Skipping extra packages."
 }
-
 # ---------- DM Selection ----------
 lm_dm() {
-
-sleep 1
-clear
-echo -e "#===================================================================================================#"
-echo -e "# -   Display Manager Selection                                                                     #"
-echo -e "#===================================================================================================#"
-
+    sleep 1
+    clear
+    echo -e "#===================================================================================================#"
+    echo -e "# -   Display Manager Selection                                                                     #"
+    echo -e "#===================================================================================================#"
+    
     DM_MENU=()
-    DM_DEFAULT="6"
-    # ---------- Filtered DM options ----------
+    DM_AUR_PKGS=()
+    DM_SERVICE=""
+    
+    # ---------- Build recommended DM menu based on selected WM ----------
     case "$SELECTED_WM" in
         gnome)
             DM_MENU=("1) GDM (required for GNOME Wayland)")
-            DM_DEFAULT="1"
             ;;
         kde)
             DM_MENU=("2) SDDM (recommended for KDE)" "1) GDM (works but not ideal)")
-            DM_DEFAULT="2"
             ;;
         niri)
             DM_MENU=("1) GDM (recommended)" "2) SDDM (works but sometimes session missing)" "4) Ly (TUI, always works)")
-            DM_DEFAULT="1"
             ;;
         hyprland|sway)
-            DM_MENU=("2) SDDM" "1) GDM" "4) Ly (TUI)")
-            DM_DEFAULT="2"
+            DM_MENU=("2) SDDM (recommended)" "1) GDM" "4) Ly (TUI)")
             ;;
         xfce)
             DM_MENU=("3) LightDM (recommended)" "1) GDM" "2) SDDM" "5) LXDM")
-            DM_DEFAULT="3"
             ;;
         cinnamon|mate)
             DM_MENU=("3) LightDM (recommended)" "1) GDM" "5) LXDM")
-            DM_DEFAULT="3"
             ;;
         none)
             DM_MENU=("6) Skip Display Manager")
-            DM_DEFAULT="6"
             ;;
         *)
             DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
-            DM_DEFAULT="6"
             ;;
-            
     esac
-    
+    # ---------- Add Skip DM option ONLY if it is not already there ----------
+    if ! printf "%s\n" "${DM_MENU[@]}" | grep -q "Skip"; then
+        next=$(( ${#DM_MENU[@]} + 1 ))
+        DM_MENU+=("${next}) Skip Display Manager")
+    fi
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
-        echo -e "$entry"
+        echo "$entry"
     done
-    echo "6) Skip Display Manager"
-
+    # ---------- Auto-set default: number of the FIRST entry ----------
+    DM_DEFAULT=$( echo "${DM_MENU[0]}" | cut -d')' -f1 )
     read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
     DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
-
+    
     DM_PKGS=()
-    DM_AUR_PKGS=()
-    DM_SERVICE=""
-
+    # ---------- Match selection ----------
     case "$DM_CHOICE" in
         1)
             DM_PKGS=(gdm)
@@ -1405,41 +933,35 @@ echo -e "#======================================================================
             DM_PKGS=(lxdm)
             DM_SERVICE="lxdm.service"
             ;;
-        6|*)
+        *)
             echo "Skipping display manager installation."
             return
             ;;
-            
     esac
-
-    # ---------- Install DM packages ----------
+    
+    # ---------- Install packages ----------
     if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
     fi
     if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
     fi
-
-    # ---------- Enable DM service ----------
+    # ---------- Enable service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
-        echo -e "✅ Display manager service enabled: $DM_SERVICE"
+        echo "✅ Display manager service enabled: $DM_SERVICE"
     fi
-
     # ---------- Ly autologin ----------
-    if [[ "$DM_SERVICE" == "ly.service" ]]; then
-        if [[ -n "$USER_NAME" ]]; then
-            echo "Setting up Ly autologin for $USER_NAME..."
-            sudo mkdir -p /etc/systemd/system/ly.service.d
-            cat <<'EOF' | sudo tee /etc/systemd/system/ly.service.d/override.conf
-            
-
-[Service]
-ExecStart=
-ExecStart=/usr/bin/ly -a $USER_NAME
-EOF
-            sudo systemctl daemon-reload
-        fi
+    if [[ "$DM_SERVICE" == "ly.service" && -n "$USER_NAME" ]]; then
+        echo "Setting up Ly autologin for $USER_NAME..."
+        sudo mkdir -p /etc/systemd/system/ly.service.d
+        printf "%s\n" \
+            "[Service]" \
+            "ExecStart=" \
+            "ExecStart=/usr/bin/ly -a $USER_NAME" \
+            | sudo tee /etc/systemd/system/ly.service.d/override.conf >/dev/null
+    
+        sudo systemctl daemon-reload
     fi
 }
 
@@ -1460,6 +982,7 @@ extra_pacman_pkg()
                 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                    
                     # Clean list: neofetch removed (deprecated)
                     EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
@@ -1472,14 +995,13 @@ extra_pacman_pkg()
                             echo "⚠️  Skipping invalid or missing package: $pkg"
                         fi
                     done
-                
                     # Merge validated list with user input
                     EXTRA_PKG=("${VALID_PKGS[@]}")
                     if [[ -n "$EXTRA_PKG_INPUT" ]]; then
                         read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
                         EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
                     fi
-                
+                    
                     if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
                         safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
                     else
@@ -1492,9 +1014,7 @@ extra_pacman_pkg()
 #=========================================================================================================================================#
 # Aur Package Installer
 #=========================================================================================================================================#
-optional_aur()
-{    
-   
+optional_aur(){    
      sleep 1
      clear
      echo
@@ -1505,7 +1025,6 @@ optional_aur()
      
                      read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
                      install_aur="${install_aur:-N}"
-                     
                      if [[ "$install_aur" =~ ^[Yy]$ ]]; then
                          read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
                      
@@ -1641,14 +1160,341 @@ sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
             echo "Skipping Hyprland theme setup."
         fi
     fi
-}      
+}
 #=========================================================================================================================================#
-# Quick Partition Main
 #=========================================================================================================================================#
+# Quick Partition - Section:
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+#=========================================================================================================================================#
+# Swap calculation
+#=========================================================================================================================================#
+calculate_swap_quick() {
+    local ram_kb ram_mib
+    ram_kb=$(awk '/MemTotal/ {print $2}' /proc/meminfo)
+    ram_mib=$(( (ram_kb + 1023) / 1024 ))
+    SWAP_SIZE_MIB=$(( ram_mib <= 8192 ? ram_mib*2 : ram_mib ))
+    echo "Detected RAM ${ram_mib} MiB -> swap ${SWAP_SIZE_MIB} MiB"
+}
+#=========================================================================================================================================#
+# Select Filesystem
+#=========================================================================================================================================#
+select_filesystem() 
+{
+  
+    clear
+    echo -e "#===============================================================================#"
+    echo -e "|  Filesystem Selection Options                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) EXT4 (root + home)                                                         |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) BTRFS (root + home)                                                        |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) BTRFS root + EXT4 home                                                     |"
+    echo -e "#===============================================================================#"
+    read -rp "Select filesystem [default=1]: " FS_CHOICE
+    FS_CHOICE="${FS_CHOICE:-1}"
+    case "$FS_CHOICE" in
+        1) ROOT_FS="ext4"; HOME_FS="ext4" ;;
+        2) ROOT_FS="btrfs"; HOME_FS="btrfs" ;;
+        3) ROOT_FS="btrfs"; HOME_FS="ext4" ;;
+        *) echo "Invalid choice"; exit 1 ;;
+    esac    
+}
+#=========================================================================================================================================#
+# Select Swap
+#=========================================================================================================================================#
+select_swap()
+{
+  
+   clear
+    echo -e "#===============================================================================#"
+    echo -e "| Swap On / Off                                                                 |"
+    echo -e "#===============================================================================#"
+    echo -e "| 1) Swap On                                                                    |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 2) Swap Off                                                                   |"
+    echo -e "|-------------------------------------------------------------------------------|"
+    echo -e "| 3) exit                                                                       |"
+    echo -e "#===============================================================================#"
+     read -rp "Select option [default=1]: " SWAP_ON
+    SWAP_ON="${SWAP_ON:-1}"
+    case "$SWAP_ON" in
+        1) SWAP_ON="1" ;;
+        2) SWAP_ON="0" ;;
+        3) echo "Exiting"; exit 1 ;;
+        *) echo "Invalid choice, defaulting to Swap On"; SWAP_ON="1" ;;
+    esac
+    echo "→ Swap set to: $([[ "$SWAP_ON" == "1" ]] && echo 'ON' || echo 'OFF')"
+}
+#=========================================================================#
+# Ask partition sizes (fixed)
+#=========================================================================#
+ask_partition_sizes() {
+    detect_boot_mode
+    calculate_swap_quick
+
+    local disk_bytes disk_mib disk_gib_val disk_gib_int
+    disk_bytes=$(lsblk -b -dn -o SIZE "$DEV") || die "Cannot read disk size for $DEV"
+    disk_mib=$(( disk_bytes / 1024 / 1024 ))
+    disk_gib_val=$(awk -v m="$disk_mib" 'BEGIN{printf "%.2f", m/1024}')
+    disk_gib_int=${disk_gib_val%.*}
+
+    echo "Disk $DEV ≈ ${disk_gib_int} GiB"
+
+    while true; do
+        lsblk -p -o NAME,SIZE,TYPE,FSTYPE,MOUNTPOINT "$DEV"
+
+        local reserved_gib
+        if [[ "$MODE" == "UEFI" ]]; then
+            reserved_gib=$(( EFI_SIZE_MIB / 1024 ))
+        else
+            reserved_gib=$(( BOOT_SIZE_MIB / 1024 + BIOS_GRUB_SIZE_MIB / 1024 ))
+        fi
+
+        local max_root_gib=$(( disk_gib_int - SWAP_SIZE_MIB / 1024 - reserved_gib - 1 ))
+        read -rp "Enter ROOT size in GiB (max ${max_root_gib}): " ROOT_SIZE_GIB
+        ROOT_SIZE_GIB="${ROOT_SIZE_GIB:-$max_root_gib}"
+        [[ "$ROOT_SIZE_GIB" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+        if (( ROOT_SIZE_GIB > max_root_gib )); then
+            echo "⚠️ ROOT size too large. Limiting to maximum available ${max_root_gib} GiB."
+            ROOT_SIZE_GIB=$max_root_gib
+        fi
+
+        ROOT_SIZE_MIB=$(( ROOT_SIZE_GIB * 1024 ))
+
+        # Remaining space for home
+        local remaining_home_gib=$(( disk_gib_int - ROOT_SIZE_GIB - SWAP_SIZE_MIB / 1024 - reserved_gib ))
+        if (( remaining_home_gib < 1 )); then
+            echo "Not enough space left for /home. Reduce ROOT or SWAP size."
+            continue
+        fi
+
+        read -rp "Enter HOME size in GiB (ENTER for remaining ${remaining_home_gib}): " HOME_SIZE_GIB_INPUT
+
+        if [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
+            HOME_SIZE_GIB=$remaining_home_gib
+            HOME_SIZE_MIB=0      # will handle as 100% in partitioning
+            home_end="100%"
+        else
+            [[ "$HOME_SIZE_GIB_INPUT" =~ ^[0-9]+$ ]] || { echo "Must be numeric"; continue; }
+
+            if (( HOME_SIZE_GIB_INPUT > remaining_home_gib )); then
+                echo "⚠️ Maximum available HOME size is ${remaining_home_gib} GiB. Setting HOME to maximum."
+                HOME_SIZE_GIB=$remaining_home_gib
+            else
+                HOME_SIZE_GIB=$HOME_SIZE_GIB_INPUT
+            fi
+
+            HOME_SIZE_MIB=$(( HOME_SIZE_GIB * 1024 ))
+        fi
+
+        echo "✅ Partition sizes set: ROOT=${ROOT_SIZE_GIB} GiB, HOME=${HOME_SIZE_GIB} GiB, SWAP=$((SWAP_SIZE_MIB/1024)) GiB"
+        break
+    done
+}
+#=========================================================================#
+# Partition disk (Fixed: Unified Layout, No separate /boot)
+#=========================================================================#
+partition_disk() {
+    [[ -z "$DEV" ]] && die "partition_disk(): DEV not set"
+    detect_boot_mode
+    calculate_swap_quick
+
+    echo -e "\n🛈 Starting partitioning on $DEV..."
+    # Wipe old signatures to prevent conflict
+    wipefs -af "$DEV"
+    parted -s "$DEV" mklabel gpt || die "Failed to create GPT label"
+
+    local start end root_start root_end swap_start swap_end home_start home_end
+
+    # ---------------------------------------------------------
+    # PARTITION 1: Boot Loader/Manager
+    # ---------------------------------------------------------
+    if [[ "$MODE" == "BIOS" ]]; then
+        echo "→ Creating BIOS GRUB mandatory partition (1MiB)..."
+        # Create 1MiB partition for GRUB embedding
+        parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create BIOS GRUB"
+        parted -s "$DEV" set 1 bios_grub on
+        parted -s "$DEV" name 1 bios_grub  # Set PARTLABEL
+        start=2
+    else
+        echo "→ Creating EFI System Partition (${EFI_SIZE_MIB}MiB)..."
+        end=$((1 + EFI_SIZE_MIB))
+        parted -s "$DEV" mkpart primary fat32 1MiB "${end}MiB" || die "Failed to create EFI"
+        parted -s "$DEV" set 1 boot on
+        parted -s "$DEV" set 1 esp on
+        parted -s "$DEV" name 1 efi      # Set PARTLABEL
+        start=$end
+    fi
+
+    # ---------------------------------------------------------
+    # PARTITION 2: ROOT (Contains /boot folder)
+    # ---------------------------------------------------------
+    root_start=$start
+    root_end=$((root_start + ROOT_SIZE_MIB))
+    
+    echo "→ Creating ROOT partition..."
+    parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
+    parted -s "$DEV" name 2 root         # Set PARTLABEL
+
+    # ---------------------------------------------------------
+    # PARTITION 3: SWAP (Optional)
+    # ---------------------------------------------------------
+    if [[ "$SWAP_ON" == "1" ]]; then
+        swap_start=$root_end
+        swap_end=$((swap_start + SWAP_SIZE_MIB))
+        echo "→ Creating SWAP partition..."
+        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
+        parted -s "$DEV" name 3 swap     # Set PARTLABEL
+        home_start=$swap_end
+        home_num=4
+    else
+        home_start=$root_end
+        home_num=3
+    fi
+
+    # ---------------------------------------------------------
+    # PARTITION 3/4: HOME (Optional)
+    # ---------------------------------------------------------
+    if [[ "$HOME_SIZE_MIB" -ne 0 ]]; then
+        echo "→ Creating HOME partition..."
+        # If size is 0 (auto), it takes 100% of remaining
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
+        parted -s "$DEV" name "$home_num" home # Set PARTLABEL
+    fi
+
+    partprobe "$DEV" || true
+    udevadm settle --timeout=5 || true
+    echo "✅ Partitioning completed."
+}
+#=========================================================================#
+# Format & mount (Fixed: Robust PARTLABEL detection)
+#=========================================================================#
+format_and_mount() {
+    [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
+    detect_boot_mode
+
+    echo -e "\n🛈 Refreshing partition table..."
+    partprobe "$DEV"
+    udevadm settle
+    sleep 2
+
+    # Reset variables
+    P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
+
+    # 1. Map partitions using PARTLABEL (Name)
+    # This is safer than filesystem labels because mkfs hasn't run yet.
+    while read -r part path name; do
+        # Convert name to lowercase
+        name="${name,,}"
+        case "$name" in
+            bios_grub) P_BIOS_GRUB="$path" ;;
+            efi)       P_EFI="$path" ;;
+            root)      P_ROOT="$path" ;;
+            swap)      P_SWAP="$path" ;;
+            home)      P_HOME="$path" ;;
+        esac
+    done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
+
+    # Fallback: If labels failed, map by index (Standardized Layout)
+    # Layout is always: [1:Boot/EFI] -> [2:Root] -> [3:Swap/Home]
+    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
+    
+    if [[ -z "$P_ROOT" ]]; then
+        echo "⚠ Auto-detection by label failed, falling back to position..."
+        if [[ "$MODE" == "UEFI" ]]; then
+            [[ -z "$P_EFI" ]] && P_EFI="${PARTS[0]}"
+        else
+            [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
+        fi
+        
+        # ROOT is ALWAYS partition index 1 (the second partition) in this fixed layout
+        P_ROOT="${PARTS[1]}" 
+        
+        # Simple mapping for Swap/Home based on user selection
+        if [[ "$SWAP_ON" == "1" ]]; then
+            [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
+        else
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 2 ]] && P_HOME="${PARTS[2]}"
+        fi
+    fi
+
+    echo "Detected Mapping:"
+    echo " ROOT: $P_ROOT"
+    [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
+    [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
+
+    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition."
+
+    # Safety Check
+    if mountpoint -q /mnt; then
+        umount -R /mnt || true
+    fi
+
+    # 2. Format & Mount ROOT
+    echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
+    if [[ "$ROOT_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
+        umount /mnt
+        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
+    else
+        mkfs.ext4 -F -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+    fi
+
+    mkdir -p /mnt/boot /mnt/home /mnt/etc
+
+    # 3. Format & Mount EFI (UEFI Only)
+    if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
+        echo "→ Formatting EFI on $P_EFI..."
+        mkfs.fat -F32 -n EFI "$P_EFI"
+        mkdir -p /mnt/boot/efi
+        mount "$P_EFI" /mnt/boot/efi
+    fi
+
+    # 4. Swap
+    if [[ -n "$P_SWAP" ]]; then
+        echo "→ Activating SWAP on $P_SWAP..."
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
+    fi
+
+    # 5. Home
+    if [[ -n "$P_HOME" ]]; then
+        echo "→ Formatting HOME on $P_HOME..."
+        if [[ "$HOME_FS" == "btrfs" ]]; then
+            # If root was btrfs, we might just use subvolumes, but if partition exists:
+             mkfs.btrfs -f -L home "$P_HOME"
+             mount -o compress=zstd "$P_HOME" /mnt/home
+        else
+             mkfs.ext4 -F -L home "$P_HOME"
+             mount "$P_HOME" /mnt/home
+        fi
+    elif [[ "$ROOT_FS" == "btrfs" ]]; then
+        # Mount @home subvolume if we don't have a separate partition
+        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home
+    fi
+
+    # 6. Fstab
+    genfstab -U /mnt >> /mnt/etc/fstab
+
+    echo "✅ Formatting and mounting complete."
+}
+#===============================#
+#=QUICK PARTITION MAIN FUNCTION=#
+#===============================#
 quick_partition() {
     detect_boot_mode
+
     echo "Available disks:"
     lsblk -d -o NAME,SIZE,MODEL,TYPE
+
     while true; do
         read -rp "Enter target disk (e.g. /dev/sda): " DEV
         DEV="/dev/${DEV##*/}"
@@ -1674,13 +1520,12 @@ quick_partition() {
     extra_pacman_pkg
     optional_aur
     hyprland_theme
-    
 
     echo -e "✅ Arch Linux installation complete."
 }
 #=========================================================================================================================================#
 #=========================================================================================================================================#
-#====================================== Custom Partition // Choose Filesystem Custom #====================================================#
+#====================================== Custom Partition // Choose Filesystem Custom : SECTION #==========================================#
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #HELPERS - FOR CUSTOM PARTITION !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -1747,6 +1592,10 @@ custom_partition_wizard() {
             NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
             START=2
+
+            # --- SAVE THE DISK FOR GRUB INSTALLER ---
+            export BOOT_LOADER_DISK="$DEV"   ### <--- ADD THIS
+            echo "→ Boot disk set to: $BOOT_LOADER_DISK"
         fi
     fi
 
@@ -1760,6 +1609,10 @@ custom_partition_wizard() {
             NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
             START=1025
+
+            # --- SAVE THE DISK FOR GRUB INSTALLER ---
+            export BOOT_LOADER_DISK="$DEV"   ### <--- ADD THIS
+            echo "→ Boot disk set to: $BOOT_LOADER_DISK"
         fi
     fi
 
@@ -1889,9 +1742,6 @@ create_more_disks() {
     done
 }
 
-#=========================================================================================================================================#
-#  Format AND Mount Custom - UPDATED (Skips bios_grub specially)
-#=========================================================================================================================================#
 #=========================================================================================================================================#
 #  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
 #=========================================================================================================================================#
@@ -2281,8 +2131,8 @@ ask_yesno_default() {
         ans="${ans:-$def}"
         ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
         case "$ans_upper" in
-            Y|YES) return 0 ;;   # success = yes
-            N|NO)  return 1 ;;   # failure = no
+            Y|YES) return 0 ;;    # success = yes
+            N|NO)  return 1 ;;    # failure = no
             *) echo "Please answer Y or N." ;;
         esac
     done
@@ -2353,8 +2203,8 @@ ask_yesno_default() {
     echo "→ Writing GPT to $DEV"
     parted -s "$DEV" mklabel gpt || die "mklabel failed"
 
-    PART_BOOT=""   # path to boot/esp partition (unencrypted)
-    PART_LUKS=""   # path to big partition that will be LUKS or PV
+    PART_BOOT=""    # path to boot/esp partition (unencrypted)
+    PART_LUKS=""    # path to big partition that will be LUKS or PV
     PART_GRUB_BIOS=""
 
     if [[ "$MODE" == "UEFI" ]]; then
@@ -2388,16 +2238,31 @@ ask_yesno_default() {
 
     [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
 
-    # Ask whether to encrypt main partition
+# Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
         ENCRYPTION_ENABLED=1
+        
+        local luks_type
         if ask_yesno_default "Use LUKS2 (recommended)? [Y/n]:" "Y"; then
-            cryptsetup luksFormat --type luks2 "$PART_LUKS" || die "luksFormat failed"
+            luks_type="luks2"
         else
-            cryptsetup luksFormat "$PART_LUKS" || die "luksFormat failed"
+            luks_type="luks1"
         fi
 
-        # ask mapper name and ensure uniqueness
+        # --- LUKS FORMATTING (Set Passphrase) ---
+        
+        echo "========================================================"
+        echo "🚨 ATTENTION: Please enter the NEW LUKS PASSPHRASE twice."
+        echo "    This password will secure your partition."
+        echo "========================================================"
+        
+        # --- FIX: Removed the 'echo "YES" |' pipe to allow interactive passphrase input.
+        cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "LUKS format failed"
+        
+        echo "✅ LUKS format complete."
+        # --- END LUKS FORMATTING ---
+
+        # ask mapper name and ensure uniqueness (This part is correctly placed now)
         while true; do
             read -rp "Name for mapped device (default cryptlvm): " cryptname
             cryptname="${cryptname:-cryptlvm}"
@@ -2409,7 +2274,17 @@ ask_yesno_default() {
         done
 
         LUKS_MAPPER_NAME="$cryptname"
+        
+        # --- LUKS OPENING (Provide Passphrase) ---
+        echo "========================================================================="
+        echo "🔑 Enter the PASSPHRASE you JUST SET to open the device."
+        echo "    (This creates /dev/mapper/$LUKS_MAPPER_NAME)"
+        echo "========================================================================="
+        # The user must type the same password again here.
         cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
+        
+        # --- END LUKS OPENING ---
+        
         BASE_DEVICE="/dev/mapper/${LUKS_MAPPER_NAME}"
         LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS" || true)
     else
@@ -2465,7 +2340,7 @@ ask_yesno_default() {
         fi
 
         ask_lv_size
-        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
+        lvsize="$REPLY"    # validated LVM size (like 40G, 100%FREE)
 
         ask_mountpoint
         lvmnt="${REPLY:-none}"
@@ -2600,11 +2475,12 @@ ask_yesno_default() {
 
     # store common globals for post-install step
     export LVM_VG_NAME="$VGNAME"
-    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
-    export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
+    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}"
+    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-}" # Cleaned up variable usage
+    export LUKS_PART_UUID="${LUKS_PART_UUID:-}" # Cleaned up variable usage
     export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
     export PART_BOOT="${PART_BOOT:-}"
-    export PART_LUKS="${PART_LUKS:-$PART_LUKS}"
+    export PART_LUKS="${PART_LUKS:-}" # Cleaned up variable usage
 
     echo "→ Completed LUKS+LVM route for $DEV"
     return 
