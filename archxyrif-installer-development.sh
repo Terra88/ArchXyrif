@@ -2232,11 +2232,18 @@ ask_yesno_default() {
             luks_type="luks1"
         fi
         
-        # --- FIX: INSERT THE NON-INTERACTIVE FORMAT COMMAND HERE ---
-        echo "→ Formatting $PART_LUKS with LUKS $luks_type..."
-        # Piped 'YES' prevents the crash on non-capitalized input
-        echo "YES" | cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "luksFormat failed"
-        # -----------------------------------------------------------
+        # --- FIX: Synchronous LUKS Formatting ---
+        echo "========================================================"
+        echo "🚨 ATTENTION: Please enter the LUKS PASSPHRASE twice now."
+        echo "========================================================"
+        
+        # Run luksFormat synchronously. It will prompt the user for the password twice.
+        # Note: We still pipe "YES" to confirm formatting, but we let the user interact
+        # with the TTY for the passphrase input.
+        echo "YES" | cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "LUKS format failed"
+        
+        echo "✅ LUKS format complete. Proceeding to open device..."
+        # --------------------------------------------------------
 
         # ask mapper name and ensure uniqueness
         while true; do
@@ -2250,7 +2257,13 @@ ask_yesno_default() {
         done
 
         LUKS_MAPPER_NAME="$cryptname"
+        
+        # This is the second time a passphrase is required.
+        echo "========================================================================================"
+        echo "🔑 Opening LUKS device. Enter the passphrase you just set for $LUKS_MAPPER_NAME."
+        echo "========================================================================================"
         cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
+        
         BASE_DEVICE="/dev/mapper/${LUKS_MAPPER_NAME}"
         LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS" || true)
     else
