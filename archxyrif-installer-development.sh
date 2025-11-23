@@ -890,30 +890,22 @@ install_grub_quick(){
     echo "🛈 Installing Bootloader (GRUB)..."
 
     # 1. Configuration for LVM/LUKS (Pre-Install)
-    # -----------------------------------------------------------------------
-    # Since we merged /boot into Root, if Root is encrypted, /boot is also encrypted.
-    # We must configure GRUB to handle this BEFORE installing it.
-    
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
         echo "→ Configuring GRUB for Encrypted Root..."
         
-        # Enable Cryptodisk (allows GRUB to decrypt /boot residing on root)
+        # Enable Cryptodisk
         arch-chroot /mnt bash -c "grep -q 'GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
 
-        # Configure Kernel Parameters (UUID of the raw encrypted partition, NOT the mapper)
-        # Note: In a unified layout, we point to the LUKS container UUID.
-        # Ensure LUKS_PART_UUID is set correctly in your encryption step!
+        # Configure Kernel Parameters
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
             
-            # If LVM is used, root is at /dev/mapper/VG-LV
             if [[ -n "$LVM_VG_NAME" ]]; then
                 crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
                 crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
             fi
 
-            # Sed magic to insert parameters safely
             arch-chroot /mnt sed -i \
                 "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${crypt_params}\"|" \
                 /etc/default/grub
@@ -921,16 +913,14 @@ install_grub_quick(){
     fi
 
     # 2. Define Modules
-    # -----------------------------------------------------------------------
-    # Added 'lvm' and 'cryptodisk' by default to ensure they are available
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm simplefb"
+    # REMOVED 'simplefb' which caused the error. 
+    # Added 'lvm' 'luks' 'cryptodisk' explicitly to be safe.
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
     # 3. Install GRUB Binary
-    # -----------------------------------------------------------------------
     if [[ "$MODE" == "BIOS" ]]; then
         echo "→ Installing GRUB to MBR of $DEV (BIOS Mode)..."
         
-        # Install to the specific device defined in global $DEV
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
@@ -939,7 +929,6 @@ install_grub_quick(){
     else
         echo "→ Installing GRUB to ESP (UEFI Mode)..."
         
-        # Ensure EFI is mounted
         if ! mountpoint -q /mnt/boot/efi; then
              die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
         fi
@@ -952,8 +941,7 @@ install_grub_quick(){
             --recheck || die "GRUB UEFI install failed"
     fi
 
-    # 4. Generate Configuration (Crucial Step!)
-    # -----------------------------------------------------------------------
+    # 4. Generate Configuration
     echo "→ Generating grub.cfg..."
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
 
