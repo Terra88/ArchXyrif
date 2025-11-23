@@ -539,7 +539,13 @@ partition_disk() {
         parted -s "$DEV" name 1 efi
         P_EFI_NUM=1
     
-        # Format ESP
+        # Refresh kernel partition table to ensure /dev/sdX1 exists
+        partprobe "$DEV" || true
+        udevadm settle --timeout=5
+        sleep 1
+    
+        # Format ESP safely
+        echo "→ Formatting EFI partition $DEV$P_EFI_NUM ..."
         mkfs.vfat -F32 -n EFI "${DEV}${P_EFI_NUM}" || die "Failed to format EFI partition"
     
         start=$end  # remaining space for root, swap, home
