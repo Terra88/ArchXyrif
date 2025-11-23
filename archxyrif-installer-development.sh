@@ -596,49 +596,116 @@ format_and_mount() {
     udevadm settle --timeout=5
     sleep 1
 
-    # ---------------------------------------------------------------------
-    # 1. Read partition list and map them defensively
+       # ---------------------------------------------------------------------
+    # 1. Read partition list and map them defensively (label-first, then heuristics)
     # ---------------------------------------------------------------------
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV (format_and_mount)"
 
-    # initialize
+    # reset
     P_BIOS_GRUB="" P_BOOT="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
 
-    if [[ "$MODE" == "UEFI" ]]; then
-        # Expect at least 3 partitions: EFI, ROOT, [SWAP], [HOME]
-        [[ ${#PARTS[@]} -lt 3 ]] && die "Not enough partitions for UEFI mode (found ${#PARTS[@]})"
-        P_EFI="${PARTS[0]}"
-        P_ROOT="${PARTS[1]}"
-        if [[ "$SWAP_ON" == "1" ]]; then
-            [[ ${#PARTS[@]} -lt 4 ]] && die "Expected swap+home partitions but missing (found ${#PARTS[@]})"
-            P_SWAP="${PARTS[2]}"
-            P_HOME="${PARTS[3]}"
+    # Try to populate by label (parted name) or by simple heuristics
+    for p in "${PARTS[@]}"; do
+        # read label and fstype (quietly)
+        lbl=$(lsblk -no LABEL "$p" 2>/dev/null || true)
+        fstype=$(lsblk -no FSTYPE "$p" 2>/dev/null || true)
+
+        # normalize label to lower for matching
+        nlab="${lbl,,}"
+
+        case "$nlab" in
+            bios_grub|bios-grub|bios) 
+                [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="$p" 
+                ;;
+            boot) 
+                [[ -z "$P_BOOT" ]] && P_BOOT="$p" 
+                ;;
+            root) 
+                [[ -z "$P_ROOT" ]] && P_ROOT="$p" 
+                ;;
+            home) 
+                [[ -z "$P_HOME" ]] && P_HOME="$p" 
+                ;;
+            swap) 
+                [[ -z "$P_SWAP" ]] && P_SWAP="$p" 
+                ;;
+            EFI|efi|efi_system|esp|efi\ system)
+                [[ -z "$P_EFI" ]] && P_EFI="$p"
+                ;;
+            *)
+                # No recognizable label — apply heuristics on fstype
+                if [[ -z "$P_EFI" && "$fstype" =~ ^(vfat|fat32|fat16)$ ]]; then
+                    P_EFI="$p"
+                elif [[ -z "$P_ROOT" && "$fstype" == "btrfs" ]]; then
+                    P_ROOT="$p"
+                elif [[ -z "$P_BOOT" && "$fstype" == "ext4" ]]; then
+                    # if boot not set and ext4, pick as boot candidate (but prefer labelled boot)
+                    # but don't clobber an already assigned root/home
+                    if [[ -z "$P_BOOT" ]]; then
+                        P_BOOT="$p"
+                    fi
+                elif [[ -z "$P_SWAP" && "$fstype" =~ ^(swap|linux-swap)$ ]]; then
+                    P_SWAP="$p"
+                elif [[ -z "$P_HOME" && "$fstype" =~ ^(ext4|xfs)$ ]]; then
+                    P_HOME="$p"
+                fi
+                ;;
+        esac
+    done
+
+    # Fallback: if some are still empty, try positional fallback (keeps previous behavior but less strict)
+    # This helps if labels weren't applied for some reason.
+    if [[ -z "$P_ROOT" || -z "$P_HOME" || ( "$MODE" == "BIOS" && -z "$P_BOOT" && -n "${PARTS[1]:-}" ) ]]; then
+        # Positional fallback: EFI/BIOS_GRUB might be at index 0
+        if [[ "$MODE" == "UEFI" ]]; then
+            [[ -z "$P_EFI" && -n "${PARTS[0]:-}" ]] && P_EFI="${PARTS[0]}"
+            [[ -z "$P_ROOT" && -n "${PARTS[1]:-}" ]] && P_ROOT="${PARTS[1]}"
+            if [[ "$SWAP_ON" == "1" ]]; then
+                [[ -z "$P_SWAP" && -n "${PARTS[2]:-}" ]] && P_SWAP="${PARTS[2]}"
+                [[ -z "$P_HOME" && -n "${PARTS[3]:-}" ]] && P_HOME="${PARTS[3]}"
+            else
+                [[ -z "$P_HOME" && -n "${PARTS[2]:-}" ]] && P_HOME="${PARTS[2]}"
+            fi
         else
-            P_HOME="${PARTS[2]}"
-        fi
-    else
-        # BIOS: first partition is bios_grub (tiny), second is /boot, third root, ...
-        [[ ${#PARTS[@]} -lt 3 ]] && die "Not enough partitions for BIOS mode (found ${#PARTS[@]})"
-        P_BIOS_GRUB="${PARTS[0]}"
-        P_BOOT="${PARTS[1]}"
-        P_ROOT="${PARTS[2]}"
-        if [[ "$SWAP_ON" == "1" ]]; then
-            [[ ${#PARTS[@]} -lt 5 ]] && die "Expected swap+home partitions but missing (found ${#PARTS[@]})"
-            P_SWAP="${PARTS[3]}"
-            P_HOME="${PARTS[4]}"
-        else
-            P_HOME="${PARTS[3]}"
+            [[ -z "$P_BIOS_GRUB" && -n "${PARTS[0]:-}" ]] && P_BIOS_GRUB="${PARTS[0]}"
+            [[ -z "$P_BOOT" && -n "${PARTS[1]:-}" ]] && P_BOOT="${PARTS[1]}"
+            [[ -z "$P_ROOT" && -n "${PARTS[2]:-}" ]] && P_ROOT="${PARTS[2]}"
+            if [[ "$SWAP_ON" == "1" ]]; then
+                [[ -z "$P_SWAP" && -n "${PARTS[3]:-}" ]] && P_SWAP="${PARTS[3]}"
+                [[ -z "$P_HOME" && -n "${PARTS[4]:-}" ]] && P_HOME="${PARTS[4]}"
+            else
+                [[ -z "$P_HOME" && -n "${PARTS[3]:-}" ]] && P_HOME="${PARTS[3]}"
+            fi
         fi
     fi
 
-    echo "Partition mapping (safe):"
-    [[ -n "$P_BIOS_GRUB" ]] && echo "  BIOS_GRUB : $P_BIOS_GRUB"
-    [[ -n "$P_EFI" ]]       && echo "  EFI       : $P_EFI"
-    [[ -n "$P_BOOT" ]]      && echo "  BOOT      : $P_BOOT"
-    echo "  ROOT      : $P_ROOT"
-    [[ -n "$P_SWAP" ]]      && echo "  SWAP      : $P_SWAP"
-    echo "  HOME      : $P_HOME"
+    # Final sanity: list what we found, and if anything critical is missing, give a friendly, actionable error
+    missing=()
+    [[ -z "$P_ROOT" ]] && missing+=("root")
+    if [[ "$MODE" == "UEFI" ]]; then
+        [[ -z "$P_EFI" ]] && missing+=("EFI")
+    else
+        [[ -z "$P_BIOS_GRUB" ]] && missing+=("bios_grub")
+        [[ -z "$P_BOOT" ]] && missing+=("/boot")
+    fi
+    [[ -z "$P_HOME" ]] && missing+=("home")
+    if [[ "$SWAP_ON" == "1" && -z "$P_SWAP" ]]; then
+        missing+=("swap")
+    fi
+
+    if [[ ${#missing[@]} -ne 0 ]]; then
+        echo "ERROR: could not auto-detect these required partitions: ${missing[*]}"
+        echo "Detected partitions (raw): ${PARTS[*]}"
+        echo "Detected mapping:"
+        [[ -n "$P_BIOS_GRUB" ]] && echo "  BIOS_GRUB : $P_BIOS_GRUB"
+        [[ -n "$P_EFI" ]]       && echo "  EFI       : $P_EFI"
+        [[ -n "$P_BOOT" ]]      && echo "  BOOT      : $P_BOOT"
+        [[ -n "$P_ROOT" ]]      && echo "  ROOT      : $P_ROOT"
+        [[ -n "$P_SWAP" ]]      && echo "  SWAP      : $P_SWAP"
+        [[ -n "$P_HOME" ]]      && echo "  HOME      : $P_HOME"
+        die "Partition mapping failed — check that partitioning succeeded and that labels (root/boot/home/swap) exist or try again."
+    fi
 
     # ---------------------------------------------------------------------
     # 2. Ensure mount points exist and nothing is accidentally mounted on /mnt
