@@ -610,23 +610,22 @@ install_grub() {
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
             --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
-   else # UEFI Mode
-        echo "→ Installing GRUB to ESP (UEFI Mode)..."
+    else # UEFI Mode
+        # FIX: Removed the TARGET_DISK argument. In UEFI, we only need to specify the 
+        # directory to prevent grub-install from incorrectly probing the LUKS partition.
+        echo "→ Installing GRUB to ESP (UEFI Mode). Disk target argument removed for LUKS compatibility."
         
         if ! mountpoint -q /mnt/boot/efi; then
              die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
         fi
 
-        # FIX: Explicitly specify the target disk ($TARGET_DISK) to prevent grub-install
-        # from incorrectly targeting the encrypted partition/device.
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=Arch \
             --modules="$GRUB_MODULES" \
             --recheck \
-            --removable \
-            "$TARGET_DISK" || die "GRUB UEFI install failed" # <-- ADDED TARGET_DISK HERE
+            --removable || die "GRUB UEFI install failed" # <-- TARGET_DISK removed here
         
         # Optional: Secure Boot Signing
         if arch-chroot /mnt command -v sbctl &>/dev/null; then
