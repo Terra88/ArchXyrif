@@ -1358,9 +1358,11 @@ partition_disk() {
     # ---------------------------------------------------------
     # PARTITION 3/4: HOME (Optional)
     # ---------------------------------------------------------
-    if [[ "$HOME_SIZE_MIB" -ne 0 ]]; then
+    # Check if a separate HOME partition was chosen (either manual size, or using all remaining space where HOME_SIZE_MIB is 0).
+    if (( HOME_SIZE_MIB > 0 )) || [[ -z "$HOME_SIZE_GIB_INPUT" ]]; then
         echo "→ Creating HOME partition..."
-        # If size is 0 (auto), it takes 100% of remaining
+        # Use 100% because if HOME_SIZE_MIB > 0, the disk has been calculated precisely,
+        # and if HOME_SIZE_MIB == 0, it means use the rest of the disk.
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
         parted -s "$DEV" name "$home_num" home # Set PARTLABEL
     fi
