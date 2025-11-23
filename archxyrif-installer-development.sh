@@ -462,9 +462,6 @@ pacstrap /mnt "${PKGS[@]}"
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
-#=========================================================================================================================================#
-# Configure system
-#=========================================================================================================================================#
 configure_system() {
 sleep 1
 clear
@@ -477,12 +474,13 @@ echo
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
 
-echo "#===================================================#"
-echo "#-Select a Time Zone Region:                         #"
-echo "#===================================================#"
-
 # Start the validation loop
 while true; do
+    clear # Clear screen on every iteration for a clean prompt
+    echo "#===================================================#"
+    echo "#-Select a Time Zone Region:                         #"
+    echo "#===================================================#"
+
     # Display the menu options *inside* the loop so the user sees it on repeated attempts
     echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
     echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
@@ -524,15 +522,17 @@ while true; do
         break # Exit the loop if valid
     else
         echo "⚠️ Invalid Time Zone entered. Please try again or use the default."
+        sleep 1 # Wait slightly so the user can see the error before the screen is cleared
         # The loop will restart, prompting for the choice again.
     fi
 done
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
-echo "#===================================================#"
-echo "#-Select a System Locale (LANG):                     #"
-echo "#===================================================#"
 while true; do
+    clear # Clear screen on every iteration for a clean prompt
+    echo "#===================================================#"
+    echo "#-Select a System Locale (LANG):                     #"
+    echo "#===================================================#"
     echo "1) 🇺🇸 English (US) - en_US.UTF-8"
     echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
     echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
@@ -563,6 +563,7 @@ while true; do
     else
         # The error message is printed inside check_locale_exists
         LOCALE_CHOICE=""
+        sleep 1 # Wait slightly so the user can see the error before the screen is cleared
         continue
     fi
 done
