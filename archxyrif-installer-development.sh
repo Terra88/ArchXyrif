@@ -580,17 +580,21 @@ install_grub() {
     # -----------------------------------------------------------------------------------
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
         echo "→ Configuring GRUB for Encrypted Root..."
-        # Enable Cryptodisk
+        # Enable Cryptodisk (Used by grub-mkconfig, but required for the LUKS path)
         arch-chroot /mnt bash -c "grep -q 'GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
         # Kernel Parameters
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
+            # Use LVM volume name if LVM is present, otherwise use the LUKS mapper name directly.
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
-            # Check if using LVM
             if [[ -n "$LVM_VG_NAME" ]]; then
+                # Example: root=/dev/mapper/vgname-rootlv
                 crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
+                # Example: root=/dev/mapper/cryptoroot
                 crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
             fi
+            
+            # Use sed to append the parameters to the default command line
             arch-chroot /mnt sed -i \
                 "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${crypt_params}\"|" \
                 /etc/default/grub
@@ -599,7 +603,7 @@ install_grub() {
     # -----------------------------------------------------------------------------------
     # 2. Define Modules
     # -----------------------------------------------------------------------------------
-    # Safe list for both BIOS & UEFI
+    # Safe list for all setups (includes LUKS/LVM support)
     local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
     # -----------------------------------------------------------------------------------
     # 3. Install GRUB Binary
@@ -611,21 +615,23 @@ install_grub() {
             --modules="$GRUB_MODULES" \
             --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
     else # UEFI Mode
-        # FIX: Removed the TARGET_DISK argument. In UEFI, we only need to specify the 
-        # directory to prevent grub-install from incorrectly probing the LUKS partition.
-        echo "→ Installing GRUB to ESP (UEFI Mode). Disk target argument removed for LUKS compatibility."
+        echo "→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation."
         
         if ! mountpoint -q /mnt/boot/efi; then
              die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
         fi
 
+        # FIX: The combination of TARGET_DISK (required for EFI) and 
+        # --skip-fs-probe (required to ignore the LUKS header) prevents the crash.
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=Arch \
             --modules="$GRUB_MODULES" \
             --recheck \
-            --removable || die "GRUB UEFI install failed" # <-- TARGET_DISK removed here
+            --removable \
+            --skip-fs-probe \
+            "$TARGET_DISK" || die "GRUB UEFI install failed" # <-- This is the fixed command
         
         # Optional: Secure Boot Signing
         if arch-chroot /mnt command -v sbctl &>/dev/null; then
@@ -639,9 +645,10 @@ install_grub() {
             fi
         fi
     # -----------------------------------------------------------------------------------
-    # 4. Generate Configuration (THE FIX: This now runs for BIOS AND UEFI)
+    # 4. Generate Configuration
     # -----------------------------------------------------------------------------------
     echo "→ Generating grub.cfg..."
+    # The GRUB_ENABLE_CRYPTODISK=y setting is finally read here.
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
     echo "✅ GRUB installation complete."
 }
