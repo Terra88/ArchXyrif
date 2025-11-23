@@ -581,27 +581,26 @@ install_grub() {
     # -----------------------------------------------------------------------------------
 
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-    
+
         echo "→ Enabling GRUB cryptodisk support..."
-    
+
         arch-chroot /mnt bash -c "
             sed -i '/^GRUB_ENABLE_CRYPTODISK/d' /etc/default/grub
             echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub
         "
-    
+
         echo "→ Configuring kernel parameters for encrypted root..."
-    
+
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
-    
+
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
-    
+
             if [[ -n "$LVM_VG_NAME" ]]; then
                 crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
                 crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
             fi
-    
-            # Append parameters safely
+
             arch-chroot /mnt bash -c "
                 sed -i \"s|^GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\(.*\\)\\\"|GRUB_CMDLINE_LINUX_DEFAULT=\\\"\\1 ${crypt_params}\\\"|\" /etc/default/grub
             "
@@ -609,43 +608,43 @@ install_grub() {
     fi
 
     # -----------------------------------------------------------------------------------
-    # 2. Define GRUB Modules (includes cryptodisk + luks)
+    # 2. GRUB Modules
     # -----------------------------------------------------------------------------------
 
-    local GRUB_MODULES=\"part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm\"
+    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
     # -----------------------------------------------------------------------------------
     # 3. Install GRUB
     # -----------------------------------------------------------------------------------
 
-    if [[ \"$MODE\" == \"BIOS\" ]]; then
+    if [[ "$MODE" == "BIOS" ]]; then
 
-        echo \"→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)...\"
+        echo "→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)..."
 
         arch-chroot /mnt grub-install \
             --target=i386-pc \
-            --modules=\"$GRUB_MODULES\" \
-            --recheck \"$TARGET_DISK\" \
-            || die \"GRUB BIOS install failed on $TARGET_DISK\"
+            --modules="$GRUB_MODULES" \
+            --recheck "$TARGET_DISK" \
+            || die "GRUB BIOS install failed on $TARGET_DISK"
 
     else
-        echo \"→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation...\"
+        echo "→ Installing GRUB to ESP (UEFI Mode) with LUKS crash mitigation..."
 
-        mountpoint -q /mnt/boot/efi || die \"EFI partition not mounted at /mnt/boot/efi.\"
+        mountpoint -q /mnt/boot/efi || die "EFI partition not mounted at /mnt/boot/efi."
 
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=Arch \
-            --modules=\"$GRUB_MODULES\" \
+            --modules="$GRUB_MODULES" \
             --skip-fs-probe \
             --recheck \
-            \"$TARGET_DISK\" \
-            || die \"GRUB UEFI install failed\"
+            "$TARGET_DISK" \
+            || die "GRUB UEFI install failed"
 
         # Secure Boot (optional)
         if arch-chroot /mnt command -v sbctl &>/dev/null; then
-            echo \"→ Secure Boot detected, signing GRUB and kernel...\"
+            echo "→ Secure Boot detected, signing GRUB and kernel..."
             arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
             arch-chroot /mnt sbctl enroll-keys --microsoft || true
             arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true
@@ -656,12 +655,13 @@ install_grub() {
     # -----------------------------------------------------------------------------------
     # 4. Generate grub.cfg
     # -----------------------------------------------------------------------------------
-    echo \"→ Generating grub.cfg...\"
+
+    echo "→ Generating grub.cfg..."
 
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg \
-        || die \"Failed to generate grub.cfg\"
+        || die "Failed to generate grub.cfg"
 
-    echo \"✅ GRUB installation complete.\"
+    echo "✅ GRUB installation complete."
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
