@@ -2232,27 +2232,20 @@ ask_yesno_default() {
             luks_type="luks1"
         fi
 
-        # --- KEYFILE WORKFLOW START ---
+        # --- LUKS FORMATTING (Set Passphrase) ---
         
-        # 1. Ask for the passphrase and create a temporary key file
-        echo "=========================================================="
-        echo "🔑 Enter the NEW LUKS PASSPHRASE twice now to set it."
-        echo "=========================================================="
+        echo "========================================================"
+        echo "🚨 ATTENTION: Please enter the NEW LUKS PASSPHRASE twice."
+        echo "   This password will secure your partition."
+        echo "========================================================"
         
-        # The 'luksFormat' command will prompt the user directly for the passphrase twice.
+        # This command runs interactively for the password input
         echo "YES" | cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "LUKS format failed"
         
-        # --- Create a key file for automatic opening ---
-        LUKS_KEYFILE="/tmp/${cryptname:-cryptlvm}.key"
-        
-        # This will ask the user for the new passphrase *one time* to write the key file.
-        echo "========================================================================="
-        echo "🔑 Enter the NEW PASSPHRASE one last time to create the temporary keyfile."
-        echo "   (This prevents the 'cryptsetup open failed' error in the script.)"
-        echo "========================================================================="
-        cryptsetup luksAddKey "$PART_LUKS" "$LUKS_KEYFILE" || die "Failed to add LUKS keyfile."
-        
-        # ask mapper name and ensure uniqueness (use the default if not set yet)
+        echo "✅ LUKS format complete."
+        # --- END LUKS FORMATTING ---
+
+        # ask mapper name and ensure uniqueness (This part is correctly placed now)
         while true; do
             read -rp "Name for mapped device (default cryptlvm): " cryptname
             cryptname="${cryptname:-cryptlvm}"
@@ -2265,15 +2258,15 @@ ask_yesno_default() {
 
         LUKS_MAPPER_NAME="$cryptname"
         
-        # 2. Open the device using the temporary key file (NO passphrase prompt)
-        echo "→ Opening LUKS device automatically using keyfile: /dev/mapper/${LUKS_MAPPER_NAME}"
-        cryptsetup open --key-file "$LUKS_KEYFILE" "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
+        # --- LUKS OPENING (Provide Passphrase) ---
+        echo "========================================================================="
+        echo "🔑 Enter the PASSPHRASE you JUST SET to open the device."
+        echo "   (This creates /dev/mapper/$LUKS_MAPPER_NAME)"
+        echo "========================================================================="
+        # The user must type the same password again here.
+        cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
         
-        # 3. Securely remove the temporary key file once the device is open
-        rm -f "$LUKS_KEYFILE"
-        echo "✅ Keyfile removed."
-        
-        # --- KEYFILE WORKFLOW END ---
+        # --- END LUKS OPENING ---
         
         BASE_DEVICE="/dev/mapper/${LUKS_MAPPER_NAME}"
         LUKS_PART_UUID=$(blkid -s UUID -o value "$PART_LUKS" || true)
