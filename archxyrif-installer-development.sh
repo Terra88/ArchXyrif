@@ -498,7 +498,7 @@ ask_partition_sizes() {
     done
 }
 #=========================================================================#
-# Partition disk (UEFI + BIOS) - corrected BIOS ordering (bios_grub -> /boot -> root ...)
+# Partition disk (UEFI + BIOS) - robust quick-mode version
 #=========================================================================#
 partition_disk() {
     [[ -z "$DEV" ]] && die "partition_disk(): DEV not set"
@@ -512,106 +512,80 @@ partition_disk() {
     local home_num boot_start boot_end bios_grub_start bios_grub_end
 
     # -------------------
-    # BIOS / UEFI reserved partitions
+    # BIOS / UEFI reserved partitions (MANDATORY for quick mode)
     # -------------------
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Creating mandatory BIOS GRUB reserved partition (1MiB EF02)..."
-        # BIOS_GRUB: 1MiB..2MiB (no filesystem). This is where GRUB core.img will embed on GPT.
+        echo "→ Creating mandatory BIOS GRUB reserved partition (1 MiB at start)..."
         bios_grub_start=1
-        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))    # typically 1 -> end = 2
+        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))   # BIOS_GRUB_SIZE_MIB default 1
         parted -s "$DEV" mkpart primary "${bios_grub_start}MiB" "${bios_grub_end}MiB" || die "Failed to create BIOS GRUB partition"
         parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
-        echo "  → bios_grub: ${bios_grub_start}MiB-${bios_grub_end}MiB (flagged bios_grub)"
-
-        # Next create a dedicated /boot partition (EXT4, 512 MiB)
-        boot_start=$bios_grub_end
-        boot_end=$((boot_start + BOOT_SIZE_MIB))                   # BOOT_SIZE_MIB default 512
-        echo "→ Creating /boot partition (${boot_start}MiB-${boot_end}MiB})..."
-        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB" || die "Failed to create /boot partition"
-        parted -s "$DEV" name 2 boot
-        echo "  → /boot: ${boot_start}MiB-${boot_end}MiB (named 'boot')"
-
-        # Set next start point to immediately after /boot
-        start=$boot_end
+        start=$bios_grub_end
 
     else
-        echo "→ Creating mandatory EFI System Partition (UEFI)..."
+        echo "→ Creating mandatory EFI System Partition..."
         start=1
-        end=$((start + EFI_SIZE_MIB))
+        end=$((start + EFI_SIZE_MIB))   # EFI_SIZE_MIB default 1024
         parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB" || die "Failed to create EFI partition"
         parted -s "$DEV" set 1 boot on
         parted -s "$DEV" set 1 esp on || true
         P_EFI_NUM=1
-        echo "  → EFI: ${start}MiB-${end}MiB (flagged esp/boot)"
         start=$end
     fi
 
     # -------------------
-    # ROOT partition (comes AFTER boot on BIOS, AFTER EFI on UEFI)
+    # ROOT partition
     # -------------------
     root_start=$start
     root_end=$((root_start + ROOT_SIZE_MIB))
-    echo "→ Creating ROOT partition (${root_start}MiB-${root_end}MiB}) of type $ROOT_FS..."
     parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
-    # Name the root partition consistently (use parted name for humans)
-    # Note: when BIOS created bios_grub + boot, partition numbers are:
-    #   1 = bios_grub, 2 = boot, 3 = root, ...
-    # when UEFI: 1 = esp, 2 = root, ...
-    parted -s "$DEV" name "$(parted -s "$DEV" print | awk '/^ /{print NR; exit}' 2>/dev/null || echo 2)" root 2>/dev/null || true
-    # We can't assume parted will always number the same way in the echo environment, the mapping below (format_and_mount) uses lsblk to detect actual paths.
+    parted -s "$DEV" name 2 root
 
     # -------------------
-    # SWAP partition
+    # SWAP partition (optional)
     # -------------------
     if [[ "$SWAP_ON" == "1" ]]; then
         swap_start=$root_end
         swap_end=$((swap_start + SWAP_SIZE_MIB))
-        echo "→ Creating SWAP partition (${swap_start}MiB-${swap_end}MiB})..."
         parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
-        parted -s "$DEV" name 4 swap || true
+        parted -s "$DEV" name 3 swap
         home_start=$swap_end
-        home_num=5
+        home_num=4
     else
         home_start=$root_end
-        # partition number differs between BIOS/UEFI but label will be set below
-        home_num=4
+        home_num=3
     fi
 
     # -------------------
-    # HOME partition (remaining)
+    # HOME partition (remaining space or fixed)
     # -------------------
     if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
-        echo "→ Creating HOME partition for remaining space..."
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
     else
         home_end=$((home_start + HOME_SIZE_MIB))
-        echo "→ Creating HOME partition (${home_start}MiB-${home_end}MiB})..."
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" "${home_end}MiB" || die "Failed to create HOME"
     fi
-    parted -s "$DEV" name "$home_num" home || true
+    parted -s "$DEV" name "$home_num" home
 
     # -------------------
-    # Refresh partition table + validation check (important)
+    # Refresh partition table
     # -------------------
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
     sleep 1
 
-    # Quick validation: check that bios_grub flag is present on BIOS systems
+    # For BIOS mode verify that the bios_grub flag exists in parted output (fail early)
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Verifying BIOS_GRUB flag..."
         if ! parted -s "$DEV" print | awk '/bios_grub/ {found=1} END{exit !found}'; then
-            echo "ERROR: BIOS_GRUB flag not found after partitioning. Output of 'parted print' follows:"
-            parted -s "$DEV" print
-            die "BIOS_GRUB flag missing! GRUB will fail."
+            die "BIOS_GRUB flag not visible in 'parted print' — grub may fail. Please re-run partitioning."
         fi
     fi
 
-    echo "✅ Partitioning completed. Verify with lsblk (device = $DEV):"
+    echo "✅ Partitioning completed. Verify with lsblk:"
     lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT -p "$DEV"
 }
 #=========================================================================#
-# Format & mount partitions (UEFI + BIOS)
+# Format & mount partitions (UEFI + BIOS) - robust mount logic (replace existing)
 #=========================================================================#
 format_and_mount() {
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
@@ -623,114 +597,145 @@ format_and_mount() {
     sleep 1
 
     # ---------------------------------------------------------------------
-    # 1. Map partitions according to MODE and SWAP
+    # 1. Read partition list and map them defensively
     # ---------------------------------------------------------------------
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
-    [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV"
+    [[ ${#PARTS[@]} -eq 0 ]] && die "No partitions found on $DEV (format_and_mount)"
+
+    # initialize
+    P_BIOS_GRUB="" P_BOOT="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
 
     if [[ "$MODE" == "UEFI" ]]; then
+        # Expect at least 3 partitions: EFI, ROOT, [SWAP], [HOME]
+        [[ ${#PARTS[@]} -lt 3 ]] && die "Not enough partitions for UEFI mode (found ${#PARTS[@]})"
         P_EFI="${PARTS[0]}"
         P_ROOT="${PARTS[1]}"
         if [[ "$SWAP_ON" == "1" ]]; then
+            [[ ${#PARTS[@]} -lt 4 ]] && die "Expected swap+home partitions but missing (found ${#PARTS[@]})"
             P_SWAP="${PARTS[2]}"
             P_HOME="${PARTS[3]}"
         else
             P_HOME="${PARTS[2]}"
         fi
     else
+        # BIOS: first partition is bios_grub (tiny), second is /boot, third root, ...
+        [[ ${#PARTS[@]} -lt 3 ]] && die "Not enough partitions for BIOS mode (found ${#PARTS[@]})"
         P_BIOS_GRUB="${PARTS[0]}"
         P_BOOT="${PARTS[1]}"
         P_ROOT="${PARTS[2]}"
         if [[ "$SWAP_ON" == "1" ]]; then
-            P_SWAP="${PARTS[3]:-}"
-            P_HOME="${PARTS[4]:-}"
+            [[ ${#PARTS[@]} -lt 5 ]] && die "Expected swap+home partitions but missing (found ${#PARTS[@]})"
+            P_SWAP="${PARTS[3]}"
+            P_HOME="${PARTS[4]}"
         else
-            P_HOME="${PARTS[3]:-}"
+            P_HOME="${PARTS[3]}"
         fi
     fi
 
-    echo "Partition mapping:"
+    echo "Partition mapping (safe):"
     [[ -n "$P_BIOS_GRUB" ]] && echo "  BIOS_GRUB : $P_BIOS_GRUB"
-    [[ -n "$P_EFI" ]] && echo "  EFI       : $P_EFI"
-    [[ -n "$P_BOOT" ]] && echo "  BOOT      : $P_BOOT"
+    [[ -n "$P_EFI" ]]       && echo "  EFI       : $P_EFI"
+    [[ -n "$P_BOOT" ]]      && echo "  BOOT      : $P_BOOT"
     echo "  ROOT      : $P_ROOT"
-    [[ -n "$P_SWAP" ]] && echo "  SWAP      : $P_SWAP"
+    [[ -n "$P_SWAP" ]]      && echo "  SWAP      : $P_SWAP"
     echo "  HOME      : $P_HOME"
 
     # ---------------------------------------------------------------------
-    # 2. Create mount points
+    # 2. Ensure mount points exist and nothing is accidentally mounted on /mnt
     # ---------------------------------------------------------------------
     mkdir -p /mnt /mnt/home /mnt/boot /mnt/boot/efi
 
+    # Safety: if any of our target devices are mounted at /mnt, error out (forces fix)
+    for dev in "$P_ROOT" "$P_BOOT" "$P_EFI" "$P_HOME" "$P_SWAP"; do
+        [[ -z "$dev" ]] && continue
+        if mountpoint -q /mnt && grep -q "^$dev " /proc/mounts; then
+            die "$dev appears to be already mounted on /mnt — aborting to prevent accidental overwrite. Unmount it and retry."
+        fi
+    done
+
+    # Unmount stale mounts for these devices if they are mounted somewhere else,
+    # but be conservative: only unmount the specific device, not its parent mountpoints.
+    for dev in "$P_ROOT" "$P_BOOT" "$P_EFI" "$P_HOME"; do
+        [[ -z "$dev" ]] && continue
+        # if device is mounted somewhere, unmount it to ensure clean state
+        if mount | awk '{print $1}' | grep -qx "$dev"; then
+            echo "→ Unmounting stale mount for $dev"
+            umount -l "$dev" 2>/dev/null || umount "$dev" 2>/dev/null || true
+        fi
+    done
+
     # ---------------------------------------------------------------------
-    # 3. Format EFI or BIOS boot
+    # 3. Format EFI or BIOS boot partition *only* (do not mount to /mnt yet)
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
-        echo "→ Formatting EFI partition..."
-        mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed"
+        echo "→ Formatting EFI partition $P_EFI ..."
+        mkfs.fat -F32 -n EFI "$P_EFI" || die "mkfs.fat EFI failed on $P_EFI"
     elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
-        echo "→ Formatting BIOS /boot partition..."
-        mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed"
-        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT /boot"
+        echo "→ Formatting BIOS /boot partition $P_BOOT ..."
+        mkfs.ext4 -F -L boot "$P_BOOT" || die "mkfs.ext4 /boot failed on $P_BOOT"
     fi
 
     # ---------------------------------------------------------------------
-    # 4. Format SWAP
+    # 4. Format SWAP if present
     # ---------------------------------------------------------------------
     if [[ "$SWAP_ON" == "1" && -n "$P_SWAP" ]]; then
-        echo "→ Creating swap..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
+        echo "→ Creating swap on $P_SWAP ..."
+        mkswap -L swap "$P_SWAP" || die "mkswap failed on $P_SWAP"
+        swapon "$P_SWAP" || die "swapon failed on $P_SWAP"
     fi
 
     # ---------------------------------------------------------------------
-    # 5. Format & mount ROOT
+    # 5. FORMAT & MOUNT ROOT (this must be the only thing mounted on /mnt)
     # ---------------------------------------------------------------------
-    [[ -z "$P_ROOT" ]] && die "ROOT partition not found"
-
-    echo "→ Formatting ROOT ($ROOT_FS)..."
+    echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT ..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-        btrfs subvolume create /mnt/@
-        umount /mnt
-        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt
+        mkfs.btrfs -f -L root "$P_ROOT" || die "mkfs.btrfs failed on $P_ROOT"
+        mount "$P_ROOT" /mnt || die "mount $P_ROOT -> /mnt failed"
+        # create subvol and remount properly
+        btrfs subvolume create /mnt/@ || echo "→ Warning: subvolume @ might already exist"
+        umount /mnt || die "umount /mnt failed after subvolume create"
+        mount -o subvol=@,noatime,compress=zstd "$P_ROOT" /mnt || die "mount (subvol=@) failed"
     else
-        mkfs.ext4 -F -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
+        mkfs.ext4 -F -L root "$P_ROOT" || die "mkfs.ext4 failed on $P_ROOT"
+        mount "$P_ROOT" /mnt || die "mount $P_ROOT -> /mnt failed"
     fi
 
     # ---------------------------------------------------------------------
-    # 6. Format & mount HOME
+    # 6. Ensure boot directories exist inside the newly-mounted root
     # ---------------------------------------------------------------------
-    mkdir -p /mnt/home
-    if [[ -n "$P_HOME" ]]; then
-        echo "→ Formatting HOME ($HOME_FS)..."
-        if [[ "$HOME_FS" == "btrfs" ]]; then
-            mkfs.btrfs -f -L home "$P_HOME"
-            mount "$P_HOME" /mnt/home
-            btrfs subvolume create /mnt/home/@home
-            umount /mnt/home
-            mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home
-        else
-            mkfs.ext4 -F -L home "$P_HOME"
-            mount "$P_HOME" /mnt/home
-        fi
+    mkdir -p /mnt/boot /mnt/boot/efi /mnt/home
+
+    # ---------------------------------------------------------------------
+    # 7. Format & mount HOME
+    # ---------------------------------------------------------------------
+    echo "→ Formatting HOME ($HOME_FS) on $P_HOME ..."
+    if [[ "$HOME_FS" == "btrfs" ]]; then
+        mkfs.btrfs -f -L home "$P_HOME" || die "mkfs.btrfs failed on $P_HOME"
+        mount "$P_HOME" /mnt/home || die "mount $P_HOME -> /mnt/home failed (temp)"
+        btrfs subvolume create /mnt/home/@home || echo "→ Warning: subvolume @home may already exist"
+        umount /mnt/home || true
+        mount -o subvol=@home,noatime,compress=zstd "$P_HOME" /mnt/home || die "mount (home subvol) failed"
+    else
+        mkfs.ext4 -F -L home "$P_HOME" || die "mkfs.ext4 failed on $P_HOME"
+        mount "$P_HOME" /mnt/home || die "mount $P_HOME -> /mnt/home failed"
     fi
 
     # ---------------------------------------------------------------------
-    # 7. Mount EFI or BIOS boot to proper path
+    # 8. Mount boot/efi into the root's boot path (after root is mounted)
     # ---------------------------------------------------------------------
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
-        mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI"
+        echo "→ Mounting ESP $P_EFI -> /mnt/boot/efi ..."
+        mount "$P_EFI" /mnt/boot/efi || die "FAILED TO MOUNT EFI ($P_EFI → /mnt/boot/efi)"
+    elif [[ "$MODE" == "BIOS" && -n "$P_BOOT" ]]; then
+        echo "→ Mounting /boot $P_BOOT -> /mnt/boot ..."
+        mount "$P_BOOT" /mnt/boot || die "FAILED TO MOUNT BOOT ($P_BOOT → /mnt/boot)"
     fi
 
     # ---------------------------------------------------------------------
-    # 8. Generate fstab
+    # 9. Generate fstab inside the new root
     # ---------------------------------------------------------------------
     mkdir -p /mnt/etc
-    genfstab -U /mnt >> /mnt/etc/fstab
+    genfstab -U /mnt >> /mnt/etc/fstab || die "genfstab failed"
 
     echo "✅ All partitions formatted and mounted successfully."
 }
