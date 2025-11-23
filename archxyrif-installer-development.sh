@@ -511,17 +511,24 @@ partition_disk() {
     local start end root_start root_end swap_start swap_end home_start home_end
     local home_num boot_start boot_end bios_grub_start bios_grub_end
 
-    # -------------------
-    # BIOS / UEFI reserved partitions (MANDATORY for quick mode)
-    # -------------------
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Creating mandatory BIOS GRUB reserved partition (1 MiB at start)..."
+        echo "→ Creating BIOS GRUB mandatory partition..."
         bios_grub_start=1
-        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))   # BIOS_GRUB_SIZE_MIB default 1
+        bios_grub_end=$((bios_grub_start + BIOS_GRUB_SIZE_MIB))
         parted -s "$DEV" mkpart primary "${bios_grub_start}MiB" "${bios_grub_end}MiB" || die "Failed to create BIOS GRUB partition"
         parted -s "$DEV" set 1 bios_grub on || die "Failed to set bios_grub flag"
-        start=$bios_grub_end
-
+    
+        # ---------------------------------------
+        # Create REAL /boot partition (EXT4 512 MiB)
+        # ---------------------------------------
+        boot_start=$bios_grub_end
+        boot_end=$((boot_start + 512))  # <-- 512MiB boot
+        echo "→ Creating BIOS /boot partition (${boot_start}MiB - ${boot_end}MiB)..."
+        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB" || die "Failed to create /boot"
+        parted -s "$DEV" name 2 boot
+        P_BOOT_NUM=2
+    
+        start=$boot_end
     else
         echo "→ Creating mandatory EFI System Partition..."
         start=1
@@ -539,25 +546,25 @@ partition_disk() {
     root_start=$start
     root_end=$((root_start + ROOT_SIZE_MIB))
     parted -s "$DEV" mkpart primary "$ROOT_FS" "${root_start}MiB" "${root_end}MiB" || die "Failed to create ROOT"
-    parted -s "$DEV" name 2 root
-
+    parted -s "$DEV" name 3 root
+    
     # -------------------
-    # SWAP partition (optional)
+    # SWAP partition
     # -------------------
     if [[ "$SWAP_ON" == "1" ]]; then
         swap_start=$root_end
         swap_end=$((swap_start + SWAP_SIZE_MIB))
         parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
-        parted -s "$DEV" name 3 swap
+        parted -s "$DEV" name 4 swap
         home_start=$swap_end
-        home_num=4
+        home_num=5
     else
         home_start=$root_end
-        home_num=3
+        home_num=4
     fi
-
+    
     # -------------------
-    # HOME partition (remaining space or fixed)
+    # HOME partition
     # -------------------
     if [[ "$HOME_SIZE_MIB" -eq 0 ]]; then
         parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
