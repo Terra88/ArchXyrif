@@ -543,7 +543,7 @@ partition_disk() {
         # Create REAL /boot partition (ext4 512MiB)
         # ---------------------------------------
         boot_start=$end
-        boot_end=$((boot_start + 1024))
+        boot_end=$((boot_start + 512))
         parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB" || die "Failed to create /boot partition"
         parted -s "$DEV" name 2 boot
         P_BOOT_NUM=2
