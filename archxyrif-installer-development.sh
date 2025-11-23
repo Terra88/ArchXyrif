@@ -2644,6 +2644,9 @@ ask_yesno_default() {
 
     # store common globals for post-install step
     export LVM_VG_NAME="$VGNAME"
+    # >>>:
+    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}" 
+    # <<<
     export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
     export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
     export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
