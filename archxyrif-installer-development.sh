@@ -610,25 +610,27 @@ install_grub() {
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
             --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
-    else # UEFI Mode
-            echo "→ Installing GRUB to ESP (UEFI Mode)..."
-            
-            if ! mountpoint -q /mnt/boot/efi; then
-                 die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
-            fi
-    
-            # >>> FIX: Added --removable flag for robustness in complex/encrypted layouts
-            arch-chroot /mnt grub-install \
-                --target=x86_64-efi \
-                --efi-directory=/boot/efi \
-                --bootloader-id=Arch \
-                --modules="$GRUB_MODULES" \
-                --recheck \
-                --removable || die "GRUB UEFI install failed" 
-                # <<<
-    
-            # Optional: Secure Boot Signing
-            if arch-chroot /mnt command -v sbctl &>/dev/null; then
+   else # UEFI Mode
+        echo "→ Installing GRUB to ESP (UEFI Mode)..."
+        
+        if ! mountpoint -q /mnt/boot/efi; then
+             die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
+        fi
+
+        # FIX: Explicitly specify the target disk ($TARGET_DISK) to prevent grub-install
+        # from incorrectly targeting the encrypted partition/device.
+        arch-chroot /mnt grub-install \
+            --target=x86_64-efi \
+            --efi-directory=/boot/efi \
+            --bootloader-id=Arch \
+            --modules="$GRUB_MODULES" \
+            --recheck \
+            --removable \
+            "$TARGET_DISK" || die "GRUB UEFI install failed" # <-- ADDED TARGET_DISK HERE
+        
+        # Optional: Secure Boot Signing
+        if arch-chroot /mnt command -v sbctl &>/dev/null; then
+        
                 echo "→ Secure Boot detected, signing GRUB and kernel..."
                 arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
                 arch-chroot /mnt sbctl enroll-keys --microsoft || true
@@ -2222,10 +2224,12 @@ ask_yesno_default() {
     # Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
         ENCRYPTION_ENABLED=1
+        
+        local luks_type # <--- This defines the variable used in the command below
         if ask_yesno_default "Use LUKS2 (recommended)? [Y/n]:" "Y"; then
-            cryptsetup luksFormat --type luks2 "$PART_LUKS" || die "luksFormat failed"
+            luks_type="luks2"
         else
-            cryptsetup luksFormat "$PART_LUKS" || die "luksFormat failed"
+            luks_type="luks1"
         fi
 
         # ask mapper name and ensure uniqueness
@@ -2431,8 +2435,8 @@ ask_yesno_default() {
 
     # store common globals for post-install step
     export LVM_VG_NAME="$VGNAME"
-    # >>>:
-    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}" 
+    # >>> CHANGE IS HERE:
+    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}"  
     # <<<
     export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
     export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
