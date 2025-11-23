@@ -120,10 +120,6 @@ part_suffix() {
 }
 #==========LANGLOCALHELPER============#
 # Helper function to check if a file/path exists in the mounted system
-# Helper function to check if a file/path exists in the mounted system or the live environment.
-# Usage: check_file_exists "/path/to/check" "Name of config value"
-# Helper function to check if a file/path exists in the mounted system or the live environment.
-# Usage: check_file_exists "/path/to/check" "Name of config value"
 check_file_exists() {
     local mounted_path="/mnt$1"
     local live_path="$1"
@@ -574,52 +570,35 @@ DEFAULT_KEYMAP="fi"
 echo "#===================================================#"
 echo "#-Select a Keyboard Keymap:                          #"
 echo "#===================================================#"
-while true; do
-    echo "1) 🇺🇸 US (standard QWERTY)"
-    echo "2) 🇬🇧 UK"
-    echo "3) 🇫🇷 FR (AZERTY)"
-    echo "4) 🇩🇪 DE"
-    echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
-    echo "6) Custom Keymap (e.g., dvorak, se, es)"
+# Removed the file validation loop to allow selection to proceed even if keymaps are missing in the live environment.
+# We trust the keymap will be correct after 'kbd' is installed in the base system.
 
-    read -r -p "Enter choice [5]: " KEYMAP_CHOICE
-    KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
+echo "1) 🇺🇸 US (standard QWERTY)"
+echo "2) 🇬🇧 UK"
+echo "3) 🇫🇷 FR (AZERTY)"
+echo "4) 🇩🇪 DE"
+echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
+echo "6) Custom Keymap (e.g., dvorak, se, es)"
 
-    case $KEYMAP_CHOICE in
-        1) KEYMAP="us" ;;
-        2) KEYMAP="uk" ;;
-        3) KEYMAP="fr" ;;
-        4) KEYMAP="de" ;;
-        6)
-            # Custom input, with fallback to default
-            read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
-            KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
-            ;;
-        5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
-    esac
-    
-    # CRITICAL FIX: Convert keymap to lowercase before validation, as files are lowercase (e.g., us.map.gz)
-    KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
-    
-    # --- Robustness Check for Minimal Environments ---
-    KEYMAPS_DIR="/usr/share/kbd/keymaps"
-    if [ ! -d "$KEYMAPS_DIR" ]; then
-        echo "⚠️ Warning: Keymaps directory ($KEYMAPS_DIR) not found in live environment."
-        echo "Skipping file validation, assuming keymap (${KEYMAP}) will be available after base install."
-        echo "✅ Keymap set to: ${KEYMAP}"
-        break # Skip validation and continue
-    fi
-    # ------------------------------------------------
+read -r -p "Enter choice [5]: " KEYMAP_CHOICE
+KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
 
-    # Original Validation: Must exist as a .map.gz file in /usr/share/kbd/keymaps/ on either target or live system
-    if check_file_exists "/usr/share/kbd/keymaps/${KEYMAP}.map.gz" "Keymap (${KEYMAP})"; then
-        echo "✅ Keymap set to: ${KEYMAP}"
-        break # Exit the loop if valid
-    else
-        echo "⚠️ Invalid Keymap entered or file missing. Please try again or use the default."
-        KEYMAP_CHOICE=""
-    fi
-done
+case $KEYMAP_CHOICE in
+    1) KEYMAP="us" ;;
+    2) KEYMAP="uk" ;;
+    3) KEYMAP="fr" ;;
+    4) KEYMAP="de" ;;
+    6)
+        # Custom input, with fallback to default
+        read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
+        KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+        ;;
+    5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
+esac
+
+# Ensure keymap is lowercase for consistency in vconsole.conf
+KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
+echo "✅ Keymap set to: ${KEYMAP}"
 echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
