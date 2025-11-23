@@ -120,6 +120,8 @@ part_suffix() {
 }
 #==========LANGLOCALHELPER============#
 # Helper function to check if a file/path exists in the mounted system
+# Helper function to check if a file/path exists in the mounted system or the live environment.
+# Usage: check_file_exists "/path/to/check" "Name of config value"
 check_file_exists() {
     local mounted_path="/mnt$1"
     local live_path="$1"
@@ -592,6 +594,10 @@ while true; do
             ;;
         5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
     esac
+    
+    # CRITICAL FIX: Convert keymap to lowercase before validation, as files are lowercase (e.g., us.map.gz)
+    KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
+    
     # Validation for Keymap: Must exist as a .map.gz file in /usr/share/kbd/keymaps/ on either target or live system
     if check_file_exists "/usr/share/kbd/keymaps/${KEYMAP}.map.gz" "Keymap (${KEYMAP})"; then
         echo "✅ Keymap set to: ${KEYMAP}"
