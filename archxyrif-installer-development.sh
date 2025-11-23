@@ -532,23 +532,17 @@ partition_disk() {
     else
         echo "→ Creating mandatory EFI System Partition..."
         start=1
-        end=$((start + EFI_SIZE_MIB))
+        end=1025  # 1024 MiB ESP
         parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB" || die "Failed to create EFI partition"
         parted -s "$DEV" set 1 boot on
         parted -s "$DEV" set 1 esp on || true
         parted -s "$DEV" name 1 efi
         P_EFI_NUM=1
     
-        # ---------------------------------------
-        # Create REAL /boot partition (ext4 512MiB)
-        # ---------------------------------------
-        boot_start=$end
-        boot_end=$((boot_start + 512))
-        parted -s "$DEV" mkpart primary ext4 "${boot_start}MiB" "${boot_end}MiB" || die "Failed to create /boot partition"
-        parted -s "$DEV" name 2 boot
-        P_BOOT_NUM=2
+        # Format ESP
+        mkfs.vfat -F32 -n EFI "${DEV}${P_EFI_NUM}" || die "Failed to format EFI partition"
     
-        start=$boot_end
+        start=$end  # remaining space for root, swap, home
     fi
 
     # -------------------
