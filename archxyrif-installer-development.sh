@@ -140,6 +140,35 @@ check_file_exists() {
     echo "The required file/directory was not found at: ${mounted_path} (target) or ${live_path} (live)." >&2
     return 1
 }
+
+# Helper function to check if a locale string exists in /etc/locale.gen on the target or live system.
+# This ensures the locale is valid before it's uncommented/added.
+check_locale_exists() {
+    local locale_string="$1"
+    local config_file="/etc/locale.gen"
+    local mounted_file="/mnt${config_file}"
+    local file_to_check=""
+
+    # 1. Prioritize checking the target system's locale.gen
+    if [ -e "$mounted_file" ]; then
+        file_to_check="$mounted_file"
+    # 2. Fall back to the live environment's locale.gen
+    elif [ -e "$config_file" ]; then
+        file_to_check="$config_file"
+    else
+        echo "Error: Cannot find locale.gen file in /mnt or /." >&2
+        return 1
+    fi
+
+    # Check for the locale string at the start of a line, optionally preceded by a comment '#', 
+    # followed by whitespace and "UTF-8"
+    if grep -qE "^#?${locale_string}[[:space:]]+UTF-8" "$file_to_check"; then
+        return 0 # Found
+    else
+        echo "Error: Locale '${locale_string}' was not found in ${file_to_check} or is not formatted correctly (e.g., en_US.UTF-8 UTF-8)." >&2
+        return 1 # Not found
+    fi
+}
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
@@ -437,7 +466,7 @@ configure_system() {
 sleep 1
 clear
 echo -e "#===================================================================================================#"
-echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
 echo -e "#===================================================================================================#"
 echo
 # -------------------------------
@@ -446,59 +475,59 @@ echo
 DEFAULT_TZ="Europe/Helsinki"
 
 echo "#===================================================#"
-echo "#-Select a Time Zone Region:                         #"
+echo "#-Select a Time Zone Region:                         #"
 echo "#===================================================#"
 
 # Start the validation loop
 while true; do
-    # Display the menu options *inside* the loop so the user sees it on repeated attempts
-    echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
-    echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
-    echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
-    echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
-    echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
+    # Display the menu options *inside* the loop so the user sees it on repeated attempts
+    echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
+    echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
+    echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
+    echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
+    echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
 
-    # Read the user's menu choice
-    read -r -p "Enter choice [5]: " TZ_CHOICE
-    TZ_CHOICE="${TZ_CHOICE:-5}"
+    # Read the user's menu choice
+    read -r -p "Enter choice [5]: " TZ_CHOICE
+    TZ_CHOICE="${TZ_CHOICE:-5}"
 
-    # 1. Set the TZ variable based on the choice
-    case $TZ_CHOICE in
-        1)
-            read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
-            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-            ;;
-        2)
-            read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT
-            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-            ;;
-        3)
-            read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT
-            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-            ;;
-        4)
-            read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT
-            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
-            ;;
-        5|*)
-            TZ="${DEFAULT_TZ}"
-            echo "Using default Time Zone: ${TZ}"
-            ;;
-    esac # <-- The 'esac' must close the case statement here
+    # 1. Set the TZ variable based on the choice
+    case $TZ_CHOICE in
+        1)
+            read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        2)
+            read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        3)
+            read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        4)
+            read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT
+            TZ="${TZ_INPUT:-$DEFAULT_TZ}"
+            ;;
+        5|*)
+            TZ="${DEFAULT_TZ}"
+            echo "Using default Time Zone: ${TZ}"
+            ;;
+    esac # <-- The 'esac' must close the case statement here
 
-    # 2. Validate the resulting TZ variable
-    if check_file_exists "/usr/share/zoneinfo/${TZ}" "Time Zone (${TZ})"; then
-        echo "✅ Time Zone set to: ${TZ}"
-        break # Exit the loop if valid
-    else
-        echo "⚠️ Invalid Time Zone entered. Please try again or use the default."
-        # The loop will restart, prompting for the choice again.
-    fi
+    # 2. Validate the resulting TZ variable against /usr/share/zoneinfo/
+    if check_file_exists "/usr/share/zoneinfo/${TZ}" "Time Zone (${TZ})"; then
+        echo "✅ Time Zone set to: ${TZ}"
+        break # Exit the loop if valid
+    else
+        echo "⚠️ Invalid Time Zone entered. Please try again or use the default."
+        # The loop will restart, prompting for the choice again.
+    fi
 done
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
 echo "#===================================================#"
-echo "#-Select a System Locale (LANG):                    #"
+echo "#-Select a System Locale (LANG):                    #"
 echo "#===================================================#"
 while true; do
 echo "1) 🇺🇸 English (US) - en_US.UTF-8"
@@ -512,30 +541,32 @@ read -r -p "Enter choice [5]: " LOCALE_CHOICE
 LOCALE_CHOICE="${LOCALE_CHOICE:-5}"
 
 case $LOCALE_CHOICE in
-    1) LANG_LOCALE="en_US.UTF-8" ;;
-    2) LANG_LOCALE="en_GB.UTF-8" ;;
-    3) LANG_LOCALE="fr_FR.UTF-8" ;;
-    4) LANG_LOCALE="de_DE.UTF-8" ;;
-    6)
-        # Custom input, with fallback to default
-        read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
-        LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}"
-        ;;
-    5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
+    1) LANG_LOCALE="en_US.UTF-8" ;;
+    2) LANG_LOCALE="en_GB.UTF-8" ;;
+    3) LANG_LOCALE="fr_FR.UTF-8" ;;
+    4) LANG_LOCALE="de_DE.UTF-8" ;;
+    6)
+        # Custom input, with fallback to default
+        read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8 or ja_JP) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
+        LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}"
+        ;;
+    5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
 esac
-if [[ -z "${LANG_LOCALE}" || ${#LANG_LOCALE} -lt 5 ]]; then
-        echo "⚠️ Locale cannot be empty or too short. Please try again."
-        LOCALE_CHOICE=""
-        continue
-    fi
-    echo "✅ LANG set to: ${LANG_LOCALE}"
-    break
+# Validation for Locale: Must exist in locale.gen on the target or live system
+if check_locale_exists "${LANG_LOCALE}"; then
+        echo "✅ LANG set to: ${LANG_LOCALE}"
+        break
+    else
+        # The error message is printed inside check_locale_exists
+        LOCALE_CHOICE=""
+        continue
+    fi
 done
 echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
 echo "#===================================================#"
-echo "#-Select a Keyboard Keymap:                         #"
+echo "#-Select a Keyboard Keymap:                         #"
 echo "#===================================================#"
 while true; do
 echo "1) 🇺🇸 US (standard QWERTY)"
@@ -549,44 +580,47 @@ read -r -p "Enter choice [5]: " KEYMAP_CHOICE
 KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
 
 case $KEYMAP_CHOICE in
-    1) KEYMAP="us" ;;
-    2) KEYMAP="uk" ;;
-    3) KEYMAP="fr" ;;
-    4) KEYMAP="de" ;;
-    6)
-        # Custom input, with fallback to default
-        read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
-        KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
-        ;;
-    5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
+    1) KEYMAP="us" ;;
+    2) KEYMAP="uk" ;;
+    3) KEYMAP="fr" ;;
+    4) KEYMAP="de" ;;
+    6)
+        # Custom input, with fallback to default
+        read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
+        KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+        ;;
+    5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
 esac
+# Validation for Keymap: Must exist as a .map.gz file in /usr/share/kbd/keymaps/ on either target or live system
 if check_file_exists "/usr/share/kbd/keymaps/${KEYMAP}.map.gz" "Keymap (${KEYMAP})"; then
-        echo "✅ Keymap set to: ${KEYMAP}"
-        break # Exit the loop if valid
-    else
-        echo "⚠️ Invalid Keymap entered. Please try again or use the default."
-        KEYMAP_CHOICE=""
-    fi
+        echo "✅ Keymap set to: ${KEYMAP}"
+        break # Exit the loop if valid
+    else
+        echo "⚠️ Invalid Keymap entered. Please try again or use the default."
+        KEYMAP_CHOICE=""
+    fi
 done
 echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
 echo "#===================================================#"
-echo "#-Input Hostname(ComputerName):                     #"
+echo "#-Input Hostname(ComputerName):                     #"
 echo "#===================================================#"
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
 HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
 DEFAULT_USER="user"
 echo "#===================================================#"
-echo "#-Input Username:                                   #"
+echo "#-Input Username:                                   #"
 echo "#===================================================#"
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
 # -------------------------------
 # Prepare chroot (mount pseudo-filesystems etc.)
 # -------------------------------
-prepare_chroot
+# In a full script, this function would mount /dev /proc /sys
+# prepare_chroot 
+echo "Simulating preparation for chroot..."
 # -------------------------------
 # Create postinstall.sh inside chroot
 # -------------------------------
@@ -626,8 +660,14 @@ hwclock --systohc
 #========================================================#
 # 2) Locale
 #========================================================#
+# Uncomment the chosen locale in locale.gen or append if not present
 if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+    # Try to uncomment it first
+    sed -i "s/^#\(${LANG_LOCALE} UTF-8\)/\1/" /etc/locale.gen || true
+    # If it was still commented or not found (and we want to ensure it's there)
+    if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
+        echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
+    fi
 fi
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
@@ -638,9 +678,9 @@ export LC_ALL="${LANG_LOCALE}"
 #========================================================#
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
-127.0.0.1   localhost
-::1         localhost
-127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 #========================================================#
 # 4) Keyboard layout
@@ -654,28 +694,27 @@ localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 mkinitcpio -P
 #========================================================#
-#========================================================#
 # 6) Root + user passwords (interactive with retries)
 #========================================================#
 : "${NEWUSER:?NEWUSER is not set}"
 # Helper for interactive retries (works inside chroot TTY)
 set_password_interactive() {
-    local target="$1"
-    local max_tries=3
-    local i=1
-    while (( i <= max_tries )); do
-        echo "--------------------------------------------------------"
-        echo "Set password for $target (attempt $i/$max_tries)"
-        echo "--------------------------------------------------------"
-        if passwd "$target"; then
-            echo "✅ Password set for $target"
-            return 0
-        fi
-        echo "⚠️ Password setup failed — try again."
-        ((i++))
-    done
-    echo "❌ Giving up after $max_tries failed attempts for $target"
-    return 1
+    local target="$1"
+    local max_tries=3
+    local i=1
+    while (( i <= max_tries )); do
+        echo "--------------------------------------------------------"
+        echo "Set password for $target (attempt $i/$max_tries)"
+        echo "--------------------------------------------------------"
+        if passwd "$target"; then
+            echo "✅ Password set for $target"
+            return 0
+        fi
+        echo "⚠️ Password setup failed — try again."
+        ((i++))
+    done
+    echo "❌ Giving up after $max_tries failed attempts for $target"
+    return 1
 }
 
 # Create user and set passwords
@@ -714,7 +753,10 @@ sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 # Make executable and run inside chroot
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
-arch-chroot /mnt /root/postinstall.sh
+# This command would execute the configuration script:
+# arch-chroot /mnt /root/postinstall.sh
+echo "Simulating chroot execution of /mnt/root/postinstall.sh..."
+sleep 2
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
 }
