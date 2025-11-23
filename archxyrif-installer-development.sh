@@ -959,7 +959,6 @@ install_grub_quick(){
 
     echo "✅ GRUB installation complete."
 }
-}
 install_grub() {
     detect_boot_mode
     local ps
