@@ -566,21 +566,36 @@ echo "✅ System configured."
 #=========================================================================================================================================#
 # GRUB installation
 #=========================================================================================================================================#
-install_grub_quick(){
-   detect_boot_mode
+install_grub() {
+    detect_boot_mode
     echo "🛈 Installing Bootloader (GRUB)..."
 
-    # 1. Configuration for LVM/LUKS (Pre-Install)
+    # -----------------------------------------------------------------------------------
+    # SMART DISK SELECTION
+    # -----------------------------------------------------------------------------------
+    # 1. Custom Wizard sets 'BOOT_LOADER_DISK'.
+    # 2. Quick Wizard sets 'DEV'.
+    # We prefer BOOT_LOADER_DISK if it exists.
+    local TARGET_DISK="${BOOT_LOADER_DISK:-$DEV}"
+
+    if [[ -z "$TARGET_DISK" ]]; then
+        die "install_grub: No target disk defined. (DEV and BOOT_LOADER_DISK are empty)"
+    fi
+    echo "→ Target Disk: $TARGET_DISK"
+
+    # -----------------------------------------------------------------------------------
+    # 1. Encryption Configuration
+    # -----------------------------------------------------------------------------------
     if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
         echo "→ Configuring GRUB for Encrypted Root..."
-        
         # Enable Cryptodisk
         arch-chroot /mnt bash -c "grep -q 'GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
 
-        # Configure Kernel Parameters
+        # Kernel Parameters
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
             
+            # Check if using LVM
             if [[ -n "$LVM_VG_NAME" ]]; then
                 crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
@@ -593,20 +608,22 @@ install_grub_quick(){
         fi
     fi
 
+    # -----------------------------------------------------------------------------------
     # 2. Define Modules
-    # REMOVED 'simplefb'. 
-    # This list is now safe for both i386-pc (BIOS) and x86_64-efi (UEFI).
+    # -----------------------------------------------------------------------------------
+    # Safe list for both BIOS & UEFI
     local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
+    # -----------------------------------------------------------------------------------
     # 3. Install GRUB Binary
+    # -----------------------------------------------------------------------------------
     if [[ "$MODE" == "BIOS" ]]; then
-        echo "→ Installing GRUB to MBR of $DEV (BIOS Mode)..."
+        echo "→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)..."
         
-        # Note: We target the device $DEV (e.g., /dev/sda), NOT a partition (/dev/sda1)
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
-            --recheck "$DEV" || die "GRUB BIOS install failed on $DEV"
+            --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
 
     else
         echo "→ Installing GRUB to ESP (UEFI Mode)..."
@@ -621,16 +638,27 @@ install_grub_quick(){
             --bootloader-id=Arch \
             --modules="$GRUB_MODULES" \
             --recheck || die "GRUB UEFI install failed"
+
+        # Optional: Secure Boot Signing
+        if arch-chroot /mnt command -v sbctl &>/dev/null; then
+            echo "→ Secure Boot detected, signing GRUB and kernel..."
+            arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
+            arch-chroot /mnt sbctl enroll-keys --microsoft || true
+            arch-chroot /mnt sbctl sign --path /boot/efi/EFI/Arch/grubx64.efi || true
+            arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
+        fi
     fi
 
-    # 4. Generate Configuration
+    # -----------------------------------------------------------------------------------
+    # 4. Generate Configuration (THE FIX: This now runs for BIOS AND UEFI)
+    # -----------------------------------------------------------------------------------
     echo "→ Generating grub.cfg..."
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
 
     echo "✅ GRUB installation complete."
 }
 #=====================CUSTOM/LUKS-GRUB=======================================================================#
-install_grub() {
+install_grub_old() {
     detect_boot_mode
     local ps
     # 1. Determine the list of disks involved in the installation
@@ -1677,7 +1705,7 @@ quick_partition() {
     format_and_mount
     install_base_system
     configure_system
-    install_grub_quick
+    install_grub
     network_mirror_selection
     gpu_driver
     window_manager
