@@ -1758,6 +1758,10 @@ custom_partition_wizard() {
             NEW_PARTS+=("${DEV}${ps}1:none:none:bios_grub")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
             START=2
+
+            # --- SAVE THE DISK FOR GRUB INSTALLER ---
+            export BOOT_LOADER_DISK="$DEV"   ### <--- ADD THIS
+            echo "→ Boot disk set to: $BOOT_LOADER_DISK"
         fi
     fi
 
@@ -1771,6 +1775,10 @@ custom_partition_wizard() {
             NEW_PARTS+=("${DEV}${ps}1:/boot/efi:fat32:EFI")
             RESERVED_PARTS=$((RESERVED_PARTS+1))
             START=1025
+
+            # --- SAVE THE DISK FOR GRUB INSTALLER ---
+            export BOOT_LOADER_DISK="$DEV"   ### <--- ADD THIS
+            echo "→ Boot disk set to: $BOOT_LOADER_DISK"
         fi
     fi
 
@@ -1900,9 +1908,6 @@ create_more_disks() {
     done
 }
 
-#=========================================================================================================================================#
-#  Format AND Mount Custom - UPDATED (Skips bios_grub specially)
-#=========================================================================================================================================#
 #=========================================================================================================================================#
 #  Format AND Mount Custom - UPDATED (Accumulate disks; mount root first; safe unmounts)
 #=========================================================================================================================================#
