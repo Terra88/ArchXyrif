@@ -13,7 +13,7 @@ GREEN="\e[32m" ; YELLOW="\e[33m" ; CYAN="\e[36m" ; RESET="\e[0m"
 #=========================================================================================================================================#
 # Source variables
 #=========================================================================================================================================#
-
+# -
 #=========================================================================================================================================#
 # Preparation
 #=========================================================================================================================================#
@@ -65,9 +65,7 @@ set -euo pipefail
 #=========================================================================================================================================#
 # GLOBAL VARIABLES:
 #=========================================================================================================================================#
-#----------------------------------------------#
 #-------------------MAPPER---------------------#
-#----------------------------------------------#
 DEV=""            # set later by main_menu
 MODE=""
 MNT=""
@@ -369,7 +367,6 @@ detect_boot_mode() {
         echo -e "${CYAN}Legacy BIOS detected.${RESET}"
     fi
 }
-
 #=========================================================================================================================================#
 # Install base system
 #=========================================================================================================================================#
@@ -411,12 +408,10 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
-
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
 configure_system() {
-
 sleep 1
 clear
 echo -e "#===================================================================================================#"
@@ -569,7 +564,6 @@ echo "✅ System configured."
 install_grub() {
     detect_boot_mode
     echo "🛈 Installing Bootloader (GRUB)..."
-
     # -----------------------------------------------------------------------------------
     # SMART DISK SELECTION
     # -----------------------------------------------------------------------------------
@@ -577,12 +571,10 @@ install_grub() {
     # 2. Quick Wizard sets 'DEV'.
     # We prefer BOOT_LOADER_DISK if it exists.
     local TARGET_DISK="${BOOT_LOADER_DISK:-$DEV}"
-
     if [[ -z "$TARGET_DISK" ]]; then
         die "install_grub: No target disk defined. (DEV and BOOT_LOADER_DISK are empty)"
     fi
     echo "→ Target Disk: $TARGET_DISK"
-
     # -----------------------------------------------------------------------------------
     # 1. Encryption Configuration
     # -----------------------------------------------------------------------------------
@@ -590,55 +582,45 @@ install_grub() {
         echo "→ Configuring GRUB for Encrypted Root..."
         # Enable Cryptodisk
         arch-chroot /mnt bash -c "grep -q 'GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
-
         # Kernel Parameters
         if [[ -n "$LUKS_PART_UUID" && -n "$LUKS_MAPPER_NAME" ]]; then
             local crypt_params="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME}"
-            
             # Check if using LVM
             if [[ -n "$LVM_VG_NAME" ]]; then
                 crypt_params="$crypt_params root=/dev/mapper/${LVM_VG_NAME}-${LVM_ROOT_LV_NAME}"
             else
                 crypt_params="$crypt_params root=/dev/mapper/${LUKS_MAPPER_NAME}"
             fi
-
             arch-chroot /mnt sed -i \
                 "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${crypt_params}\"|" \
                 /etc/default/grub
         fi
     fi
-
     # -----------------------------------------------------------------------------------
     # 2. Define Modules
     # -----------------------------------------------------------------------------------
     # Safe list for both BIOS & UEFI
     local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
-
     # -----------------------------------------------------------------------------------
     # 3. Install GRUB Binary
     # -----------------------------------------------------------------------------------
     if [[ "$MODE" == "BIOS" ]]; then
         echo "→ Installing GRUB to MBR of $TARGET_DISK (BIOS Mode)..."
-        
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
             --recheck "$TARGET_DISK" || die "GRUB BIOS install failed on $TARGET_DISK"
-
     else
         echo "→ Installing GRUB to ESP (UEFI Mode)..."
-        
         if ! mountpoint -q /mnt/boot/efi; then
              die "EFI partition not mounted at /mnt/boot/efi. Check partitioning."
         fi
-
         arch-chroot /mnt grub-install \
             --target=x86_64-efi \
             --efi-directory=/boot/efi \
             --bootloader-id=Arch \
             --modules="$GRUB_MODULES" \
             --recheck || die "GRUB UEFI install failed"
-
         # Optional: Secure Boot Signing
         if arch-chroot /mnt command -v sbctl &>/dev/null; then
             echo "→ Secure Boot detected, signing GRUB and kernel..."
@@ -648,192 +630,17 @@ install_grub() {
             arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
         fi
     fi
-
     # -----------------------------------------------------------------------------------
     # 4. Generate Configuration (THE FIX: This now runs for BIOS AND UEFI)
     # -----------------------------------------------------------------------------------
     echo "→ Generating grub.cfg..."
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
-
     echo "✅ GRUB installation complete."
-}
-#=====================CUSTOM/LUKS-GRUB=======================================================================#
-install_grub_old() {
-    detect_boot_mode
-    local ps
-    # 1. Determine the list of disks involved in the installation
-    # This finds all physical disks that have a partition currently mounted in /mnt.
-    # It ensures that all disks contributing to the root or boot filesystem are targeted.
-    local TARGET_DISKS=()
-    # Get all physical devices that contain partitions currently mounted in /mnt
-    # Using 'mount' to find all mounted partitions, then 'lsblk' to find their parent disk.
-    local MOUNTED_PARTS=$(mount | grep /mnt | awk '{print $1}')
-    ps=$(part_suffix "$DEV")
-
-    # Start with minimal essential modules
-    local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
-
-    #--------------------------------------#
-    # Add FS module (idempotent)
-    #--------------------------------------#
-    add_fs_module() {
-        local fs="$1"
-        case "$fs" in
-            btrfs) [[ "$GRUB_MODULES" != *btrfs* ]] && GRUB_MODULES+=" btrfs" ;;
-            xfs)   [[ "$GRUB_MODULES" != *xfs* ]] && GRUB_MODULES+=" xfs" ;;
-            f2fs)  [[ "$GRUB_MODULES" != *f2fs* ]] && GRUB_MODULES+=" f2fs" ;;
-            zfs)   [[ "$GRUB_MODULES" != *zfs* ]] && GRUB_MODULES+=" zfs" ;;
-            ext2|ext3|ext4) [[ "$GRUB_MODULES" != *ext2* ]] && GRUB_MODULES+=" ext2" ;;
-            vfat|fat16|fat32) [[ "$GRUB_MODULES" != *fat* ]] && GRUB_MODULES+=" fat" ;;
-        esac
-    }
-
-    #--------------------------------------#
-    # Detect RAID (mdadm)
-    #--------------------------------------#
-    echo "→ Detecting RAID arrays..."
-    if lsblk -l -o TYPE -nr /mnt | grep -q "raid"; then
-        echo "→ Found md RAID."
-        GRUB_MODULES+=" mdraid1x"
-    fi
-
-    #--------------------------------------#
-    # Detect LUKS (outermost layer)
-    #--------------------------------------#
-    echo "→ Detecting LUKS containers..."
-    mapfile -t luks_lines < <(lsblk -o NAME,TYPE -nr | grep -E "crypt|luks")
-    for line in "${luks_lines[@]}"; do
-        echo "→ LUKS container: $line"
-        [[ "$GRUB_MODULES" != *cryptodisk* ]] && GRUB_MODULES+=" cryptodisk luks"
-    done
-
-    #--------------------------------------#
-    # Detect LVM (next layer)
-    #--------------------------------------#
-    echo "→ Detecting LVM volumes..."
-    if lsblk -o TYPE -nr | grep -q "lvm"; then
-        echo "→ Found LVM."
-        [[ "$GRUB_MODULES" != *lvm* ]] && GRUB_MODULES+=" lvm"
-    fi
-
-    #--------------------------------------#
-    # Detect filesystems under /mnt (final layer)
-    #--------------------------------------#
-    echo "→ Detecting filesystems..."
-    mapfile -t fs_lines < <(lsblk -o MOUNTPOINT,FSTYPE -nr /mnt | grep -v '^$')
-    for line in "${fs_lines[@]}"; do
-        fs=$(awk '{print $2}' <<< "$line")
-        [[ -n "$fs" ]] && add_fs_module "$fs"
-    done
-
-    echo "→ Final GRUB modules: $GRUB_MODULES"
-
-    for PART in $MOUNTED_PARTS; do
-    # Find the parent device (e.g., /dev/sda for /dev/sda3, or for LVM volumes)
-    local PARENT_DISK=$(lsblk -dn -o PKNAME "$PART" | head -n 1)
-    if [[ -n "$PARENT_DISK" ]]; then
-        local FULL_DISK="/dev/$PARENT_DISK"
-        # Deduplicate the list
-        if ! printf '%s\n' "${TARGET_DISKS[@]}" | grep -q -P "^$FULL_DISK$"; then
-            TARGET_DISKS+=("$FULL_DISK")
-        fi
-    fi
-done
-
-    if [[ ${#TARGET_DISKS[@]} -eq 0 ]]; then
-        echo "ERROR: Could not find any physical disk devices mounted under /mnt."
-        return 1
-    fi
-
-    echo "→ Found critical disks for GRUB installation: ${TARGET_DISKS[*]}"
-
-    
-# --------------------------------------#
-# BIOS MODE
-# --------------------------------------#
-if [[ "$MODE" == "BIOS" ]]; then
-    
-    echo "→ Found target disk(s) for GRUB installation: ${TARGET_DISKS[*]}"
-    
-    # Iterate over all physical disks involved in the install
-    for DISK in "${TARGET_DISKS[@]}"; do
-        echo "→ Installing GRUB (BIOS/MBR mode) on $DISK..."
-        
-        # We must use $DISK here to target the physical drive
-        arch-chroot /mnt grub-install \
-            --target=i386-pc \
-            --modules="$GRUB_MODULES" \
-            --recheck "$DISK" || {
-                echo "ERROR: grub-install failed on $DISK. Did you ensure the 1MiB bios_grub partition is present and flagged on this physical disk?"
-                return 1
-            }
-    done
-    
-elif [[ "$MODE" == "UEFI" ]]; then
-    echo "→ Installing GRUB for UEFI..."
-
-    # Ensure EFI partition is mounted
-    if ! mountpoint -q /mnt/boot/efi; then
-        mkdir -p /mnt/boot/efi
-        mount "${P_EFI:-${DEV}1}" /mnt/boot/efi || die "Failed to mount EFI partition"
-    fi
-
-    # Ensure GRUB knows about encrypted disks
-    if [[ "$ENCRYPTION_ENABLED" -eq 1 ]]; then
-        # Add cryptodisk support to /etc/default/grub
-        arch-chroot /mnt bash -c "grep -q '^GRUB_ENABLE_CRYPTODISK=y' /etc/default/grub || echo 'GRUB_ENABLE_CRYPTODISK=y' >> /etc/default/grub"
-        echo "→ GRUB_ENABLE_CRYPTODISK=y added to /etc/default/grub"
-
-        # Append kernel parameter for encrypted root
-        GRUB_CMD="cryptdevice=UUID=${LUKS_PART_UUID}:${LUKS_MAPPER_NAME} root=/dev/${LVM_VG_NAME}/${LVM_ROOT_LV_NAME}"
-        arch-chroot /mnt sed -i \
-            "s|^GRUB_CMDLINE_LINUX_DEFAULT=\"\(.*\)\"|GRUB_CMDLINE_LINUX_DEFAULT=\"\1 ${GRUB_CMD}\"|" \
-            /etc/default/grub
-        echo "→ Added cryptdevice=UUID to GRUB_CMDLINE_LINUX_DEFAULT"
-    fi
-
-    # Install GRUB
-    arch-chroot /mnt grub-install \
-        --target=x86_64-efi \
-        --efi-directory=/boot/efi \
-        --bootloader-id=GRUB \
-        --modules="$GRUB_MODULES" \
-        --recheck \
-        --no-nvram || die "grub-install UEFI failed"
-
-    # Optional fallback for BOOTX64.EFI
-    arch-chroot /mnt bash -c 'mkdir -p /boot/efi/EFI/Boot && cp -f /boot/efi/EFI/GRUB/grubx64.efi /boot/efi/EFI/Boot/BOOTX64.EFI || true'
-
-    # Clean old Arch entries
-    LABEL="Arch Linux"
-    for num in $(efibootmgr -v | awk "/${LABEL}/ {print substr(\$1,5,4)}"); do
-        efibootmgr -b "$num" -B || true
-    done
-
-    # Create new EFI boot entry
-    efibootmgr -c -d "${TARGET_DISKS[0]}" -p 1 -L "$LABEL" -l '\EFI\GRUB\grubx64.efi' || true
-
-    # Generate GRUB config
-    arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "grub-mkconfig failed"
-
-    # Optional: Secure Boot signing
-    if arch-chroot /mnt command -v sbctl &>/dev/null; then
-        echo "→ Secure Boot detected, signing GRUB and kernel"
-        arch-chroot /mnt sbctl status || arch-chroot /mnt sbctl create-keys
-        arch-chroot /mnt sbctl enroll-keys --microsoft || true
-        arch-chroot /mnt sbctl sign --path /boot/efi/EFI/GRUB/grubx64.efi || true
-        arch-chroot /mnt sbctl sign --path /boot/vmlinuz-linux || true
-    fi
-
-    echo "✅ UEFI GRUB installed with LUKS+LVM support"
-fi
 }
 #=========================================================================================================================================#
 # Network Mirror Selection
 #=========================================================================================================================================#
-network_mirror_selection()
-{
-
+network_mirror_selection(){
 sleep 1
 clear
 echo
@@ -845,12 +652,10 @@ echo
 arch-chroot /mnt pacman -Sy --needed --noconfirm reflector || {
     echo "⚠️ Failed to install reflector inside chroot — continuing with defaults."
     }
-
 echo -e "#========================================================#"
 echo -e "#                   MIRROR SELECTION                     #" 
 echo -e "#========================================================#"
 echo
-
 echo "Available mirror regions:"
 echo "1) United States"
 echo "2) Canada"
@@ -863,7 +668,6 @@ echo "8) Custom country code (2-letter ISO, e.g., FR)"
 echo "9) Skip (use default mirrors)"
 read -r -p "Select your region [1-9, default=1]: " MIRROR_CHOICE
 MIRROR_CHOICE="${MIRROR_CHOICE:-1}"
-
 case "$MIRROR_CHOICE" in
     1) SELECTED_COUNTRY="United States" ;;
     2) SELECTED_COUNTRY="Canada" ;;
@@ -878,7 +682,6 @@ case "$MIRROR_CHOICE" in
         ;;
     9|*) echo "Skipping mirror optimization, using default mirrors."; SELECTED_COUNTRY="" ;;
 esac
-
 if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "Optimizing mirrors for: $SELECTED_COUNTRY"
     arch-chroot /mnt reflector --country "$SELECTED_COUNTRY" --age 12 --protocol https --sort rate \
@@ -886,12 +689,10 @@ if [[ -n "$SELECTED_COUNTRY" ]]; then
     echo "✅ Mirrors updated."
 fi
 }
-
 #=========================================================================================================================================#
 # Graphics Driver Selection Menu
 #=========================================================================================================================================#
-gpu_driver()
-{    
+gpu_driver(){    
      sleep 1
      clear
      echo
@@ -899,7 +700,6 @@ gpu_driver()
      echo -e "# - GPU DRIVER INSTALLATION & MULTILIB                                                              #"
      echo -e "#===================================================================================================#"
      echo
-
      echo "1) Intel"
      echo "2) NVIDIA"
      echo "3) AMD"
@@ -920,7 +720,6 @@ gpu_driver()
              ;;
          5|*) echo "Skipping GPU driver installation."; GPU_PKGS=() ;;
      esac
-     
      if [[ ${#GPU_PKGS[@]} -gt 0 ]]; then
          echo "🔧 Ensuring multilib repository is enabled..."
          "${CHROOT_CMD[@]}" bash -c '
@@ -943,7 +742,6 @@ window_manager() {
     echo -e "# - WINDOW MANAGER / DESKTOP ENVIRONMENT SELECTION                                                  #"
     echo -e "#===================================================================================================#"
     echo
-
     echo "1) Hyprland (Wayland)"
     echo "2) KDE Plasma (X11/Wayland)"
     echo "3) GNOME (X11/Wayland)"
@@ -953,13 +751,12 @@ window_manager() {
     echo "7) Mate"
     echo "8) Sway (Wayland)"
     echo "9) Skip selection"
-
     read -r -p "Select your preferred WM/DE [1-9, default=9]: " WM_CHOICE
     WM_CHOICE="${WM_CHOICE:-6}"
-
+    
     WM_PKGS=()
     WM_AUR_PKGS=()
-
+    
     # ---------- Set WM packages and selected WM ----------
     case "$WM_CHOICE" in
         1)
@@ -1008,7 +805,6 @@ window_manager() {
             echo "Skipping window manager installation."
             ;;
     esac
-
     # ---------- Auto-add mandatory dependencies ----------
     case "$SELECTED_WM" in
         hyprland)
@@ -1024,7 +820,6 @@ window_manager() {
             WM_PKGS+=(qt6-wayland)
             ;;
     esac
-
     # ---------- Install only WM/DE packages ----------
     if [[ ${#WM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${WM_PKGS[@]}"
@@ -1035,20 +830,18 @@ window_manager() {
 
     echo "→ WM/DE packages installation completed. Skipping extra packages."
 }
-
 # ---------- DM Selection ----------
 lm_dm() {
-
     sleep 1
     clear
     echo -e "#===================================================================================================#"
     echo -e "# -   Display Manager Selection                                                                     #"
     echo -e "#===================================================================================================#"
-
+    
     DM_MENU=()
     DM_AUR_PKGS=()
     DM_SERVICE=""
-
+    
     # ---------- Build recommended DM menu based on selected WM ----------
     case "$SELECTED_WM" in
         gnome)
@@ -1076,26 +869,21 @@ lm_dm() {
             DM_MENU=("1) GDM" "2) SDDM" "3) LightDM" "4) Ly" "5) LXDM")
             ;;
     esac
-
     # ---------- Add Skip DM option ONLY if it is not already there ----------
     if ! printf "%s\n" "${DM_MENU[@]}" | grep -q "Skip"; then
         next=$(( ${#DM_MENU[@]} + 1 ))
         DM_MENU+=("${next}) Skip Display Manager")
     fi
-
     # ---------- Show menu ----------
     for entry in "${DM_MENU[@]}"; do
         echo "$entry"
     done
-
     # ---------- Auto-set default: number of the FIRST entry ----------
     DM_DEFAULT=$( echo "${DM_MENU[0]}" | cut -d')' -f1 )
-
     read -r -p "Select DM [default=${DM_DEFAULT}]: " DM_CHOICE
     DM_CHOICE="${DM_CHOICE:-$DM_DEFAULT}"
-
-    DM_PKGS=()
     
+    DM_PKGS=()
     # ---------- Match selection ----------
     case "$DM_CHOICE" in
         1)
@@ -1124,27 +912,23 @@ lm_dm() {
             return
             ;;
     esac
-
+    
     # ---------- Install packages ----------
     if [[ ${#DM_PKGS[@]} -gt 0 ]]; then
         safe_pacman_install CHROOT_CMD[@] "${DM_PKGS[@]}"
     fi
-
     if [[ ${#DM_AUR_PKGS[@]} -gt 0 ]]; then
         safe_aur_install CHROOT_CMD[@] "${DM_AUR_PKGS[@]}"
     fi
-
     # ---------- Enable service ----------
     if [[ -n "$DM_SERVICE" ]]; then
         "${CHROOT_CMD[@]}" systemctl enable "$DM_SERVICE"
         echo "✅ Display manager service enabled: $DM_SERVICE"
     fi
-
     # ---------- Ly autologin ----------
     if [[ "$DM_SERVICE" == "ly.service" && -n "$USER_NAME" ]]; then
         echo "Setting up Ly autologin for $USER_NAME..."
         sudo mkdir -p /etc/systemd/system/ly.service.d
-    
         printf "%s\n" \
             "[Service]" \
             "ExecStart=" \
@@ -1172,6 +956,7 @@ extra_pacman_pkg()
                 read -r -p "Do you want to install EXTRA pacman packages? [y/N]: " INSTALL_EXTRA
                 if [[ "$INSTALL_EXTRA" =~ ^[Yy]$ ]]; then
                     read -r -p "Enter any Pacman packages (space-separated), or leave empty: " EXTRA_PKG_INPUT
+                    
                     # Clean list: neofetch removed (deprecated)
                     EXTRA_PKGS=(  ) #===========================================================================================================================EXTRA PACMAN PACKAGES GOES HERE!!!!!!!!!!!!!!
                 
@@ -1184,14 +969,13 @@ extra_pacman_pkg()
                             echo "⚠️  Skipping invalid or missing package: $pkg"
                         fi
                     done
-                
                     # Merge validated list with user input
                     EXTRA_PKG=("${VALID_PKGS[@]}")
                     if [[ -n "$EXTRA_PKG_INPUT" ]]; then
                         read -r -a EXTRA_PKG_INPUT_ARR <<< "$EXTRA_PKG_INPUT"
                         EXTRA_PKG+=("${EXTRA_PKG_INPUT_ARR[@]}")
                     fi
-                
+                    
                     if [[ ${#EXTRA_PKG[@]} -gt 0 ]]; then
                         safe_pacman_install CHROOT_CMD[@] "${EXTRA_PKG[@]}"
                     else
@@ -1204,9 +988,7 @@ extra_pacman_pkg()
 #=========================================================================================================================================#
 # Aur Package Installer
 #=========================================================================================================================================#
-optional_aur()
-{    
-   
+optional_aur(){    
      sleep 1
      clear
      echo
@@ -1217,7 +999,6 @@ optional_aur()
      
                      read -r -p "Install additional AUR packages using paru? [y/N]: " install_aur
                      install_aur="${install_aur:-N}"
-                     
                      if [[ "$install_aur" =~ ^[Yy]$ ]]; then
                          read -r -p "Enter any AUR packages (space-separated), or leave empty: " EXTRA_AUR_INPUT
                      
@@ -1716,7 +1497,6 @@ quick_partition() {
 
     echo -e "✅ Arch Linux installation complete."
 }
-
 #=========================================================================================================================================#
 #=========================================================================================================================================#
 #====================================== Custom Partition // Choose Filesystem Custom : SECTION #==========================================#
