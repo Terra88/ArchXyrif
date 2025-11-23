@@ -948,7 +948,7 @@ install_grub_quick(){
 
     echo "✅ GRUB installation complete."
 }
-}
+#=====================CUSTOM/LUKS-GRUB=======================================================================#
 install_grub() {
     detect_boot_mode
     local ps
