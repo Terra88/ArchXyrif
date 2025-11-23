@@ -886,7 +886,7 @@ echo "✅ System configured."
 # GRUB installation
 #=========================================================================================================================================#
 install_grub_quick(){
-    detect_boot_mode
+   detect_boot_mode
     echo "🛈 Installing Bootloader (GRUB)..."
 
     # 1. Configuration for LVM/LUKS (Pre-Install)
@@ -913,14 +913,15 @@ install_grub_quick(){
     fi
 
     # 2. Define Modules
-    # REMOVED 'simplefb' which caused the error. 
-    # Added 'lvm' 'luks' 'cryptodisk' explicitly to be safe.
+    # REMOVED 'simplefb'. 
+    # This list is now safe for both i386-pc (BIOS) and x86_64-efi (UEFI).
     local GRUB_MODULES="part_gpt part_msdos normal boot linux search search_fs_uuid ext2 btrfs f2fs cryptodisk luks lvm"
 
     # 3. Install GRUB Binary
     if [[ "$MODE" == "BIOS" ]]; then
         echo "→ Installing GRUB to MBR of $DEV (BIOS Mode)..."
         
+        # Note: We target the device $DEV (e.g., /dev/sda), NOT a partition (/dev/sda1)
         arch-chroot /mnt grub-install \
             --target=i386-pc \
             --modules="$GRUB_MODULES" \
@@ -946,6 +947,7 @@ install_grub_quick(){
     arch-chroot /mnt grub-mkconfig -o /boot/grub/grub.cfg || die "Failed to generate grub.cfg"
 
     echo "✅ GRUB installation complete."
+}
 }
 install_grub() {
     detect_boot_mode
