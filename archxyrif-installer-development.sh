@@ -529,26 +529,23 @@ partition_disk() {
         P_BOOT_NUM=2
     
         start=$boot_end
-    else
-        echo "→ Creating mandatory EFI System Partition..."
+      else
+        echo "→ Creating UEFI partitions..."
         start=1
-        end=1025  # 1024 MiB ESP
+
+        # --- EFI System Partition ---
+        end=$((start + EFI_SIZE_MIB))
         parted -s "$DEV" mkpart primary fat32 "${start}MiB" "${end}MiB" || die "Failed to create EFI partition"
         parted -s "$DEV" set 1 boot on
-        parted -s "$DEV" set 1 esp on || true
         parted -s "$DEV" name 1 efi
         P_EFI_NUM=1
-    
+
         # Refresh kernel partition table to ensure /dev/sdX1 exists
         partprobe "$DEV" || true
         udevadm settle --timeout=5
         sleep 1
-    
-        # Format ESP safely
-        echo "→ Formatting EFI partition $DEV$P_EFI_NUM ..."
-        mkfs.vfat -F32 -n EFI "${DEV}${P_EFI_NUM}" || die "Failed to format EFI partition"
-    
-        start=$end  # remaining space for root, swap, home
+
+        start=$end
     fi
 
     # -------------------
