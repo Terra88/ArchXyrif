@@ -122,6 +122,8 @@ part_suffix() {
 # Helper function to check if a file/path exists in the mounted system
 # Helper function to check if a file/path exists in the mounted system or the live environment.
 # Usage: check_file_exists "/path/to/check" "Name of config value"
+# Helper function to check if a file/path exists in the mounted system or the live environment.
+# Usage: check_file_exists "/path/to/check" "Name of config value"
 check_file_exists() {
     local mounted_path="/mnt$1"
     local live_path="$1"
@@ -461,6 +463,7 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
+
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
@@ -598,12 +601,22 @@ while true; do
     # CRITICAL FIX: Convert keymap to lowercase before validation, as files are lowercase (e.g., us.map.gz)
     KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
     
-    # Validation for Keymap: Must exist as a .map.gz file in /usr/share/kbd/keymaps/ on either target or live system
+    # --- Robustness Check for Minimal Environments ---
+    KEYMAPS_DIR="/usr/share/kbd/keymaps"
+    if [ ! -d "$KEYMAPS_DIR" ]; then
+        echo "⚠️ Warning: Keymaps directory ($KEYMAPS_DIR) not found in live environment."
+        echo "Skipping file validation, assuming keymap (${KEYMAP}) will be available after base install."
+        echo "✅ Keymap set to: ${KEYMAP}"
+        break # Skip validation and continue
+    fi
+    # ------------------------------------------------
+
+    # Original Validation: Must exist as a .map.gz file in /usr/share/kbd/keymaps/ on either target or live system
     if check_file_exists "/usr/share/kbd/keymaps/${KEYMAP}.map.gz" "Keymap (${KEYMAP})"; then
         echo "✅ Keymap set to: ${KEYMAP}"
         break # Exit the loop if valid
     else
-        echo "⚠️ Invalid Keymap entered. Please try again or use the default."
+        echo "⚠️ Invalid Keymap entered or file missing. Please try again or use the default."
         KEYMAP_CHOICE=""
     fi
 done
