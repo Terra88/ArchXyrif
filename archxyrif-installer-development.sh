@@ -2221,16 +2221,22 @@ ask_yesno_default() {
 
     [[ -b "$PART_LUKS" ]] || die "Partition $PART_LUKS missing after partitioning."
 
-    # Ask whether to encrypt main partition
+# Ask whether to encrypt main partition
     if ask_yesno_default "Encrypt main partition ($PART_LUKS) with LUKS2? [Y/n]:" "Y"; then
         ENCRYPTION_ENABLED=1
         
-        local luks_type # <--- This defines the variable used in the command below
+        local luks_type
         if ask_yesno_default "Use LUKS2 (recommended)? [Y/n]:" "Y"; then
             luks_type="luks2"
         else
             luks_type="luks1"
         fi
+        
+        # --- FIX: INSERT THE NON-INTERACTIVE FORMAT COMMAND HERE ---
+        echo "→ Formatting $PART_LUKS with LUKS $luks_type..."
+        # Piped 'YES' prevents the crash on non-capitalized input
+        echo "YES" | cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "luksFormat failed"
+        # -----------------------------------------------------------
 
         # ask mapper name and ensure uniqueness
         while true; do
