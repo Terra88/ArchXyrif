@@ -459,7 +459,6 @@ PKGS=(
 echo "Installing base system packages: ${PKGS[*]}"
 pacstrap /mnt "${PKGS[@]}"
 }
-
 #=========================================================================================================================================#
 # Configure system
 #=========================================================================================================================================#
@@ -660,14 +659,14 @@ hwclock --systohc
 # 2) Locale
 #========================================================#
 # Uncomment the chosen locale in locale.gen or append if not present
-if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-    # Try to uncomment it first
-    sed -i "s/^#\(${LANG_LOCALE} UTF-8\)/\1/" /etc/locale.gen || true
-    # If it was still commented or not found (and we want to ensure it's there)
-    if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
-        echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
-    fi
+if grep -qE "^#?${LANG_LOCALE}[[:space:]]+UTF-8" /etc/locale.gen; then
+    # Uncomment it
+    sed -i "s/^#\(${LANG_LOCALE} UTF-8\)/\1/" /etc/locale.gen
+else
+    # If not found at all, append it
+    echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
+
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
@@ -684,10 +683,16 @@ HOSTS
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
+# Set console keymap for persistence via vconsole.conf
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
+
+# Apply the keymap immediately (inside the chroot) and set systemd configuration.
+# This ensures the keymap is active upon first login in a TTY.
 localectl set-keymap ${KEYMAP}
-localectl set-x11-keymap ${KEYMAP}
+
+# Note: localectl set-x11-keymap is omitted as it is not necessary for a console-only base install
+# and may fail if Xorg/Wayland environment is not yet installed.
 #========================================================#
 # 5) Initramfs
 #========================================================#
