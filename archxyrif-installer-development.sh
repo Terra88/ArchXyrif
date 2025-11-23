@@ -2114,8 +2114,8 @@ ask_yesno_default() {
         ans="${ans:-$def}"
         ans_upper=$(echo "$ans" | tr '[:lower:]' '[:upper:]')  # normalize input
         case "$ans_upper" in
-            Y|YES) return 0 ;;   # success = yes
-            N|NO)  return 1 ;;   # failure = no
+            Y|YES) return 0 ;;    # success = yes
+            N|NO)  return 1 ;;    # failure = no
             *) echo "Please answer Y or N." ;;
         esac
     done
@@ -2186,8 +2186,8 @@ ask_yesno_default() {
     echo "→ Writing GPT to $DEV"
     parted -s "$DEV" mklabel gpt || die "mklabel failed"
 
-    PART_BOOT=""   # path to boot/esp partition (unencrypted)
-    PART_LUKS=""   # path to big partition that will be LUKS or PV
+    PART_BOOT=""    # path to boot/esp partition (unencrypted)
+    PART_LUKS=""    # path to big partition that will be LUKS or PV
     PART_GRUB_BIOS=""
 
     if [[ "$MODE" == "UEFI" ]]; then
@@ -2236,11 +2236,11 @@ ask_yesno_default() {
         
         echo "========================================================"
         echo "🚨 ATTENTION: Please enter the NEW LUKS PASSPHRASE twice."
-        echo "   This password will secure your partition."
+        echo "    This password will secure your partition."
         echo "========================================================"
         
-        # This command runs interactively for the password input
-        echo "YES" | cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "LUKS format failed"
+        # --- FIX: Removed the 'echo "YES" |' pipe to allow interactive passphrase input.
+        cryptsetup luksFormat --type "$luks_type" "$PART_LUKS" || die "LUKS format failed"
         
         echo "✅ LUKS format complete."
         # --- END LUKS FORMATTING ---
@@ -2261,7 +2261,7 @@ ask_yesno_default() {
         # --- LUKS OPENING (Provide Passphrase) ---
         echo "========================================================================="
         echo "🔑 Enter the PASSPHRASE you JUST SET to open the device."
-        echo "   (This creates /dev/mapper/$LUKS_MAPPER_NAME)"
+        echo "    (This creates /dev/mapper/$LUKS_MAPPER_NAME)"
         echo "========================================================================="
         # The user must type the same password again here.
         cryptsetup open "$PART_LUKS" "$LUKS_MAPPER_NAME" || die "cryptsetup open failed"
@@ -2323,7 +2323,7 @@ ask_yesno_default() {
         fi
 
         ask_lv_size
-        lvsize="$REPLY"   # validated LVM size (like 40G, 100%FREE)
+        lvsize="$REPLY"    # validated LVM size (like 40G, 100%FREE)
 
         ask_mountpoint
         lvmnt="${REPLY:-none}"
@@ -2458,14 +2458,12 @@ ask_yesno_default() {
 
     # store common globals for post-install step
     export LVM_VG_NAME="$VGNAME"
-    # >>> CHANGE IS HERE:
-    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}"  
-    # <<<
-    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-$LUKS_MAPPER_NAME}"
-    export LUKS_PART_UUID="${LUKS_PART_UUID:-$LUKS_PART_UUID}"
+    export LVM_ROOT_LV_NAME="${LVM_ROOT_LV_NAME:-}"
+    export LUKS_MAPPER_NAME="${LUKS_MAPPER_NAME:-}" # Cleaned up variable usage
+    export LUKS_PART_UUID="${LUKS_PART_UUID:-}" # Cleaned up variable usage
     export ENCRYPTION_ENABLED="${ENCRYPTION_ENABLED:-0}"
     export PART_BOOT="${PART_BOOT:-}"
-    export PART_LUKS="${PART_LUKS:-$PART_LUKS}"
+    export PART_LUKS="${PART_LUKS:-}" # Cleaned up variable usage
 
     echo "→ Completed LUKS+LVM route for $DEV"
     return 
