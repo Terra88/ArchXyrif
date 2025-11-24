@@ -524,15 +524,15 @@ DEFAULT_LOCALE="fi_FI.UTF-8"
 while true; do
     clear
     echo "#===================================================#"
-    echo "#-Select a System Locale (LANG):                    #"
+    echo "#-Select a System Locale (LANG):                     #"
     echo "#===================================================#"
-    echo ""
     echo "1) 🇺🇸 English (US) - en_US.UTF-8"
     echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
     echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
     echo "4) 🇩🇪 German (Germany) - de_DE.UTF-8"
     echo "5) Default 🇫🇮(Finland): ${DEFAULT_LOCALE}"
     echo "6) Custom Locale (e.g., ja_JP.UTF-8, pt_BR.UTF-8)"
+    echo "7) List Locales (Recommended before choosing Custom)" # NEW option 7
 
     read -r -p "Enter choice [5]: " LOCALE_CHOICE
     LOCALE_CHOICE="${LOCALE_CHOICE:-5}"
@@ -542,7 +542,35 @@ while true; do
         2) LANG_LOCALE="en_GB.UTF-8" ;;
         3) LANG_LOCALE="fr_FR.UTF-8" ;;
         4) LANG_LOCALE="de_DE.UTF-8" ;;
-        6) read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT; LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}" ;;
+        6) 
+            read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
+            LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}" 
+            ;;
+        7)
+            # Find and list all UTF-8 locales in locale.gen
+            echo "--- Available UTF-8 Locales (format: xx_YY.UTF-8) ---"
+            
+            # Determine which locale.gen file to use (target or live)
+            local LOCALE_FILE=""
+            if [ -e "/mnt/etc/locale.gen" ]; then
+                LOCALE_FILE="/mnt/etc/locale.gen"
+            elif [ -e "/etc/locale.gen" ]; then
+                LOCALE_FILE="/etc/locale.gen"
+            fi
+            
+            if [ -n "$LOCALE_FILE" ]; then
+                # Filter, strip comments/spaces, and format into columns
+                grep -E "^#?[[:alnum:]_.]+[[:space:]]+UTF-8" "$LOCALE_FILE" | \
+                sed -E 's/^#?([[:alnum:]_.]+[[:space:]]+UTF-8).*/\1/' | \
+                awk '{print $1}' | sort | column
+            else
+                echo "Error: locale.gen file not found."
+            fi
+
+            echo "-------------------------------------------------------------------"
+            read -r -p "Press Enter to return to the menu..."
+            continue # Restart the loop
+            ;;
         5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
     esac
     
