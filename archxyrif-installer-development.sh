@@ -568,6 +568,7 @@ while true; do
     echo "4) 🇩🇪 DE"
     echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
     echo "6) Custom Keymap (e.g., es)"
+    echo "7) List Keymaps"
 
     read -r -p "Enter choice [5]: " KEYMAP_CHOICE
     KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
@@ -581,6 +582,7 @@ while true; do
             read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
             KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
             ;;
+        7) localectl list-keymaps ;;
         5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
     esac
 
