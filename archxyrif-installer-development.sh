@@ -119,55 +119,56 @@ part_suffix() {
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
 #==========LANGLOCALHELPER============#
-# Helper function to check if a file/path exists in the mounted system
-check_file_exists() {
-    local mounted_path="/mnt$1"
-    local live_path="$1"
-    local config_name="$2"
-    
-    # 1. Check if the file exists on the mounted target system (/mnt)
-    if [ -e "$mounted_path" ]; then
-        return 0
-    fi
-    
-    # 2. If not on /mnt, check if it exists on the live environment (safe for config files like TZ/Keymaps)
-    if [ -e "$live_path" ]; then
-        return 0
-    fi
-
-    # If neither exists
-    echo "Error: '${config_name}' is not a recognized configuration value." >&2
-    echo "The required file/directory was not found at: ${mounted_path} (target) or ${live_path} (live)." >&2
-    return 1
-}
-
-# Helper function to check if a locale string exists in /etc/locale.gen on the target or live system.
-# This ensures the locale is valid before it's uncommented/added.
+# Helper function to check if a locale string exists in /etc/locale.gen
 check_locale_exists() {
     local locale_string="$1"
     local config_file="/etc/locale.gen"
     local mounted_file="/mnt${config_file}"
     local file_to_check=""
 
-    # 1. Prioritize checking the target system's locale.gen
     if [ -e "$mounted_file" ]; then
         file_to_check="$mounted_file"
-    # 2. Fall back to the live environment's locale.gen
     elif [ -e "$config_file" ]; then
         file_to_check="$config_file"
     else
-        echo "Error: Cannot find locale.gen file in /mnt or /." >&2
+        echo "Error: Cannot find locale.gen file." >&2
         return 1
     fi
 
-    # Check for the locale string at the start of a line, optionally preceded by a comment '#', 
-    # followed by whitespace and "UTF-8"
     if grep -qE "^#?${locale_string}[[:space:]]+UTF-8" "$file_to_check"; then
-        return 0 # Found
+        return 0
     else
-        echo "Error: Locale '${locale_string}' was not found in ${file_to_check} or is not formatted correctly (e.g., en_US.UTF-8 UTF-8)." >&2
-        return 1 # Not found
+        echo "Error: Locale '${locale_string}' not found in ${file_to_check}." >&2
+        return 1
     fi
+}
+
+# NEW: Helper function to search for keymaps RECURSIVELY
+# This fixes the issue where 'fi.map.gz' is hidden inside subdirectories like i386/qwerty/
+check_keymap_exists() {
+    local keymap_name="$1"
+    local search_dir="/usr/share/kbd/keymaps"
+    local target_dir="/mnt/usr/share/kbd/keymaps"
+    
+    # We search for exact filename match (keymap.map.gz)
+    # We suppress errors (2>/dev/null) in case directories don't exist yet
+    
+    # 1. Search in Live Environment (Most likely place)
+    if [ -d "$search_dir" ]; then
+        if find "$search_dir" -name "${keymap_name}.map.gz" -print -quit | grep -q .; then
+            return 0
+        fi
+    fi
+
+    # 2. Search in Target Environment (If installed)
+    if [ -d "$target_dir" ]; then
+        if find "$target_dir" -name "${keymap_name}.map.gz" -print -quit | grep -q .; then
+            return 0
+        fi
+    fi
+
+    echo "Error: Keymap '${keymap_name}' not found. (Searched for ${keymap_name}.map.gz in system keymaps)." >&2
+    return 1
 }
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
