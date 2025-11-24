@@ -567,7 +567,7 @@ while true; do
     echo "3) 🇫🇷 FR (AZERTY)"
     echo "4) 🇩🇪 DE"
     echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
-    echo "6) Custom Keymap (e.g., dvorak, se, es)"
+    echo "6) Custom Keymap (e.g., es)"
 
     read -r -p "Enter choice [5]: " KEYMAP_CHOICE
     KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
