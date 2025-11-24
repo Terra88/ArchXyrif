@@ -717,6 +717,7 @@ HOSTS
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap ${KEYMAP}
+# Set the X11 keyboard layout to match the console layout for graphical environments (like GNOME)
 localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 # 5) Initramfs
