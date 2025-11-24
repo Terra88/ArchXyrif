@@ -118,6 +118,69 @@ part_suffix() {
     local dev="$1"
     [[ "$dev" =~ nvme|mmcblk ]] && echo "p" || echo ""
 }
+#==========LANGLOCALHELPER============#
+# 1. Helper to check if a file/path exists (Used for Timezone)
+check_file_exists() {
+    local mounted_path="/mnt$1"
+    local live_path="$1"
+    local config_name="$2"
+    
+    if [ -e "$mounted_path" ]; then
+        return 0
+    fi
+    
+    if [ -e "$live_path" ]; then
+        return 0
+    fi
+
+    echo "Error: '${config_name}' is not a recognized configuration value." >&2
+    echo "The required file/directory was not found at: ${mounted_path} (target) or ${live_path} (live)." >&2
+    return 1
+}
+
+# 2. Helper to check locale existence in locale.gen
+check_locale_exists() {
+    local locale_string="$1"
+    local config_file="/etc/locale.gen"
+    local mounted_file="/mnt${config_file}"
+    local file_to_check=""
+
+    if [ -e "$mounted_file" ]; then
+        file_to_check="$mounted_file"
+    elif [ -e "$config_file" ]; then
+        file_to_check="$config_file"
+    else
+        echo "Error: Cannot find locale.gen file." >&2
+        return 1
+    fi
+
+    if grep -qE "^#?${locale_string}[[:space:]]+UTF-8" "$file_to_check"; then
+        return 0
+    else
+        echo "Error: Locale '${locale_string}' not found in ${file_to_check}." >&2
+        return 1
+    fi
+}
+
+# 3. NEW HELPER: Check for keymap RECURSIVELY using 'find'
+# This fixes the issue where 'fi' is hidden in subfolders, but rejects 'george'.
+check_keymap_exists() {
+    local keymap_name="$1"
+    # Standard location for keymaps
+    local search_paths=("/usr/share/kbd/keymaps" "/mnt/usr/share/kbd/keymaps")
+    
+    for search_dir in "${search_paths[@]}"; do
+        if [ -d "$search_dir" ]; then
+            # Look for exactly "keymapname.map.gz" anywhere under this folder
+            if find "$search_dir" -name "${keymap_name}.map.gz" -print -quit | grep -q .; then
+                return 0
+            fi
+        fi
+    done
+
+    echo "Error: Keymap '${keymap_name}' (file '${keymap_name}.map.gz') not found in system keymaps." >&2
+    return 1
+}
 #=========================================================================================================================================#
 #-------HELPER FOR CHROOT--------------------------------#
 #=========================================================================================================================================#
@@ -415,41 +478,207 @@ configure_system() {
 sleep 1
 clear
 echo -e "#===================================================================================================#"
-echo -e "# -  Setting Basic variables for chroot (defaults provided)                                         #"
+echo -e "# - Setting Basic variables for chroot (defaults provided)                                      #"
 echo -e "#===================================================================================================#"
 echo
 # -------------------------------
 # Prompt for timezone, locale, hostname, and username
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
-read -r -p "Enter timezone [${DEFAULT_TZ}]: " TZ
-TZ="${TZ:-$DEFAULT_TZ}"
+
+# Start the validation loop for Timezone
+while true; do
+    clear
+    echo "#===================================================#"
+    echo "#-Select a Time Zone Region:                        #"
+    echo "#===================================================#"
+    echo ""
+    echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
+    echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
+    echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
+    echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
+    echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
+
+    read -r -p "Enter choice [5]: " TZ_CHOICE
+    TZ_CHOICE="${TZ_CHOICE:-5}"
+
+    case $TZ_CHOICE in
+        1) read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT; TZ="${TZ_INPUT:-$DEFAULT_TZ}" ;;
+        2) read -r -p "Enter specific Europe Time Zone (e.g., Europe/London) [${DEFAULT_TZ}]: " TZ_INPUT; TZ="${TZ_INPUT:-$DEFAULT_TZ}" ;;
+        3) read -r -p "Enter specific Africa Time Zone (e.g., Africa/Cairo) [${DEFAULT_TZ}]: " TZ_INPUT; TZ="${TZ_INPUT:-$DEFAULT_TZ}" ;;
+        4) read -r -p "Enter custom Time Zone (e.g., Asia/Tokyo) [${DEFAULT_TZ}]: " TZ_INPUT; TZ="${TZ_INPUT:-$DEFAULT_TZ}" ;;
+        5|*) TZ="${DEFAULT_TZ}"; echo "Using default Time Zone: ${TZ}" ;;
+    esac
+
+    if check_file_exists "/usr/share/zoneinfo/${TZ}" "Time Zone (${TZ})"; then
+        echo "✅ Time Zone set to: ${TZ}"
+        break
+    else
+        echo "⚠️ Invalid Time Zone entered. Please try again."
+        sleep 2
+    fi
+done
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
-read -r -p "Enter locale (LANG) [${DEFAULT_LOCALE}]: " LANG_LOCALE
-LANG_LOCALE="${LANG_LOCALE:-$DEFAULT_LOCALE}"
+# Start validation loop for Locale
+while true; do
+    clear
+    echo "#===================================================#"
+    echo "#-Select a System Locale (LANG):                     #"
+    echo "#===================================================#"
+    echo "1) 🇺🇸 English (US) - en_US.UTF-8"
+    echo "2) 🇬🇧 English (UK) - en_GB.UTF-8"
+    echo "3) 🇫🇷 French (France) - fr_FR.UTF-8"
+    echo "4) 🇩🇪 German (Germany) - de_DE.UTF-8"
+    echo "5) Default 🇫🇮(Finland): ${DEFAULT_LOCALE}"
+    echo "6) Custom Locale (e.g., ja_JP.UTF-8, pt_BR.UTF-8)"
+    echo "7) List Locales (Recommended before choosing Custom)" # NEW option 7
+
+    read -r -p "Enter choice [5]: " LOCALE_CHOICE
+    LOCALE_CHOICE="${LOCALE_CHOICE:-5}"
+
+    case $LOCALE_CHOICE in
+        1) LANG_LOCALE="en_US.UTF-8" ;;
+        2) LANG_LOCALE="en_GB.UTF-8" ;;
+        3) LANG_LOCALE="fr_FR.UTF-8" ;;
+        4) LANG_LOCALE="de_DE.UTF-8" ;;
+        6) 
+            read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
+            LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}" 
+            ;;
+        7)
+            # Find and list all UTF-8 locales in locale.gen
+            echo "--- Available UTF-8 Locales (format: xx_YY.UTF-8) ---"
+            
+            # Determine which locale.gen file to use (target or live)
+            local LOCALE_FILE=""
+            if [ -e "/mnt/etc/locale.gen" ]; then
+                LOCALE_FILE="/mnt/etc/locale.gen"
+            elif [ -e "/etc/locale.gen" ]; then
+                LOCALE_FILE="/etc/locale.gen"
+            fi
+            
+            if [ -n "$LOCALE_FILE" ]; then
+                # Filter, strip comments/spaces, and format into columns
+                grep -E "^#?[[:alnum:]_.]+[[:space:]]+UTF-8" "$LOCALE_FILE" | \
+                sed -E 's/^#?([[:alnum:]_.]+[[:space:]]+UTF-8).*/\1/' | \
+                awk '{print $1}' | sort | column
+            else
+                echo "Error: locale.gen file not found."
+            fi
+
+            echo "-------------------------------------------------------------------"
+            read -r -p "Press Enter to return to the menu..."
+            continue # Restart the loop
+            ;;
+        5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
+    esac
+    
+    if check_locale_exists "${LANG_LOCALE}"; then
+        echo "✅ LANG set to: ${LANG_LOCALE}"
+        break
+    else
+        LOCALE_CHOICE=""
+        sleep 2
+        continue
+    fi
+done
+echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
-read -r -p "Enter keyboard locale (LANG) [${DEFAULT_KEYMAP}]: " KEYMAP
-KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
+# Start validation loop for Keymap (RESTORED AND FIXED)
+while true; do
+    clear
+    echo "#===================================================#"
+    echo "#-Select a Keyboard Keymap:                          #"
+    echo "#===================================================#"
+    echo ""
+    echo "1) 🇺🇸 US (standard QWERTY)"
+    echo "2) 🇬🇧 UK"
+    echo "3) 🇫🇷 FR (AZERTY)"
+    echo "4) 🇩🇪 DE"
+    echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
+    echo "6) Custom Keymap (e.g., dvorak, se, es)"
+    echo "7) List Keymaps (Recommended before choosing Custom)" # Added new option 7
+
+    read -r -p "Enter choice [5]: " KEYMAP_CHOICE
+    KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
+
+    case $KEYMAP_CHOICE in
+        1) KEYMAP="us" ;;
+        2) KEYMAP="uk" ;;
+        3) KEYMAP="fr" ;;
+        4) KEYMAP="de" ;;
+        6)
+            # Custom input, without listing
+            read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
+            KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+            ;;
+        7)
+            # List all available keymaps and pause
+            echo "--- Available Keymaps (short code, e.g., 'us', 'fi', 'dvorak') ---"
+            # Use find to list all files that exist and format them into columns for readability
+            find /usr/share/kbd/keymaps /mnt/usr/share/kbd/keymaps -name "*.map.gz" 2>/dev/null | sed 's|.*/||; s|.map.gz||' | sort | column
+            echo "-------------------------------------------------------------------"
+            read -r -p "Press Enter to return to the menu..."
+            continue # Restart the loop
+            ;;
+        5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
+    esac
+
+    # 1. Normalize to lowercase (e.g., FI -> fi)
+    KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
+
+    # 2. Validate using the recursive finder
+    # This will accept 'fi' (found in i386/qwerty/) but reject 'george'
+    if check_keymap_exists "${KEYMAP}"; then
+        echo "✅ Keymap set to: ${KEYMAP}"
+        break
+    else
+        echo "⚠️ Invalid Keymap '${KEYMAP}' (File not found). Please try again."
+        sleep 2
+        KEYMAP_CHOICE=""
+    fi
+done
+echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
+echo "#===================================================#"
+echo "#-Input Hostname(ComputerName):                     #"
+echo "#===================================================#"
+echo ""
 read -r -p "Enter hostname [${DEFAULT_HOSTNAME}]: " HOSTNAME
 HOSTNAME="${HOSTNAME:-$DEFAULT_HOSTNAME}"
 
 DEFAULT_USER="user"
+echo "#===================================================#"
+echo "#-Input Username:                                   #"
+echo "#===================================================#"
+echo ""
 read -r -p "Enter username to create [${DEFAULT_USER}]: " NEWUSER
 NEWUSER="${NEWUSER:-$DEFAULT_USER}"
-# -------------------------------
-# Prepare chroot (mount pseudo-filesystems etc.)
-# -------------------------------
-prepare_chroot
+
 # -------------------------------
 # Create postinstall.sh inside chroot
 # -------------------------------
 cat > /mnt/root/postinstall.sh <<'EOF'
 #!/usr/bin/env bash
 set -euo pipefail
+
+# --- New Trap Function for Better Error Messages ---
+error_handler() {
+    local exit_code="$?"
+    local command="${BASH_COMMAND}"
+    if [ "$exit_code" != "0" ]; then
+        echo "❌ FATAL CONFIGURATION ERROR!" >&2
+        echo "The script halted with exit code $exit_code on command:" >&2
+        echo "--> $command" >&2
+        echo "" >&2
+        echo "Please verify the values injected into postinstall.sh (TZ, LANG_LOCALE, KEYMAP, etc.)" >&2
+        sleep 5
+    fi
+}
+trap error_handler EXIT 
 #========================================================#
 # Variables injected by main installer
 #========================================================#
