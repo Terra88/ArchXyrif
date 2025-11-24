@@ -475,25 +475,21 @@ echo
 # -------------------------------
 DEFAULT_TZ="Europe/Helsinki"
 
-# Start the validation loop
+# Start the validation loop for Timezone
 while true; do
-    clear # Clear screen on every iteration for a clean prompt
+    clear
     echo "#===================================================#"
     echo "#-Select a Time Zone Region:                         #"
     echo "#===================================================#"
-
-    # Display the menu options *inside* the loop so the user sees it on repeated attempts
     echo "1) 🇺🇸 USA (e.g., America/New_York, America/Los_Angeles)"
     echo "2) 🇪🇺 Europe (e.g., Europe/London, Europe/Berlin)"
     echo "3) 🌍 Africa (e.g., Africa/Cairo, Africa/Lagos)"
     echo "4) Other / Enter Custom Time Zone (e.g., Asia/Tokyo)"
     echo "5) Use Default: ${DEFAULT_TZ} 🇫🇮(Europe/Helsinki)"
 
-    # Read the user's menu choice
     read -r -p "Enter choice [5]: " TZ_CHOICE
     TZ_CHOICE="${TZ_CHOICE:-5}"
 
-    # 1. Set the TZ variable based on the choice
     case $TZ_CHOICE in
         1)
             read -r -p "Enter specific USA Time Zone (e.g., America/New_York) [${DEFAULT_TZ}]: " TZ_INPUT
@@ -517,20 +513,19 @@ while true; do
             ;;
     esac
 
-    # 2. Validate the resulting TZ variable against /usr/share/zoneinfo/
     if check_file_exists "/usr/share/zoneinfo/${TZ}" "Time Zone (${TZ})"; then
         echo "✅ Time Zone set to: ${TZ}"
-        break # Exit the loop if valid
+        break
     else
-        echo "⚠️ Invalid Time Zone entered. Please try again or use the default."
-        sleep 1 # Wait slightly so the user can see the error before the screen is cleared
-        # The loop will restart, prompting for the choice again.
+        echo "⚠️ Invalid Time Zone entered. Please try again."
+        sleep 2
     fi
 done
 
 DEFAULT_LOCALE="fi_FI.UTF-8"
+# Start validation loop for Locale
 while true; do
-    clear # Clear screen on every iteration for a clean prompt
+    clear
     echo "#===================================================#"
     echo "#-Select a System Locale (LANG):                     #"
     echo "#===================================================#"
@@ -550,59 +545,66 @@ while true; do
         3) LANG_LOCALE="fr_FR.UTF-8" ;;
         4) LANG_LOCALE="de_DE.UTF-8" ;;
         6)
-            # Custom input, with fallback to default
             read -r -p "Enter custom Locale (e.g., ja_JP.UTF-8) [${DEFAULT_LOCALE}]: " LOCALE_INPUT
             LANG_LOCALE="${LOCALE_INPUT:-$DEFAULT_LOCALE}"
             ;;
         5|*) LANG_LOCALE="${DEFAULT_LOCALE}" ;;
     esac
     
-    # Validation for Locale: Must exist in locale.gen on the target or live system
     if check_locale_exists "${LANG_LOCALE}"; then
         echo "✅ LANG set to: ${LANG_LOCALE}"
         break
     else
-        # The error message is printed inside check_locale_exists
         LOCALE_CHOICE=""
-        sleep 1 # Wait slightly so the user can see the error before the screen is cleared
+        sleep 2
         continue
     fi
 done
 echo "Set LANG to: ${LANG_LOCALE}"
 
 DEFAULT_KEYMAP="fi"
-echo "#===================================================#"
-echo "#-Select a Keyboard Keymap:                          #"
-echo "#===================================================#"
-# Removed the file validation loop to allow selection to proceed even if keymaps are missing in the live environment.
-# We trust the keymap will be correct after 'kbd' is installed in the base system.
+# Start validation loop for Keymap
+while true; do
+    clear
+    echo "#===================================================#"
+    echo "#-Select a Keyboard Keymap:                          #"
+    echo "#===================================================#"
+    echo "1) 🇺🇸 US (standard QWERTY)"
+    echo "2) 🇬🇧 UK"
+    echo "3) 🇫🇷 FR (AZERTY)"
+    echo "4) 🇩🇪 DE"
+    echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
+    echo "6) Custom Keymap (e.g., dvorak, se, es)"
 
-echo "1) 🇺🇸 US (standard QWERTY)"
-echo "2) 🇬🇧 UK"
-echo "3) 🇫🇷 FR (AZERTY)"
-echo "4) 🇩🇪 DE"
-echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
-echo "6) Custom Keymap (e.g., dvorak, se, es)"
+    read -r -p "Enter choice [5]: " KEYMAP_CHOICE
+    KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
 
-read -r -p "Enter choice [5]: " KEYMAP_CHOICE
-KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
+    case $KEYMAP_CHOICE in
+        1) KEYMAP="us" ;;
+        2) KEYMAP="uk" ;;
+        3) KEYMAP="fr" ;;
+        4) KEYMAP="de" ;;
+        6)
+            read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
+            KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+            ;;
+        5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
+    esac
 
-case $KEYMAP_CHOICE in
-    1) KEYMAP="us" ;;
-    2) KEYMAP="uk" ;;
-    3) KEYMAP="fr" ;;
-    4) KEYMAP="de" ;;
-    6)
-        # Custom input, with fallback to default
-        read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
-        KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
-        ;;
-    5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
-esac
+    # 1. Normalize to lowercase (e.g., FI -> fi)
+    KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
 
-# Ensure keymap is lowercase for consistency in vconsole.conf
-KEYMAP=$(echo "$KEYMAP" | tr '[:upper:]' '[:lower:]')
-echo "✅ Keymap set to: ${KEYMAP}"
+    # 2. Validate using the recursive finder
+    # This will accept 'fi' (found in i386/qwerty/) but reject 'george'
+    if check_keymap_exists "${KEYMAP}"; then
+        echo "✅ Keymap set to: ${KEYMAP}"
+        break
+    else
+        echo "⚠️ Invalid Keymap '${KEYMAP}' (File not found). Please try again."
+        sleep 2
+        KEYMAP_CHOICE=""
+    fi
+done
 echo "Set KEYMAP to: ${KEYMAP}"
 
 DEFAULT_HOSTNAME="archbox"
