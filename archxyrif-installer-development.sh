@@ -567,8 +567,8 @@ while true; do
     echo "3) 🇫🇷 FR (AZERTY)"
     echo "4) 🇩🇪 DE"
     echo "5) Default 🇫🇮(Finnish): ${DEFAULT_KEYMAP} (Finnish)"
-    echo "6) Custom Keymap (e.g., es)"
-    echo "7) List Keymaps"
+    echo "6) Custom Keymap (e.g., dvorak, se, es)"
+    echo "7) List Keymaps (Recommended before choosing Custom)" # Added new option 7
 
     read -r -p "Enter choice [5]: " KEYMAP_CHOICE
     KEYMAP_CHOICE="${KEYMAP_CHOICE:-5}"
@@ -579,10 +579,19 @@ while true; do
         3) KEYMAP="fr" ;;
         4) KEYMAP="de" ;;
         6)
+            # Custom input, without listing
             read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
             KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
             ;;
-        7) localectl list-keymaps ;;
+        7)
+            # List all available keymaps and pause
+            echo "--- Available Keymaps (short code, e.g., 'us', 'fi', 'dvorak') ---"
+            # Use find to list all files that exist and format them into columns for readability
+            find /usr/share/kbd/keymaps /mnt/usr/share/kbd/keymaps -name "*.map.gz" 2>/dev/null | sed 's|.*/||; s|.map.gz||' | sort | column
+            echo "-------------------------------------------------------------------"
+            read -r -p "Press Enter to return to the menu..."
+            continue # Restart the loop
+            ;;
         5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
     esac
 
