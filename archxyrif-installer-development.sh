@@ -662,15 +662,9 @@ hwclock --systohc
 #========================================================#
 # 2) Locale
 #========================================================#
-# Uncomment the chosen locale in locale.gen or append if not present
-if grep -qE "^#?${LANG_LOCALE}[[:space:]]+UTF-8" /etc/locale.gen; then
-    # Uncomment it
-    sed -i "s/^#\(${LANG_LOCALE} UTF-8\)/\1/" /etc/locale.gen
-else
-    # If not found at all, append it
+if ! grep -q "^${LANG_LOCALE} UTF-8" /etc/locale.gen 2>/dev/null; then
     echo "${LANG_LOCALE} UTF-8" >> /etc/locale.gen
 fi
-
 locale-gen
 echo "LANG=${LANG_LOCALE}" > /etc/locale.conf
 export LANG="${LANG_LOCALE}"
@@ -680,27 +674,22 @@ export LC_ALL="${LANG_LOCALE}"
 #========================================================#
 echo "${HOSTNAME}" > /etc/hostname
 cat > /etc/hosts <<HOSTS
-127.0.0.1       localhost
-::1             localhost
-127.0.1.1       ${HOSTNAME}.localdomain ${HOSTNAME}
+127.0.0.1   localhost
+::1         localhost
+127.0.1.1   ${HOSTNAME}.localdomain ${HOSTNAME}
 HOSTS
 #========================================================#
 # 4) Keyboard layout
 #========================================================#
-# Set console keymap for persistence via vconsole.conf
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
-
-# Apply the keymap immediately (inside the chroot) and set systemd configuration.
-# This ensures the keymap is active upon first login in a TTY.
 localectl set-keymap ${KEYMAP}
-
-# Note: localectl set-x11-keymap is omitted as it is not necessary for a console-only base install
-# and may fail if Xorg/Wayland environment is not yet installed.
+localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 # 5) Initramfs
 #========================================================#
 mkinitcpio -P
+#========================================================#
 #========================================================#
 # 6) Root + user passwords (interactive with retries)
 #========================================================#
@@ -747,8 +736,6 @@ chown -R "$NEWUSER:$NEWUSER" "$HOME_DIR"
 #========================================================#
 systemctl enable NetworkManager
 systemctl enable sshd
-# Enable linger for the new user to ensure session management is robust
-loginctl enable-linger "${NEWUSER}"
 echo "Postinstall inside chroot finished."
 EOF
 # -------------------------------
@@ -763,10 +750,7 @@ sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 # Make executable and run inside chroot
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
-# In a real environment, the following command is where the interactive password setting happens:
-# arch-chroot /mnt /root/postinstall.sh
-echo "Simulating chroot execution of /mnt/root/postinstall.sh (skipping interactive passwords)..."
-sleep 2
+arch-chroot /mnt /root/postinstall.sh
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
 }
