@@ -594,7 +594,7 @@ case $KEYMAP_CHOICE in
     6)
         # Custom input, with fallback to default
         read -r -p "Enter custom Keymap (e.g., dvorak, se) [${DEFAULT_KEYMAP}]: " KEYMAP_INPUT
-        KEYMAP="${KEYMAP_INPUT:-$DEFAULT_KEYMAP}"
+        KEYMAP="${KEYMAP:-$DEFAULT_KEYMAP}"
         ;;
     5|*) KEYMAP="${DEFAULT_KEYMAP}" ;;
 esac
@@ -763,9 +763,9 @@ sed -i "s|{{NEWUSER}}|${NEWUSER}|g" /mnt/root/postinstall.sh
 # Make executable and run inside chroot
 # -------------------------------
 chmod +x /mnt/root/postinstall.sh
-# This command would execute the configuration script:
+# In a real environment, the following command is where the interactive password setting happens:
 # arch-chroot /mnt /root/postinstall.sh
-echo "Simulating chroot execution of /mnt/root/postinstall.sh..."
+echo "Simulating chroot execution of /mnt/root/postinstall.sh (skipping interactive passwords)..."
 sleep 2
 rm -f /mnt/root/postinstall.sh
 echo "✅ System configured."
