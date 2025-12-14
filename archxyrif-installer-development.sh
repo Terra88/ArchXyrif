@@ -1547,7 +1547,8 @@ partition_disk() {
         parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create BIOS GRUB"
         parted -s "$DEV" set 1 bios_grub on
         parted -s "$DEV" name 1 bios_grub  # Set PARTLABEL
-        start=2
+        # FIX: Add 1MiB buffer to ensure proper separation from P2
+        start=3
     else
         echo "→ Creating EFI System Partition (${EFI_SIZE_MIB}MiB)..."
         end=$((1 + EFI_SIZE_MIB))
@@ -1555,7 +1556,8 @@ partition_disk() {
         parted -s "$DEV" set 1 boot on
         parted -s "$DEV" set 1 esp on
         parted -s "$DEV" name 1 efi      # Set PARTLABEL
-        start=$end
+        # FIX: Add 1MiB buffer to ensure proper separation from P2
+        start=$((end + 1))
     fi
 
     # ---------------------------------------------------------
@@ -1575,7 +1577,7 @@ partition_disk() {
         swap_start=$root_end
         swap_end=$((swap_start + SWAP_SIZE_MIB))
         echo "→ Creating SWAP partition..."
-        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
+        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
         parted -s "$DEV" name 3 swap     # Set PARTLABEL
         home_start=$swap_end
         home_num=4
@@ -1592,32 +1594,36 @@ partition_disk() {
         echo "→ Creating HOME partition..."
         # Use 100% because if HOME_SIZE_MIB > 0, the disk has been calculated precisely,
         # and if HOME_SIZE_MIB == 0, it means use the rest of the disk.
-        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
         parted -s "$DEV" name "$home_num" home # Set PARTLABEL
     fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
+    # FIX: Increased sleep time to ensure PARTLABEL registration before format_and_mount
+    sleep 5
     echo "✅ Partitioning completed."
 }
 #=========================================================================#
-# Format & mount (Fixed: Robust PARTLABEL detection with Hard Checks)
+# Format & mount (Fixed: Robust PARTLABEL detection)
 #=========================================================================#
 format_and_mount() {
-    # 'die' function must be defined elsewhere (e.g., in a helper file)
+    # 'die' function must be defined elsewhere
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
     detect_boot_mode
 
     echo -e "\n🛈 Refreshing partition table..."
     partprobe "$DEV"
     udevadm settle
+    # Increased sleep is already in partition_disk, keep this for good measure
     sleep 2
 
     # Reset variables
     P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
 
-    # 1. Map partitions using PARTLABEL (Name)
+    # 1. Map partitions using PARTLABEL (Name) - This MUST succeed.
     while read -r part path name; do
+        # Convert name to lowercase
         name="${name,,}"
         case "$name" in
             bios_grub) P_BIOS_GRUB="$path" ;;
@@ -1628,37 +1634,15 @@ format_and_mount() {
         esac
     done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
 
-    # Fallback: If labels failed, map by index (Standardized Layout)
-    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
-    
+    # FIX: Remove unreliable index fallback. Only proceed if root is found by label.
     if [[ -z "$P_ROOT" ]]; then
-        echo "⚠ Auto-detection by label failed, falling back to position..."
-        if [[ "$MODE" == "UEFI" ]]; then
-            [[ -z "$P_EFI" ]] && P_EFI="${PARTS[0]}"
-        else
-            [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
-        fi
-        
-        P_ROOT="${PARTS[1]}" 
-        
-        if [[ "$SWAP_ON" == "1" ]]; then
-            [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
-            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
-        else
-            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 2 ]] && P_HOME="${PARTS[2]}"
-        fi
+        die "FATAL: Could not reliably determine ROOT partition via PARTLABEL. Auto-detection failed."
     fi
 
     echo "Detected Mapping:"
     echo " ROOT: $P_ROOT"
     [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
     [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
-
-    # CRITICAL SANITY CHECKS
-    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition. Aborting."
-    if [[ "$MODE" == "UEFI" && -z "$P_EFI" ]]; then
-        die "UEFI mode detected, but EFI partition path ($P_EFI) is empty. Aborting."
-    fi
 
     # Safety Check: Unmount everything under /mnt first
     if mountpoint -q /mnt; then
@@ -1681,7 +1665,6 @@ format_and_mount() {
         mount "$P_ROOT" /mnt || die "Failed to mount EXT4 root partition."
     fi
 
-    # Create base directories on the mounted root filesystem
     mkdir -p /mnt/boot /mnt/home /mnt/etc
 
     # 3. Format & Mount EFI (UEFI Only)
@@ -1689,7 +1672,6 @@ format_and_mount() {
         echo "→ Formatting EFI on $P_EFI..."
         mkfs.fat -F32 -n EFI "$P_EFI" || die "Failed to format EFI partition ($P_EFI)."
         mkdir -p /mnt/boot/efi
-        # CRITICAL: Mount and check success
         mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition at /mnt/boot/efi."
     fi
 
@@ -1702,7 +1684,7 @@ format_and_mount() {
 
     # 5. Home
     if [[ -n "$P_HOME" ]]; then
-        echo "→ Creating and Mounting separate HOME on $P_HOME..."
+        echo "→ Formatting HOME on $P_HOME..."
         if [[ "$HOME_FS" == "btrfs" ]]; then
              mkfs.btrfs -f -L home "$P_HOME" || die "Failed to format HOME as btrfs."
              mount -o compress=zstd "$P_HOME" /mnt/home || die "Failed to mount Btrfs HOME."
@@ -1712,20 +1694,15 @@ format_and_mount() {
         fi
     elif [[ "$ROOT_FS" == "btrfs" ]]; then
         # Mount @home subvolume if we don't have a separate partition
-        echo "→ Mounting @home subvolume on /mnt/home..."
         mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home || die "Failed to mount @home subvolume."
     fi
 
     # 6. Fstab
     echo "→ Generating /mnt/etc/fstab..."
-    # Ensure genfstab runs successfully before continuing
+    # FIX: Added check to ensure genfstab succeeds and uses > instead of >> (to overwrite)
     if ! genfstab -U /mnt > /mnt/etc/fstab; then
         die "Failed to generate fstab file. Check mounted partitions."
     fi
-
-    echo -e "\n--- Current Mount Status ---"
-    mount | grep "/mnt"
-    echo "----------------------------"
 
     echo "✅ Formatting and mounting complete."
 }
