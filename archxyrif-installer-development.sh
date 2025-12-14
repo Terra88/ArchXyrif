@@ -1601,9 +1601,10 @@ partition_disk() {
     echo "✅ Partitioning completed."
 }
 #=========================================================================#
-# Format & mount (Fixed: Robust PARTLABEL detection)
+# Format & mount (Fixed: Robust PARTLABEL detection with Hard Checks)
 #=========================================================================#
 format_and_mount() {
+    # 'die' function must be defined elsewhere (e.g., in a helper file)
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
     detect_boot_mode
 
@@ -1616,9 +1617,7 @@ format_and_mount() {
     P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
 
     # 1. Map partitions using PARTLABEL (Name)
-    # This is safer than filesystem labels because mkfs hasn't run yet.
     while read -r part path name; do
-        # Convert name to lowercase
         name="${name,,}"
         case "$name" in
             bios_grub) P_BIOS_GRUB="$path" ;;
@@ -1630,7 +1629,6 @@ format_and_mount() {
     done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
 
     # Fallback: If labels failed, map by index (Standardized Layout)
-    # Layout is always: [1:Boot/EFI] -> [2:Root] -> [3:Swap/Home]
     mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
     
     if [[ -z "$P_ROOT" ]]; then
@@ -1641,10 +1639,8 @@ format_and_mount() {
             [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
         fi
         
-        # ROOT is ALWAYS partition index 1 (the second partition) in this fixed layout
         P_ROOT="${PARTS[1]}" 
         
-        # Simple mapping for Swap/Home based on user selection
         if [[ "$SWAP_ON" == "1" ]]; then
             [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
             [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
@@ -1658,62 +1654,78 @@ format_and_mount() {
     [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
     [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
 
-    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition."
+    # CRITICAL SANITY CHECKS
+    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition. Aborting."
+    if [[ "$MODE" == "UEFI" && -z "$P_EFI" ]]; then
+        die "UEFI mode detected, but EFI partition path ($P_EFI) is empty. Aborting."
+    fi
 
-    # Safety Check
+    # Safety Check: Unmount everything under /mnt first
     if mountpoint -q /mnt; then
+        echo "→ Unmounting existing mounts under /mnt..."
         umount -R /mnt || true
     fi
 
     # 2. Format & Mount ROOT
     echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
-        btrfs subvolume create /mnt/@
-        btrfs subvolume create /mnt/@home
+        mkfs.btrfs -f -L root "$P_ROOT" || die "Failed to format ROOT as btrfs."
+        mount "$P_ROOT" /mnt || die "Failed to temporarily mount Btrfs root partition."
+        btrfs subvolume create /mnt/@      || die "Failed to create @ subvolume."
+        btrfs subvolume create /mnt/@home  || die "Failed to create @home subvolume."
         umount /mnt
-        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
+        # Remount with subvolume and compression options
+        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt || die "Failed to mount @ subvolume."
     else
-        mkfs.ext4 -F -L root "$P_ROOT"
-        mount "$P_ROOT" /mnt
+        mkfs.ext4 -F -L root "$P_ROOT" || die "Failed to format ROOT as ext4."
+        mount "$P_ROOT" /mnt || die "Failed to mount EXT4 root partition."
     fi
 
+    # Create base directories on the mounted root filesystem
     mkdir -p /mnt/boot /mnt/home /mnt/etc
 
     # 3. Format & Mount EFI (UEFI Only)
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
         echo "→ Formatting EFI on $P_EFI..."
-        mkfs.fat -F32 -n EFI "$P_EFI"
+        mkfs.fat -F32 -n EFI "$P_EFI" || die "Failed to format EFI partition ($P_EFI)."
         mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi
+        # CRITICAL: Mount and check success
+        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition at /mnt/boot/efi."
     fi
 
     # 4. Swap
     if [[ -n "$P_SWAP" ]]; then
         echo "→ Activating SWAP on $P_SWAP..."
-        mkswap -L swap "$P_SWAP"
-        swapon "$P_SWAP"
+        mkswap -L swap "$P_SWAP" || die "Failed to format SWAP partition ($P_SWAP)."
+        swapon "$P_SWAP" || die "Failed to activate SWAP."
     fi
 
     # 5. Home
     if [[ -n "$P_HOME" ]]; then
-        echo "→ Formatting HOME on $P_HOME..."
+        echo "→ Creating and Mounting separate HOME on $P_HOME..."
         if [[ "$HOME_FS" == "btrfs" ]]; then
-            # If root was btrfs, we might just use subvolumes, but if partition exists:
-             mkfs.btrfs -f -L home "$P_HOME"
-             mount -o compress=zstd "$P_HOME" /mnt/home
+             mkfs.btrfs -f -L home "$P_HOME" || die "Failed to format HOME as btrfs."
+             mount -o compress=zstd "$P_HOME" /mnt/home || die "Failed to mount Btrfs HOME."
         else
-             mkfs.ext4 -F -L home "$P_HOME"
-             mount "$P_HOME" /mnt/home
+             mkfs.ext4 -F -L home "$P_HOME" || die "Failed to format HOME as ext4."
+             mount "$P_HOME" /mnt/home || die "Failed to mount EXT4 HOME."
         fi
     elif [[ "$ROOT_FS" == "btrfs" ]]; then
         # Mount @home subvolume if we don't have a separate partition
-        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home
+        echo "→ Mounting @home subvolume on /mnt/home..."
+        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home || die "Failed to mount @home subvolume."
     fi
 
     # 6. Fstab
-    genfstab -U /mnt >> /mnt/etc/fstab
+    echo "→ Generating /mnt/etc/fstab..."
+    # Ensure genfstab runs successfully before continuing
+    if ! genfstab -U /mnt > /mnt/etc/fstab; then
+        die "Failed to generate fstab file. Check mounted partitions."
+    fi
+
+    echo -e "\n--- Current Mount Status ---"
+    mount | grep "/mnt"
+    echo "----------------------------"
 
     echo "✅ Formatting and mounting complete."
 }
