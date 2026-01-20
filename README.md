@@ -30,30 +30,30 @@ This script formats and partitions disks, unmounts, removes disk layouts and enc
 Use with caution.
 
 How to Use ArchXyrif
---------------------
-1. loadkeys fi or en etc.
-depending your keyboard language/layout. 
+-------------------
+1. Create a Bootable USB
 
-2. Create a Bootable USB
-
-3. Use Balena Etcher or another tool to flash the latest Arch Linux ISO on a USB drive:
+2. Use Balena Etcher or another tool to flash the latest Arch Linux ISO on a USB drive:
 https://archlinux.org/download/
 
-4. Change your bootable device priority on USB, launch the Arch Linux Installation media. Make sure you are connecter to the internet.
+3. Change your bootable device priority on USB, launch the Arch Linux Installation media. Make sure you are connecter to the internet.
 
 How to use the actual installer after booting up:
 -------------------------------------------
-1.Install git:
+1. loadkeys fi or en etc.
+depending your keyboard language/layout. 
+2.Install git:
 Pacman -Sy git ->
-2.git clone:
+3.git clone:
 git clone https://GitHub.com/terra88/archxyrif
-3.Open file directory:
+4.Open file directory:
 -> cd archxyrif
 <br>
-4.Give user rights to the file:
+5.Give user rights to the file:
 -> chmod +x ./archxyrif-install.sh
-5.Launch the installer:
+6.Launch the installer:
 -> ./archxyrif-install.sh
+7. Follow the instructions
 --------------------------------------------
 
 More info:
