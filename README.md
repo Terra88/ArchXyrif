@@ -41,18 +41,23 @@ https://archlinux.org/download/
 How to use the actual installer after booting up:
 -------------------------------------------
 1. loadkeys fi or en etc.
-depending your keyboard language/layout. 
+depending your keyboard language/layout.
+<br>
 2.Install git:
 Pacman -Sy git ->
+<br>
 3.git clone:
 git clone https://GitHub.com/terra88/archxyrif
+<br>
 4.Open file directory:
 -> cd archxyrif
 <br>
 5.Give user rights to the file:
 -> chmod +x ./archxyrif-install.sh
+<br>
 6.Launch the installer:
 -> ./archxyrif-install.sh
+<br>
 7. Follow the instructions
 --------------------------------------------
 
