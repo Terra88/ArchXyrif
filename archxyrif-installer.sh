@@ -1275,7 +1275,6 @@ optional_aur(){
                          echo "Skipping AUR installation."
                      fi
 
-                    #EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
                 
 }
 hyprland_theme() {
