@@ -450,8 +450,9 @@ PKGS=(
   git
   grub
   linux
-  linux-zen
   linux-headers
+  linux-zen
+  linux-zen-headers
   linux-firmware
   linux-firmware-whence
   vim
