@@ -1324,7 +1324,7 @@ sudo -u \$NEWUSER /usr/bin/git clone https://github.com/terra88/hyprland-setup.g
 # 3. Copy zip and script files to home directory
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+
 
 # 4. Backup existing .config if not empty
 if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
@@ -1370,19 +1370,13 @@ if [[ -f \"\$HOME_DIR/wallpaper.zip\" ]]; then
     sudo -u \$NEWUSER rm -f \"\$HOME_DIR/wallpaper.zip\"
 fi
 
-# 7. Copy wallpaper.sh and make executable
-if [[ -f \"\$HOME_DIR/wallpaper.sh\" ]]; then
-    sudo -u \$NEWUSER chmod +x \"\$HOME_DIR/wallpaper.sh\"
-    echo '==> wallpaper.sh copied and made executable'
-fi
-
-# 8. Set secure permissions on .config (final check)
+# 7. Set secure permissions on .config (final check)
 if [[ -d \"\$CONFIG_DIR\" ]]; then
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
 fi
 
-# 9. Cleanup cloned repo
+# 8. Cleanup cloned repo
 sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 "
             echo "✅ Hyprland theme setup completed."
