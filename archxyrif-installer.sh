@@ -1374,6 +1374,11 @@ fi
 if [[ -d \"\$CONFIG_DIR\" ]]; then
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
+
+    # Make wallpaper.sh executable
+    if [[ -f "$CONFIG_DIR/wallpaper.sh" ]]; then
+        chmod 700 "$CONFIG_DIR/wallpaper.sh"
+    fi
 fi
 
 # 8. Cleanup cloned repo
