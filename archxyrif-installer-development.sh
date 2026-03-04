@@ -450,8 +450,9 @@ PKGS=(
   git
   grub
   linux
-  linux-zen
   linux-headers
+  linux-zen
+  linux-zen-headers
   linux-firmware
   linux-firmware-whence
   vim
@@ -717,6 +718,7 @@ HOSTS
 echo "KEYMAP=${KEYMAP}" > /etc/vconsole.conf
 echo "FONT=lat9w-16" >> /etc/vconsole.conf
 localectl set-keymap ${KEYMAP}
+# Set the X11 keyboard layout to match the console layout for graphical environments (like GNOME)
 localectl set-x11-keymap ${KEYMAP}
 #========================================================#
 # 5) Initramfs
@@ -1274,7 +1276,6 @@ optional_aur(){
                          echo "Skipping AUR installation."
                      fi
 
-                    #EXTRA_PKGS=( firefox htop vlc vlc-plugin-ffmpeg vlc-plugins-all network-manager-applet networkmanager discover nvtop zram-generator ttf-hack kitty kvantum breeze breeze-icons qt5ct qt6ct rofi nwg-look otf-font-awesome cpupower brightnessctl waybar dolphin dolphin-plugins steam discover bluez bluez-tools nwg-displays btop ark flatpak pavucontrol )
                 
 }
 hyprland_theme() {
@@ -1323,7 +1324,7 @@ sudo -u \$NEWUSER /usr/bin/git clone https://github.com/terra88/hyprland-setup.g
 # 3. Copy zip and script files to home directory
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
-sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.sh\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.sh missing'
+
 
 # 4. Backup existing .config if not empty
 if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
@@ -1369,19 +1370,18 @@ if [[ -f \"\$HOME_DIR/wallpaper.zip\" ]]; then
     sudo -u \$NEWUSER rm -f \"\$HOME_DIR/wallpaper.zip\"
 fi
 
-# 7. Copy wallpaper.sh and make executable
-if [[ -f \"\$HOME_DIR/wallpaper.sh\" ]]; then
-    sudo -u \$NEWUSER chmod +x \"\$HOME_DIR/wallpaper.sh\"
-    echo '==> wallpaper.sh copied and made executable'
-fi
-
-# 8. Set secure permissions on .config (final check)
+# 7. Set secure permissions on .config (final check)
 if [[ -d \"\$CONFIG_DIR\" ]]; then
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
+
+    # Make wallpaper.sh executable
+    if [[ -f "$CONFIG_DIR/wallpaper.sh" ]]; then
+        chmod 700 "$CONFIG_DIR/wallpaper.sh"
+    fi
 fi
 
-# 9. Cleanup cloned repo
+# 8. Cleanup cloned repo
 sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 "
             echo "✅ Hyprland theme setup completed."
@@ -1547,8 +1547,7 @@ partition_disk() {
         parted -s "$DEV" mkpart primary 1MiB 2MiB || die "Failed to create BIOS GRUB"
         parted -s "$DEV" set 1 bios_grub on
         parted -s "$DEV" name 1 bios_grub  # Set PARTLABEL
-        # FIX: Add 1MiB buffer to ensure proper separation from P2
-        start=3
+        start=2
     else
         echo "→ Creating EFI System Partition (${EFI_SIZE_MIB}MiB)..."
         end=$((1 + EFI_SIZE_MIB))
@@ -1556,8 +1555,7 @@ partition_disk() {
         parted -s "$DEV" set 1 boot on
         parted -s "$DEV" set 1 esp on
         parted -s "$DEV" name 1 efi      # Set PARTLABEL
-        # FIX: Add 1MiB buffer to ensure proper separation from P2
-        start=$((end + 1))
+        start=$end
     fi
 
     # ---------------------------------------------------------
@@ -1577,7 +1575,7 @@ partition_disk() {
         swap_start=$root_end
         swap_end=$((swap_start + SWAP_SIZE_MIB))
         echo "→ Creating SWAP partition..."
-        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB" || die "Failed to create SWAP"
+        parted -s "$DEV" mkpart primary linux-swap "${swap_start}MiB" "${swap_end}MiB"
         parted -s "$DEV" name 3 swap     # Set PARTLABEL
         home_start=$swap_end
         home_num=4
@@ -1594,34 +1592,31 @@ partition_disk() {
         echo "→ Creating HOME partition..."
         # Use 100% because if HOME_SIZE_MIB > 0, the disk has been calculated precisely,
         # and if HOME_SIZE_MIB == 0, it means use the rest of the disk.
-        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100% || die "Failed to create HOME"
+        parted -s "$DEV" mkpart primary "$HOME_FS" "${home_start}MiB" 100%
         parted -s "$DEV" name "$home_num" home # Set PARTLABEL
     fi
 
     partprobe "$DEV" || true
     udevadm settle --timeout=5 || true
-    # FIX: Increased sleep time to ensure PARTLABEL registration before format_and_mount
-    sleep 5
     echo "✅ Partitioning completed."
 }
 #=========================================================================#
 # Format & mount (Fixed: Robust PARTLABEL detection)
 #=========================================================================#
 format_and_mount() {
-    # 'die' function must be defined elsewhere
     [[ -z "$DEV" ]] && die "format_and_mount(): DEV not set"
     detect_boot_mode
 
     echo -e "\n🛈 Refreshing partition table..."
     partprobe "$DEV"
     udevadm settle
-    # Increased sleep is already in partition_disk, keep this for good measure
     sleep 2
 
     # Reset variables
     P_BIOS_GRUB="" P_EFI="" P_ROOT="" P_SWAP="" P_HOME=""
 
-    # 1. Map partitions using PARTLABEL (Name) - This MUST succeed.
+    # 1. Map partitions using PARTLABEL (Name)
+    # This is safer than filesystem labels because mkfs hasn't run yet.
     while read -r part path name; do
         # Convert name to lowercase
         name="${name,,}"
@@ -1634,9 +1629,28 @@ format_and_mount() {
         esac
     done < <(lsblk -rn -o PARTTYPE,PATH,PARTLABEL "$DEV" | awk '{print $1, $2, $3}')
 
-    # FIX: Remove unreliable index fallback. Only proceed if root is found by label.
+    # Fallback: If labels failed, map by index (Standardized Layout)
+    # Layout is always: [1:Boot/EFI] -> [2:Root] -> [3:Swap/Home]
+    mapfile -t PARTS < <(lsblk -ln -o PATH,TYPE -p "$DEV" | awk '$2=="part"{print $1}')
+    
     if [[ -z "$P_ROOT" ]]; then
-        die "FATAL: Could not reliably determine ROOT partition via PARTLABEL. Auto-detection failed."
+        echo "⚠ Auto-detection by label failed, falling back to position..."
+        if [[ "$MODE" == "UEFI" ]]; then
+            [[ -z "$P_EFI" ]] && P_EFI="${PARTS[0]}"
+        else
+            [[ -z "$P_BIOS_GRUB" ]] && P_BIOS_GRUB="${PARTS[0]}"
+        fi
+        
+        # ROOT is ALWAYS partition index 1 (the second partition) in this fixed layout
+        P_ROOT="${PARTS[1]}" 
+        
+        # Simple mapping for Swap/Home based on user selection
+        if [[ "$SWAP_ON" == "1" ]]; then
+            [[ -z "$P_SWAP" ]] && P_SWAP="${PARTS[2]}"
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 3 ]] && P_HOME="${PARTS[3]}"
+        else
+            [[ -z "$P_HOME" && "${#PARTS[@]}" -gt 2 ]] && P_HOME="${PARTS[2]}"
+        fi
     fi
 
     echo "Detected Mapping:"
@@ -1644,25 +1658,25 @@ format_and_mount() {
     [[ -n "$P_EFI" ]] && echo " EFI : $P_EFI"
     [[ -n "$P_BIOS_GRUB" ]] && echo " BIOS: $P_BIOS_GRUB"
 
-    # Safety Check: Unmount everything under /mnt first
+    [[ -z "$P_ROOT" ]] && die "Could not determine ROOT partition."
+
+    # Safety Check
     if mountpoint -q /mnt; then
-        echo "→ Unmounting existing mounts under /mnt..."
         umount -R /mnt || true
     fi
 
     # 2. Format & Mount ROOT
     echo "→ Formatting ROOT ($ROOT_FS) on $P_ROOT..."
     if [[ "$ROOT_FS" == "btrfs" ]]; then
-        mkfs.btrfs -f -L root "$P_ROOT" || die "Failed to format ROOT as btrfs."
-        mount "$P_ROOT" /mnt || die "Failed to temporarily mount Btrfs root partition."
-        btrfs subvolume create /mnt/@      || die "Failed to create @ subvolume."
-        btrfs subvolume create /mnt/@home  || die "Failed to create @home subvolume."
+        mkfs.btrfs -f -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
+        btrfs subvolume create /mnt/@
+        btrfs subvolume create /mnt/@home
         umount /mnt
-        # Remount with subvolume and compression options
-        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt || die "Failed to mount @ subvolume."
+        mount -o subvol=@,compress=zstd "$P_ROOT" /mnt
     else
-        mkfs.ext4 -F -L root "$P_ROOT" || die "Failed to format ROOT as ext4."
-        mount "$P_ROOT" /mnt || die "Failed to mount EXT4 root partition."
+        mkfs.ext4 -F -L root "$P_ROOT"
+        mount "$P_ROOT" /mnt
     fi
 
     mkdir -p /mnt/boot /mnt/home /mnt/etc
@@ -1670,39 +1684,36 @@ format_and_mount() {
     # 3. Format & Mount EFI (UEFI Only)
     if [[ "$MODE" == "UEFI" && -n "$P_EFI" ]]; then
         echo "→ Formatting EFI on $P_EFI..."
-        mkfs.fat -F32 -n EFI "$P_EFI" || die "Failed to format EFI partition ($P_EFI)."
+        mkfs.fat -F32 -n EFI "$P_EFI"
         mkdir -p /mnt/boot/efi
-        mount "$P_EFI" /mnt/boot/efi || die "Failed to mount EFI partition at /mnt/boot/efi."
+        mount "$P_EFI" /mnt/boot/efi
     fi
 
     # 4. Swap
     if [[ -n "$P_SWAP" ]]; then
         echo "→ Activating SWAP on $P_SWAP..."
-        mkswap -L swap "$P_SWAP" || die "Failed to format SWAP partition ($P_SWAP)."
-        swapon "$P_SWAP" || die "Failed to activate SWAP."
+        mkswap -L swap "$P_SWAP"
+        swapon "$P_SWAP"
     fi
 
     # 5. Home
     if [[ -n "$P_HOME" ]]; then
         echo "→ Formatting HOME on $P_HOME..."
         if [[ "$HOME_FS" == "btrfs" ]]; then
-             mkfs.btrfs -f -L home "$P_HOME" || die "Failed to format HOME as btrfs."
-             mount -o compress=zstd "$P_HOME" /mnt/home || die "Failed to mount Btrfs HOME."
+            # If root was btrfs, we might just use subvolumes, but if partition exists:
+             mkfs.btrfs -f -L home "$P_HOME"
+             mount -o compress=zstd "$P_HOME" /mnt/home
         else
-             mkfs.ext4 -F -L home "$P_HOME" || die "Failed to format HOME as ext4."
-             mount "$P_HOME" /mnt/home || die "Failed to mount EXT4 HOME."
+             mkfs.ext4 -F -L home "$P_HOME"
+             mount "$P_HOME" /mnt/home
         fi
     elif [[ "$ROOT_FS" == "btrfs" ]]; then
         # Mount @home subvolume if we don't have a separate partition
-        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home || die "Failed to mount @home subvolume."
+        mount -o subvol=@home,compress=zstd "$P_ROOT" /mnt/home
     fi
 
     # 6. Fstab
-    echo "→ Generating /mnt/etc/fstab..."
-    # FIX: Added check to ensure genfstab succeeds and uses > instead of >> (to overwrite)
-    if ! genfstab -U /mnt > /mnt/etc/fstab; then
-        die "Failed to generate fstab file. Check mounted partitions."
-    fi
+    genfstab -U /mnt >> /mnt/etc/fstab
 
     echo "✅ Formatting and mounting complete."
 }
