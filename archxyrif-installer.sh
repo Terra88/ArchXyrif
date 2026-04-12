@@ -1376,8 +1376,8 @@ if [[ -d \"\$CONFIG_DIR\" ]]; then
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
 
     # Make wallpaper.sh executable
-    if [[ -f "$CONFIG_DIR/wallpaper.sh" ]]; then
-        chmod 700 "$CONFIG_DIR/wallpaper.sh"
+    if [[ -f \"\$CONFIG_DIR/wallpaper.sh\" ]]; then  # ← Fixed: escape the $ sign
+        chmod 700 \"\$CONFIG_DIR/wallpaper.sh\"     # ← Also fixed this one
     fi
 fi
 
