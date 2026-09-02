@@ -1796,6 +1796,9 @@ custom_partition_wizard() {
     DEV="/dev/${DEV##*/}"
     [[ -b "$DEV" ]] || die "Device $DEV not found."
 
+    # ✅ VARMISTA ETTÄ DEV JÄÄ GLOBAALIKSI
+    export DEV
+
     echo "WARNING: This will erase everything on $DEV"
     read -rp "Type y/n to continue (Enter for yes): " CONFIRM
     if [[ -n "$CONFIRM" && ! "$CONFIRM" =~ ^(YES|yes|Y|y)$ ]]; then
@@ -2032,7 +2035,7 @@ format_and_mount_custom() {
         case "$MOUNT" in
             "/") 
                 if [[ "$FS" == "btrfs" ]]; then
-                    mount "$PART" /mnt
+                    mount "$P_ROOT" /mnt
                     mountpoint -q /mnt && btrfs subvolume create /mnt/@ || true
                     umount /mnt || true
                     mount -o subvol=@,compress=zstd "$PART" /mnt
@@ -2058,6 +2061,55 @@ format_and_mount_custom() {
     mountpoint -q /mnt || die "Root (/) not mounted. Ensure you have a root partition."
 
     echo "✅ All custom partitions formatted and mounted correctly."
+
+    # ========== UUSI KOODI: ASETA GLOBAALIT GRUB:ille ==========
+    echo "→ Setting global partition variables for GRUB install..."
+    
+    # Hae PARTITIONS-listasta boot/EFI ja root partitiot
+    for entry in "${PARTITIONS[@]}"; do
+        IFS=':' read -r PART MOUNT FS LABEL <<< "$entry"
+        
+        if [[ "$MOUNT" == "/" ]]; then
+            P_ROOT="$PART"
+            echo "  P_ROOT=$P_ROOT"
+        fi
+        
+        if [[ "$MOUNT" == "/boot/efi" ]]; then
+            P_EFI="$PART"
+            P_BOOT="$PART"  # UEFI-tilassa /boot/efi on boot partitio
+            echo "  P_EFI=$P_EFI (UEFI)"
+        elif [[ "$MOUNT" == "/boot" && "$MODE" == "BIOS" ]]; then
+            P_BOOT="$PART"
+            echo "  P_BOOT=$P_BOOT (BIOS /boot)"
+        fi
+        
+        if [[ "$MOUNT" == "/home" ]]; then
+            P_HOME="$PART"
+            echo "  P_HOME=$P_HOME"
+        fi
+        
+        # Etsi BIOS boot partitio
+        if [[ "$LABEL" == "bios_grub" ]]; then
+            P_BIOS_GRUB="$PART"
+            echo "  P_BIOS_GRUB=$P_BIOS_GRUB"
+        fi
+    done
+    
+    # Aseta BOOT_LOADER_DISK (käytetään install_grub():ssa)
+    # Hae levy custom_partition_wizard():sta
+    if [[ -n "$DEV" ]]; then
+        BOOT_LOADER_DISK="$DEV"
+        echo "  BOOT_LOADER_DISK=$BOOT_LOADER_DISK"
+    else
+        # Fallback: etsi levyn nimi P_ROOT:sta
+        BOOT_LOADER_DISK=$(lsblk -no PKNAME "$P_ROOT" | head -n1)
+        BOOT_LOADER_DISK="/dev/$BOOT_LOADER_DISK"
+        echo "  BOOT_LOADER_DISK=$BOOT_LOADER_DISK (detected)"
+    fi
+    
+    # Vienti globaaleiksi
+    export P_ROOT P_EFI P_BOOT P_HOME P_BIOS_GRUB BOOT_LOADER_DISK
+    # ========== LOPPU UUSI KOODI ==========
 
     echo "Generating /etc/fstab..."
     mkdir -p /mnt/etc
