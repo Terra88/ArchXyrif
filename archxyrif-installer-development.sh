@@ -1019,8 +1019,19 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget flatpak networkmanager network-manager-applet bluez bluez-utils blueman hypridle hyprlock hyprpaper hyprshot slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm )
-            WM_AUR_PKGS=(kvantum-theme-catppuccin-git wlogout wlrobs-hg)
+            WM_PKGS=(
+                hyprland hyprshot hypridle hyprlock uwsm xdg-desktop-portal-hyprland xorg-xwayland
+                waybar rofi awww matugen swaync libnotify
+                kitty dolphin kate nautilus breeze breeze-icons qt6ct qt5ct nwg-look nwg-displays
+                qt5-wayland qt6-wayland xdg-utils archlinux-xdg-menu polkit-kde-agent
+                networkmanager network-manager-applet bluez bluez-utils blueman
+                pipewire wireplumber pipewire-pulse gst-plugin-pipewire pavucontrol
+                gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
+                brightnessctl cpupower thermald smartmontools
+                ttf-jetbrains-mono-nerd otf-font-awesome ttf-hack
+                htop btop nvtop fastfetch firefox ark konsole qview nano wget flatpak
+            )
+            WM_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
