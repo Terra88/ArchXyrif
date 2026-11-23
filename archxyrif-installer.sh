@@ -1019,8 +1019,19 @@ window_manager() {
         1)
             SELECTED_WM="hyprland"
             echo -e "→ Selected: Hyprland"
-            WM_PKGS=(hyprland hyprpaper hyprshot hypridle hyprlock nano wget flatpak networkmanager network-manager-applet bluez bluez-utils blueman hypridle hyprlock hyprpaper hyprshot slurp swayidle swaylock waybar xdg-desktop-portal-hyprland qt5-wayland qt6-wayland qt5ct qt6ct xdg-utils breeze breeze-icons discover dolphin dolphin-plugins kate konsole krita kvantum polkit-kde-agent pipewire gst-plugin-pipewire pavucontrol gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly otf-font-awesome ttf-hack cpupower brightnessctl thermald smartmontools htop btop nvtop qview ark kitty konsole firefox dunst rofi wofi nwg-look nwg-displays archlinux-xdg-menu uwsm )
-            WM_AUR_PKGS=(kvantum-theme-catppuccin-git wlogout wlrobs-hg)
+            WM_PKGS=(
+                hyprland hyprshot hypridle hyprlock uwsm xdg-desktop-portal-hyprland xorg-xwayland
+                waybar rofi awww matugen swaync libnotify
+                kitty dolphin kate nautilus breeze breeze-icons qt6ct qt5ct nwg-look nwg-displays
+                qt5-wayland qt6-wayland xdg-utils archlinux-xdg-menu polkit-kde-agent
+                networkmanager network-manager-applet bluez bluez-utils blueman
+                pipewire wireplumber pipewire-pulse gst-plugin-pipewire pavucontrol
+                gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
+                brightnessctl cpupower thermald smartmontools
+                ttf-jetbrains-mono-nerd otf-font-awesome ttf-hack
+                htop btop nvtop fastfetch firefox ark konsole discover nano wget flatpak
+            )
+            WM_AUR_PKGS=()
             ;;
         2)
             SELECTED_WM="kde"
@@ -1283,25 +1294,22 @@ hyprland_theme() {
     clear
     echo
     echo -e "#===================================================================================================#"
-    echo -e "# - Hyprland Theme Setup (Optional) with .Config Backup                                     #"
+    echo -e "# - Hyprland Dynamic Theme Setup (Matugen + Dotfiles + Wallpapers)                                  #"
     echo -e "#===================================================================================================#"
     echo
     sleep 1
 
-    # Only proceed if Hyprland was selected (WM_CHOICE == 1)
     if [[ " ${WM_CHOICE:-} " =~ "1" ]]; then
 
-        # FIX: Ensure 'sudo' is installed inside the chroot, as the inner script uses 'sudo -u $NEWUSER'.
-        echo "🔧 Installing unzip, git, and sudo inside chroot to ensure theme download works..."
-        arch-chroot /mnt pacman -S --needed --noconfirm unzip git sudo  # Added 'sudo'
+        echo "🔧 Ensuring unzip, git, sudo, and matugen are installed inside chroot..."
+        arch-chroot /mnt pacman -S --needed --noconfirm unzip git sudo matugen
 
-        read -r -p "Do you want to install the Hyprland theme from GitHub? [Y/n]: " INSTALL_HYPR_THEME
+        read -r -p "Do you want to install your custom Hyprland theme from GitHub? [Y/n]: " INSTALL_HYPR_THEME
         INSTALL_HYPR_THEME="${INSTALL_HYPR_THEME:-Y}"
         
         if [[ "$INSTALL_HYPR_THEME" =~ ^[Yy]$ ]]; then
             echo "→ Running Hyprland theme setup inside chroot..."
 
-            # Using /bin/bash -c "..." structure, variables must be double-quoted and inner quotes escaped.
             arch-chroot /mnt /bin/bash -c "
 NEWUSER=\"$NEWUSER\"
 HOME_DIR=\"/home/\$NEWUSER\"
@@ -1309,82 +1317,70 @@ CONFIG_DIR=\"\$HOME_DIR/.config\"
 REPO_DIR=\"\$HOME_DIR/hyprland-setup\"
 TEMP_EXTRACT=\"\$HOME_DIR/hypr_extract_temp\"
 
-# 1. Ensure home directory exists and is correctly owned
+# 1. Ensure home directory exists and is owned by NEWUSER
 mkdir -p \"\$HOME_DIR\"
 chown \$NEWUSER:\$NEWUSER \"\$HOME_DIR\"
 chmod 755 \"\$HOME_DIR\"
 
-# 2. Clone theme repo as the new user
-if [[ -d \"\$REPO_DIR\" ]]; then
-    rm -rf \"\$REPO_DIR\"
-fi
-# FIX: Use absolute path /usr/bin/git to bypass sudo PATH limitations and ensure execution.
+# 2. Clone theme repository
+rm -rf \"\$REPO_DIR\"
 sudo -u \$NEWUSER /usr/bin/git clone https://github.com/terra88/hyprland-setup.git \"\$REPO_DIR\" || { echo '❌ Git clone failed, skipping theme setup.'; exit 1; }
 
-# 3. Copy zip and script files to home directory
+# 3. Copy archives to home directory
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/config.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ config.zip missing'
 sudo -u \$NEWUSER cp -f \"\$REPO_DIR/wallpaper.zip\" \"\$HOME_DIR/\" 2>/dev/null || echo '⚠️ wallpaper.zip missing'
 
-
-# 4. Backup existing .config if not empty
+# 4. Backup existing .config if non-empty
 if [[ -d \"\$CONFIG_DIR\" && \$(ls -A \"\$CONFIG_DIR\") ]]; then
-    # Use sudo -u for move to maintain correct user ownership
     sudo -u \$NEWUSER mv \"\$CONFIG_DIR\" \"\$CONFIG_DIR.backup.\$(date +%s)\"
     echo '==> Existing .config backed up.'
 fi
 
-# 5. Extract config.zip and rename to .config (new requested logic)
+# 5. Extract config.zip into ~/.config
 if [[ -f \"\$HOME_DIR/config.zip\" ]]; then
     sudo -u \$NEWUSER mkdir -p \"\$TEMP_EXTRACT\"
     sudo -u \$NEWUSER unzip -o \"\$HOME_DIR/config.zip\" -d \"\$TEMP_EXTRACT\"
     
-    # Determine the source directory inside the temporary folder
     SOURCE_DIR=\"\$TEMP_EXTRACT\"
-    if [[ -d \"\$TEMP_EXTRACT\"/config ]]; then
-        # Case 1: The zip extracted into a 'config' subdirectory
-        SOURCE_DIR=\"\$TEMP_EXTRACT\"/config
-    fi
+    [[ -d \"\$TEMP_EXTRACT/config\" ]] && SOURCE_DIR=\"\$TEMP_EXTRACT/config\"
     
-    # Move/Rename the extracted directory to .config
     if [[ -d \"\$SOURCE_DIR\" ]]; then
-        # Ensure target is clear before the move
         sudo -u \$NEWUSER rm -rf \"\$CONFIG_DIR\"
-        
-        # Move the source config folder to the final .config location
         sudo -u \$NEWUSER mv \"\$SOURCE_DIR\" \"\$CONFIG_DIR\"
-        echo '==> config.zip extracted contents moved to .config'
-    else
-        echo '⚠️ Extracted config folder not found (expected config/ or top-level), skipping move.'
+        echo '==> config.zip extracted to .config'
     fi
-    
-    # Cleanup the temporary extraction directory and zip file
-    sudo -u \$NEWUSER rm -rf \"\$TEMP_EXTRACT\"
-else
-    echo '⚠️ config.zip not found, skipping config extraction.'
+    sudo -u \$NEWUSER rm -rf \"\$TEMP_EXTRACT\" \"\$HOME_DIR/config.zip\"
 fi
 
-
-# 6. Extract wallpaper.zip to HOME_DIR
+# 6. Extract wallpaper.zip into ~/wallpaper
 if [[ -f \"\$HOME_DIR/wallpaper.zip\" ]]; then
     sudo -u \$NEWUSER unzip -o \"\$HOME_DIR/wallpaper.zip\" -d \"\$HOME_DIR\" && echo '==> wallpaper.zip extracted'
     sudo -u \$NEWUSER rm -f \"\$HOME_DIR/wallpaper.zip\"
 fi
 
-# 7. Set secure permissions on .config (final check)
+# 7. Set directory/file permissions and restore +x on all scripts
 if [[ -d \"\$CONFIG_DIR\" ]]; then
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type d -exec chmod 700 {} \;
     sudo -u \$NEWUSER find \"\$CONFIG_DIR\" -type f -exec chmod 600 {} \;
-
-    # Make wallpaper.sh executable
-    if [[ -f \"\$CONFIG_DIR/wallpaper.sh\" ]]; then  # ← Fixed: escape the $ sign
-        chmod 700 \"\$CONFIG_DIR/wallpaper.sh\"     # ← Also fixed this one
-    fi
+    sudo -u \$NEWUSER find \"\$CONFIG_DIR/hypr/scripts\" -type f -name '*.sh' -exec chmod 700 {} \; 2>/dev/null || true
 fi
 
-# 8. Cleanup cloned repo
+# 8. Prepare KDE / Kate color directories and symlink Matugen.colors
+sudo -u \$NEWUSER mkdir -p \"\$HOME_DIR/.local/share/color-schemes\" \"\$HOME_DIR/.local/share/org.kde.syntax-highlighting/themes\"
+sudo -u \$NEWUSER ln -sf \"\$CONFIG_DIR/kdeglobals\" \"\$HOME_DIR/.local/share/color-schemes/Matugen.colors\"
+
+# 9. Run Matugen once to initialize all generated color files (Hyprland, Waybar, Rofi, Kitty, GTK, Qt6, Kate)
+FIRST_WALL=\$(find \"\$HOME_DIR/wallpaper\" -type f \( -iname '*.jpg' -o -iname '*.png' -o -iname '*.webp' \) | head -n 1)
+if [[ -n \"\$FIRST_WALL\" ]]; then
+    sudo -u \$NEWUSER HOME=\"\$HOME_DIR\" matugen image \"\$FIRST_WALL\" --source-color-index 0 || true
+    echo \"==> Initialized Matugen colors from \$FIRST_WALL\"
+fi
+
+# 10. Update KDE service cache and cleanup cloned repo
+sudo -u \$NEWUSER HOME=\"\$HOME_DIR\" kbuildsycoca6 2>/dev/null || true
 sudo -u \$NEWUSER rm -rf \"\$REPO_DIR\"
 "
-            echo "✅ Hyprland theme setup completed."
+            echo "✅ Hyprland dynamic theme setup completed."
         else
             echo "Skipping Hyprland theme setup."
         fi
