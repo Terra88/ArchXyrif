@@ -1029,7 +1029,7 @@ window_manager() {
                 gst-libav gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly
                 brightnessctl cpupower thermald smartmontools
                 ttf-jetbrains-mono-nerd otf-font-awesome ttf-hack
-                htop btop nvtop fastfetch firefox ark konsole qview nano wget flatpak
+                htop btop nvtop fastfetch firefox ark konsole discover nano wget flatpak
             )
             WM_AUR_PKGS=()
             ;;
